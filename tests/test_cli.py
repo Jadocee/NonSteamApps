@@ -228,10 +228,26 @@ class LaunchTests(CliTestCase):
             argv[3:],
             ["--password-store=basic", "--storage-mode=allow-plaintext", f"--profile=steam-{ALPHA}", "--force-device-scale-factor=3"],
         )
-        self.assertFalse(any(argument.startswith("--force-device-scale-factor") for argument in youtube))
+        self.assertEqual(youtube[-1], "--force-device-scale-factor=2")
         with mock.patch("nonsteamapps.display.screen_height", return_value=2160):
             argv, _ = self.launch("element", "--steam-account", str(ALPHA))
         self.assertEqual(argv[-1], f"--profile=steam-{ALPHA}")
+
+    def test_vacuumtube_fits_youtubes_1080p_layout_and_keeps_the_tvs_video_resolution(self):
+        folder = self.home / f".var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-{ALPHA}"
+        settings = folder / "config.json"
+        argv, _ = self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[3:], ["--fullscreen", f"--portable={folder}"])
+        self.assertNotIn("unlock_resolution", json.loads(settings.read_text()))
+        for height, scale in ((1080, []), (1440, ["--force-device-scale-factor=1.25"]), (2160, ["--force-device-scale-factor=2"])):
+            with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                    mock.patch("nonsteamapps.display.screen_height", return_value=height):
+                argv, _ = self.launch("youtube", "--steam-account", str(ALPHA))
+            self.assertEqual(argv[3:], ["--fullscreen", f"--portable={folder}", *scale])
+            self.assertEqual(json.loads(settings.read_text()).get("unlock_resolution"), True if scale else None)
+        settings.write_text(json.dumps({"unlock_resolution": False}))
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertFalse(json.loads(settings.read_text())["unlock_resolution"])
 
     def test_signal_starts_through_env_with_the_accounts_folder(self):
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \

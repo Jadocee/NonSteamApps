@@ -463,8 +463,12 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
             account = None
     if not account and app.profile:
         app.profile.prepare_shared(app.home(paths.home))
-    factor = display.scale(_scale_setting(settings), steamclient.in_game_mode()) if app.tv_scale else None
+    factor = display.scale(_scale_setting(settings), steamclient.in_game_mode(), layout=app.tv_scale.layout) if app.tv_scale else None
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
+    required = app.tv_scale.requires if app.tv_scale and factor else None
+    folder = app.profile.data_folder(app.home(paths.home), account) if required and app.profile else None
+    if folder and required.apply(folder):
+        print(f"  set {', '.join(key for key, _ in required.values)} in {required.file}, which the TV scale needs")
     command = flatpak.run_args(
         app.flatpak, [*app.arguments(paths.home, account), *scale, *extra], [*app.run_options(account), *scale_options]
     )

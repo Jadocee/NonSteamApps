@@ -63,8 +63,12 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([app.id for app in apps.APPS if app.controller == apps.GAMEPAD], ["youtube"])
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 
-    def test_element_scales_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
-        self.assertEqual([app.id for app in apps.APPS if app.tv_scale], ["element", "signal", "jellyfin", "localsend"])
+    def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
+        self.assertEqual([app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend"])
+        youtube = apps.by_id("youtube").tv_scale
+        self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
+        self.assertEqual(youtube.apply(2.0), (["--force-device-scale-factor=2"], []))
+        self.assertEqual(youtube.requires.values, (("unlock_resolution", True),))
         self.assertEqual(
             {app.id: app.sandbox_off_when for app in apps.APPS if app.sandbox_off_when},
             {"youtube": ("SteamGamepadUI",)},
@@ -132,13 +136,47 @@ class ProfileTests(unittest.TestCase):
                 "features_enabled": True,
                 "remaining_time_feature": True,
                 "wayland_hdr": True,
+                "fullscreen": True,
+                "no_window_decorations": True,
+                "disabled_tabs": ["shorts", "podcasts"],
             },
         )
         settings.write_text('{"sponsorblock": false}')
         youtube.profile.prepare(app_home, 111, lambda options: 0)
         self.assertEqual(json.loads(settings.read_text()), {"sponsorblock": False})
         youtube.profile.prepare_shared(app_home)
-        self.assertTrue(json.loads((app_home / "config/VacuumTube/config.json").read_text())["dearrow"])
+        shared = json.loads((app_home / "config/VacuumTube/config.json").read_text())
+        self.assertTrue(shared["dearrow"] and shared["no_window_decorations"])
+
+    def test_existing_vacuumtube_folders_get_the_window_and_guide_settings_once(self):
+        youtube = apps.by_id("youtube")
+        app_home = youtube.home(self.home)
+        folder = app_home / "config/VacuumTube-steam-111"
+        folder.mkdir(parents=True)
+        settings = folder / "config.json"
+        settings.write_text(json.dumps({"sponsorblock": False, "fullscreen": False, "no_window_decorations": False, "volume": 80}))
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertEqual(
+            json.loads(settings.read_text()),
+            {"sponsorblock": False, "fullscreen": True, "no_window_decorations": True, "volume": 80, "disabled_tabs": ["shorts", "podcasts"]},
+        )
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0"]})
+        settings.write_text(json.dumps({"fullscreen": False, "disabled_tabs": []}))
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertEqual(json.loads(settings.read_text()), {"fullscreen": False, "disabled_tabs": []})
+
+    def test_a_damaged_vacuumtube_config_is_left_for_vacuumtube_and_changed_later(self):
+        youtube = apps.by_id("youtube")
+        app_home = youtube.home(self.home)
+        folder = app_home / "config/VacuumTube-steam-111"
+        folder.mkdir(parents=True)
+        (folder / "config.json").write_text("{")
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertEqual((folder / "config.json").read_text(), "{")
+        self.assertFalse((folder / "nonsteamapps.json").exists())
+        (folder / "config.json").write_text("{}")
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertTrue(json.loads((folder / "config.json").read_text())["fullscreen"])
 
     def test_new_element_folders_quit_when_the_window_closes(self):
         element = apps.by_id("element")

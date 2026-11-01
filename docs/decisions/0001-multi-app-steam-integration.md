@@ -208,6 +208,8 @@ The owner answered the open questions. Where these answers differ from the text 
 
       Flathub therefore stays the source, as decided above.
 
+19. **Restarting Steam (bug fix, owner report).** After the installer restarted Steam, KDE asked to share the screen with Konsole. xdg-desktop-portal identifies an unsandboxed app by the systemd unit it runs in, `app-<ID>-<random>.scope` [22][23], and a program started from a terminal stays in the terminal's unit. Steam, started again by the installer, ran in Konsole's unit, and its screen-capture request named Konsole [24]. The installer now starts Steam with `systemd-run --user --scope --unit=app-steam-<random>.scope --slice=app.slice`, as Plasma names the apps it starts, so the portal identifies it as Steam. When `systemd-run --user --scope true` fails, there is no user service manager to ask, and Steam is started directly, as before.
+
 Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -233,3 +235,6 @@ Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (th
 19. [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): `src/lib/category-manager.ts`, which writes collections to Steam's cloud storage file
 20. [decky-insomnia](https://zff.dev/kartikynwa/decky-insomnia), on Game Mode ignoring apps' requests to keep the screen on
 21. [Robert Kirkman's SteamOS pacman guide](https://gist.github.com/robertkirkman/753922262259486ec417e5ff8b5b924b), on the 5 GB system partition and SteamOS's repositories
+22. [xdg-desktop-portal 1.20.3](https://github.com/flatpak/xdg-desktop-portal/blob/1.20.3/src/xdp-app-info-host.c): `src/xdp-app-info-host.c`, which reads an unsandboxed app's ID from its systemd unit's name
+23. [systemd: Desktop Environments](https://systemd.io/DESKTOP_ENVIRONMENTS/), on how desktops name the units of the apps they start
+24. [KDE bug 500891](https://bugs.kde.org/show_bug.cgi?id=500891): the screen-sharing dialog names Konsole for an app started from Konsole

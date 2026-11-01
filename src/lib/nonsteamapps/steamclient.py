@@ -7,13 +7,15 @@ import re
 import shutil
 import subprocess
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, MutableMapping, Optional
+from typing import Iterator, List, MutableMapping, Optional, Sequence
 
 from . import ui
 
 SHUTDOWN_TIMEOUT = 45.0
+UNIT_TIMEOUT = 10.0
 OVERLAY_LIBRARY = "gameoverlayrenderer.so"
 
 
@@ -73,6 +75,39 @@ def _detach(args) -> None:
     )
 
 
+def _systemd_run() -> Optional[str]:
+    """``systemd-run``, if it can start units in the user's service manager, as it can in a desktop session."""
+    found = shutil.which("systemd-run")
+    if not found:
+        return None
+    try:
+        probe = subprocess.run(
+            [found, "--user", "--scope", "--quiet", "--", "true"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=UNIT_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return found if probe.returncode == 0 else None
+
+
+def _as_steam(args: Sequence[str]) -> List[str]:
+    """Wrap ``args`` to run in a unit of their own, named as Plasma names Steam's when it starts Steam.
+
+    xdg-desktop-portal identifies an unsandboxed app by its unit's name (``app-<ID>-<random>.scope``). Started
+    from a terminal, Steam would share the terminal's unit, and its screen-sharing requests would name the
+    terminal. Without a user service manager, ``args`` are returned unchanged.
+    """
+    systemd_run = _systemd_run()
+    if not systemd_run:
+        return list(args)
+    unit = f"app-steam-{uuid.uuid4().hex}.scope"
+    return [systemd_run, "--user", "--scope", "--quiet", f"--unit={unit}", "--slice=app.slice", "--", *args]
+
+
 def stop(retry: str) -> bool:
     """Close Steam if it runs, after asking; return whether it was closed. ``retry`` is the command to suggest."""
     if not running():
@@ -102,7 +137,7 @@ def start() -> None:
         ui.warn("could not find the steam command; start Steam manually")
         return
     ui.log("Starting Steam again")
-    _detach([steam, "-silent"])
+    _detach(_as_steam([steam, "-silent"]))
 
 
 @contextmanager

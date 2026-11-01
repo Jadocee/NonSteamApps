@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import __version__, apps, browser, collection, config, controllers, display, legacy, steam, steamclient, timer, ui
+from . import __version__, apps, browser, collection, config, controllers, display, layouts, legacy, steam, steamclient, timer, ui
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
@@ -198,10 +198,12 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
         return
     ui.log(f"Adding {_listing(chosen)} to your Steam library")
     names = steam.account_names(root)
-    layouts: Dict[str, Dict[str, str]] = {}
+    found_layouts: Dict[str, Dict[str, str]] = {}
     added: Dict[int, List[int]] = {}
     name = _collection_name(paths)
     with steamclient.closed(f"{paths.launcher} steam add", restart):
+        if any(app.controller == layouts.FILES_TITLE for app in chosen):
+            layouts.install(root)
         for app in chosen:
             artwork = steam.collect_artwork(paths.artwork(app.id))
             logo = steam.LogoPosition.parse(app.logo_position)
@@ -209,9 +211,9 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
                 ui.ok(_report(result, "added" if result.created else "updated", names))
                 added.setdefault(result.account, []).append(result.appid)
                 if app.controller:
-                    if app.controller not in layouts:
-                        layouts[app.controller] = controllers.find_templates(root, app.controller)
-                    controllers.assign(root, result.account, result.name, layouts[app.controller])
+                    if app.controller not in found_layouts:
+                        found_layouts[app.controller] = controllers.find_templates(root, app.controller)
+                    controllers.assign(root, result.account, result.name, found_layouts[app.controller])
         waiting = []
         for account, appids in added.items():
             path = collection.storage_file(root, account)
@@ -225,11 +227,11 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
         ui.ok(f'Put {_listing(chosen)} in the "{name}" collection')
     if name and waiting:
         ui.info(f"Steam has not set up collections for {', '.join(waiting)} yet; open Steam with that account once, then run: {paths.launcher} steam add")
-    for title, found in layouts.items():
+    for title, found in found_layouts.items():
         if found:
-            ui.ok(f"Gave {_listing([app for app in chosen if app.controller == title])} Steam's {title} controller layout")
+            ui.ok(f"Gave {_listing([app for app in chosen if app.controller == title])} the {title} controller layout")
         else:
-            ui.info(f"Steam's {title} controller layout was not found; pick a layout for these apps in Steam")
+            ui.info(f"The {title} controller layout was not found; pick a layout for these apps in Steam")
 
 
 def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True) -> None:
@@ -251,6 +253,9 @@ def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart
                     collection.update(path, name, remove=[result.appid])
                 if app.controller:
                     controllers.release(root, result.account, result.name)
+        own = [app for app in present if app.controller == layouts.FILES_TITLE]
+        if own and not any(steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id))) for app in own):
+            layouts.remove(root)
 
 
 def _install_helium(paths: Paths, archive: Optional[str], verify: bool) -> None:
@@ -265,7 +270,14 @@ def _install_helium(paths: Paths, archive: Optional[str], verify: bool) -> None:
 
 
 def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found: Optional[Installed]) -> None:
-    if app.browser:
+    if app.system:
+        command = shutil.which(app.system.command)
+        if command:
+            ui.ok(f"{app.client} is part of the system ({command})")
+        else:
+            ui.warn(f"{app.client} ({app.system.command}) was not found; SteamOS includes it, other systems install it from their own packages")
+        record.add(app.id, installed_flatpak=False)
+    elif app.browser:
         record.add(app.id, installed_flatpak=False)
     elif found:
         version = f" {found.version}" if found.version else ""
@@ -280,7 +292,7 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
 
 
 def _purge(paths: Paths, app: App) -> None:
-    if app.browser:
+    if app.browser or app.system:
         folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
     else:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
@@ -456,6 +468,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         print("  without Steam's overlay library and Steam Runtime paths")
     if app.browser:
         return _launch_helium(paths, app, account, extra)
+    if app.system:
+        return _launch_system(paths, app, extra)
     if account and app.profile:
         ready = app.profile.prepare(app.home(paths.home), account, lambda options: flatpak.run_quietly(app.flatpak, options))
         if not ready:
@@ -501,9 +515,35 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     return EXIT_ERROR
 
 
+def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
+    command = shutil.which(app.system.command)
+    if not command:
+        raise ui.Abort(f"{app.client} ({app.system.command}) is not installed; SteamOS includes it")
+    settings = config.read_settings(paths.settings)
+    game_mode = steamclient.in_game_mode()
+    profile = paths.profile(app.id, None)
+    desktop = config.xdg_dir(os.environ, "XDG_CONFIG_HOME", paths.home, ".config")
+    if desktop == profile / "config":
+        desktop = paths.home / ".config"
+    app.system.prepare(profile, desktop)
+    variables = app.system.environment(profile, desktop, os.environ, game_mode)
+    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    scale = app.tv_scale.apply(factor)[0] if factor else []
+    if factor:
+        variables.update(app.tv_scale.variables(factor))
+    os.environ.update(variables)
+    argv = [command, *app.args, *scale, *extra]
+    print("  " + " ".join([*(f"{name}={value}" for name, value in variables.items()), *argv]), flush=True)
+    os.execv(command, argv)
+    return EXIT_ERROR
+
+
 def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
     record = Record.load(paths.record)
     managed = _managed(record)
+    root = _steam_root() if any(app.controller == layouts.FILES_TITLE for app in managed) else None
+    if root and layouts.install(root):
+        ui.ok(f"Refreshed the {layouts.FILES_TITLE} controller layout")
     if any(app.browser for app in managed):
         try:
             version = _runtime(paths).update()
@@ -557,6 +597,9 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
 
 
 def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None) -> str:
+    if app.system:
+        command = shutil.which(app.system.command)
+        return f"{app.client} from the system ({command})" if command else f"not found ({app.system.command})"
     if app.browser:
         return f"in Helium {helium}" if helium else "not installed"
     if found is None:
@@ -638,7 +681,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         if root:
             for result in steam.shortcut_status(root, accounts, str(paths.app_link(app.id))):
                 print(f"  {'':<10} {_report(result, 'in the library as', names)}")
-        if app.browser:
+        if app.browser or app.system:
             folders = sorted(path for path in (paths.profiles / app.id).glob("*") if path.is_dir())
         else:
             folders = app.profile.existing(app.home(paths.home)) if app.profile else []

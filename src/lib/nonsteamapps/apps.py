@@ -6,10 +6,11 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_json
+from .layouts import FILES_TITLE
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -212,6 +213,48 @@ GAMEPAD = "Gamepad"
 
 
 @dataclass(frozen=True)
+class SystemApp:
+    """An app SteamOS includes (``command``), started from Steam with a TV profile of its own.
+
+    The profile gives the app its own ``XDG_CONFIG_HOME`` and ``XDG_STATE_HOME``. The desktop's settings stay
+    readable underneath, through ``XDG_CONFIG_DIRS``, so the app keeps its look and file associations, but
+    what it saves stays in the profile, as it does for the apps it opens. ``defaults`` are written into the
+    profile's config folder when missing, ``shared`` files there are links to the desktop's own, and
+    ``game_mode`` variables are set only in Game Mode.
+    """
+
+    command: str
+    defaults: Tuple[Tuple[str, str], ...] = ()
+    shared: Tuple[str, ...] = ()
+    game_mode: Tuple[Tuple[str, str], ...] = ()
+
+    def prepare(self, profile: Path, desktop_config: Path) -> None:
+        config = Path(profile) / "config"
+        for name, content in self.defaults:
+            target = config / name
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+        for name in self.shared:
+            link, source = config / name, Path(desktop_config) / name
+            if source.is_file() and not link.exists() and not link.is_symlink():
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(source)
+        (Path(profile) / "state").mkdir(parents=True, exist_ok=True)
+
+    def environment(self, profile: Path, desktop_config: Path, environ: Mapping[str, str], game_mode: bool) -> Dict[str, str]:
+        """The variables that start the app with its profile, layered over the desktop's settings."""
+        variables = {
+            "XDG_CONFIG_HOME": str(Path(profile) / "config"),
+            "XDG_CONFIG_DIRS": ":".join([str(desktop_config), environ.get("XDG_CONFIG_DIRS") or "/etc/xdg"]),
+            "XDG_STATE_HOME": str(Path(profile) / "state"),
+        }
+        if game_mode:
+            variables.update(self.game_mode)
+        return variables
+
+
+@dataclass(frozen=True)
 class Browser:
     """An app that runs in NonSteamApps' own Helium: the browser itself, or one site full screen (kiosk)."""
 
@@ -234,15 +277,22 @@ class TvScale:
     layout: int = TV_HEIGHT
     requires: Optional[JsonSettings] = None
 
+    def _text(self, factor: float) -> Optional[str]:
+        value = float(int(factor)) if self.whole else factor
+        return None if self.whole and value < 2 else f"{value:g}"
+
     def apply(self, factor: float) -> Tuple[List[str], List[str]]:
         """Return the app's arguments and ``flatpak run`` options for this scale."""
-        value = float(int(factor)) if self.whole else factor
-        if self.whole and value < 2:
+        text = self._text(factor)
+        if text is None:
             return [], []
-        text = f"{value:g}"
         arguments = [self.argument.format(factor=text)] if self.argument else []
-        options = [f"--env={self.variable}={text}"] if self.variable else []
-        return arguments, options
+        return arguments, [f"--env={name}={value}" for name, value in self.variables(factor).items()]
+
+    def variables(self, factor: float) -> Dict[str, str]:
+        """The environment variable this scale sets, for an app started without Flatpak."""
+        text = self._text(factor)
+        return {self.variable: text} if self.variable and text else {}
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
@@ -254,10 +304,11 @@ VACUUMTUBE_TV = JsonSettings(
 
 @dataclass(frozen=True)
 class App:
-    """An app NonSteamApps installs: from Flathub (``flatpak``) or in its own Helium (``browser``).
+    """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), or one SteamOS includes (``system``).
 
-    ``controller`` names one of Valve's controller layouts to give the shortcut. ``tv_scale`` says how a
-    Flathub app is scaled for a TV in Game Mode, as the Helium apps always are. ``sandbox_off_when`` names
+    ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
+    :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
+    Helium apps always are. ``sandbox_off_when`` names
     environment variables that make the app turn Chromium's sandbox off; the launcher hides them when
     the user chooses to keep the sandbox. ``notice`` is shown after installing. ``ports`` are opened in
     the firewall, when one is running, so other devices can reach the app.
@@ -269,6 +320,7 @@ class App:
     summary: str
     flatpak: str = ""
     browser: Optional[Browser] = None
+    system: Optional[SystemApp] = None
     args: Tuple[str, ...] = ()
     profile: Optional[Profile] = None
     controller: str = ""
@@ -372,6 +424,25 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
         ports=("53317/tcp", "53317/udp"),
         tv_scale=TvScale(variable="GDK_SCALE", whole=True),
+    ),
+    App(
+        id="files",
+        name="Files",
+        client="Dolphin",
+        summary="Browse and open your files with SteamOS's file manager, set up for a TV and a controller",
+        system=SystemApp(
+            command="dolphin",
+            defaults=(
+                ("dolphinrc", "[General]\nRememberOpenedTabs=false\n\n[MainWindow]\nMenuBar=Disabled\n"),
+                ("kdeglobals", "[KDE]\nSingleClick=true\n"),
+            ),
+            shared=("user-dirs.dirs", "user-dirs.locale"),
+            game_mode=(("QT_QPA_PLATFORM", "xcb"), ("QT_QPA_PLATFORMTHEME", "kde")),
+        ),
+        args=("--new-window",),
+        controller=FILES_TITLE,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
     ),
     App(
         id="helium",

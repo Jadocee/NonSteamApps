@@ -8,7 +8,7 @@ each value's binary type so files can be rewritten without losing information.
 from __future__ import annotations
 
 import struct
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, Union
 
 MAP = 0x00
 STRING = 0x01
@@ -319,6 +319,58 @@ def loads_text(text: str) -> KeyValues:
     if len(stack) != 1:
         raise VdfError("unbalanced opening brace")
     return root
+
+
+Pairs = List[Tuple[str, Union[str, "Pairs"]]]
+
+
+def loads_pairs(text: str) -> Pairs:
+    """Decode text VDF as ordered ``(key, value)`` pairs, keeping repeated keys, as controller layouts repeat ``group``."""
+    tokens = [token for token in _tokenize(text.lstrip("\ufeff")) if token[0] != "cond"]
+    root: Pairs = []
+    stack = [root]
+    index = 0
+    while index < len(tokens):
+        kind, value = tokens[index]
+        if kind == "}":
+            if len(stack) == 1:
+                raise VdfError("unbalanced closing brace")
+            stack.pop()
+            index += 1
+            continue
+        if kind != "str" or index + 1 >= len(tokens):
+            raise VdfError(f"expected a key and its value at {value!r}")
+        next_kind, next_value = tokens[index + 1]
+        if next_kind == "{":
+            child: Pairs = []
+            stack[-1].append((value, child))
+            stack.append(child)
+        elif next_kind == "str":
+            stack[-1].append((value, next_value))
+        else:
+            raise VdfError(f"unexpected {next_value!r} after key {value!r}")
+        index += 2
+    if len(stack) != 1:
+        raise VdfError("unbalanced opening brace")
+    return root
+
+
+def dumps_pairs(pairs: Pairs) -> str:
+    """Encode pairs from :func:`loads_pairs` as tab-indented text VDF."""
+    lines: List[str] = []
+
+    def write(node: Pairs, depth: int) -> None:
+        indent = "\t" * depth
+        for key, value in node:
+            if isinstance(value, list):
+                lines.extend((f"{indent}{_quote(key)}", f"{indent}{{"))
+                write(value, depth + 1)
+                lines.append(f"{indent}}}")
+            else:
+                lines.append(f"{indent}{_quote(key)}\t\t{_quote(value)}")
+
+    write(pairs, 0)
+    return "\n".join(lines) + "\n"
 
 
 def _quote(value: str) -> str:

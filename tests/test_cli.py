@@ -78,12 +78,13 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
-            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "org.jellyfin.JellyfinDesktop", "org.localsend.localsend_app"],
+            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "org.jellyfin.JellyfinDesktop", "org.localsend.localsend_app",
+             "org.prismlauncher.PrismLauncher"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
-            [app.id for app in apps.APPS if record.owns_flatpak(app.id)], ["youtube", "element", "signal", "jellyfin", "localsend"]
+            [app.id for app in apps.APPS if record.owns_flatpak(app.id)], ["youtube", "element", "signal", "jellyfin", "localsend", "prism"]
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -275,6 +276,29 @@ class LaunchTests(CliTestCase):
                 self.assertEqual(argv[3:], ["--tv", "--fullscreen", f"--profile=steam-{ALPHA}", jellyfin])
                 argv, _ = self.launch("localsend", "--steam-account", str(ALPHA))
                 self.assertEqual(argv, [self.fake.command, "run", *localsend, "org.localsend.localsend_app"])
+
+    def test_prism_starts_with_each_accounts_folder_and_is_scaled_for_a_tv(self):
+        folder = self.home / f".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher-steam-{ALPHA}"
+        argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "org.prismlauncher.PrismLauncher", f"--dir={folder}"])
+        self.assertTrue((folder / "prismlauncher.cfg").is_file())
+        self.assertTrue((folder / "assets").is_symlink())
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+            argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "org.prismlauncher.PrismLauncher", f"--dir={folder}"])
+
+    def test_prism_gets_the_minecraft_layout(self):
+        folder = _fakes.add_controller_templates(self.root)
+        self.install("prism")
+        self.assertTrue((folder / "controller_xboxone_nonsteamapps_minecraft.vdf").is_file())
+        config = steam_controller_config(self.root, BETA)
+        entry = vdf.loads_text((config / "configset_controller_neptune.vdf").read_text()).get("controller_config").get("prism launcher")
+        self.assertEqual(entry.get("template"), "controller_neptune_nonsteamapps_minecraft.vdf")
+        self.assertIn("Gave Prism Launcher the Minecraft (NonSteamApps) controller layout", self.errors)
+        self.assertIn("Prism Launcher asks for a language and the Microsoft account", self.errors)
+        self.assertEqual(self.run_cli("remove", "prism", "--yes"), 0, self.errors)
+        self.assertFalse((folder / "controller_xboxone_nonsteamapps_minecraft.vdf").exists())
 
     def test_keeping_the_sandbox_hides_game_mode_from_vacuumtube_only(self):
         os.environ.update({"SteamOS": "1", "SteamGamepadUI": "1"})

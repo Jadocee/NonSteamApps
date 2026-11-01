@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_json
-from .layouts import FILES_TITLE
+from .layouts import FILES, MINECRAFT
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -25,6 +26,14 @@ VACUUMTUBE_DEFAULTS = {
     "wayland_hdr": True,
 }
 ELEMENT_DEFAULTS = {"minimizeToTray": False}
+PRISM_SETTINGS = (
+    "[General]\n"
+    "ApplicationTheme=dark\n"
+    "IconTheme=flat_white\n"
+    "CloseAfterLaunch=true\n"
+    "QuitAfterGameStop=true\n"
+    "LaunchMaximized=true\n"
+)
 CHANGES_FILE = "nonsteamapps.json"
 
 
@@ -65,7 +74,8 @@ class FolderProfile:
     including the app's own ``shared`` folder used when accounts share data. ``changes``
     are settings changed once in every data folder, new or existing, each under its own
     name. The names done are kept in the folder's ``nonsteamapps.json``, so a setting the
-    user changes afterwards stays as they set it.
+    user changes afterwards stays as they set it. ``links`` are folders each account's
+    folder links to in the ``shared`` one, so that large downloads are kept once.
     """
 
     folder: str
@@ -73,6 +83,7 @@ class FolderProfile:
     shared: str = ""
     defaults: Tuple[Tuple[str, str], ...] = ()
     changes: Tuple[Tuple[str, JsonSettings], ...] = ()
+    links: Tuple[str, ...] = ()
 
     def path(self, app_home: Path, account: int) -> Path:
         return Path(app_home) / self.folder.format(account=account)
@@ -114,8 +125,18 @@ class FolderProfile:
         if applied:
             atomic_write_json(record, {"changes": done + applied})
 
+    def _link(self, folder: Path, shared: Path) -> None:
+        for name in self.links:
+            target, link = shared / name, folder / name
+            target.mkdir(parents=True, exist_ok=True)
+            if not link.exists() and not link.is_symlink():
+                link.symlink_to(os.path.relpath(target, folder), target_is_directory=True)
+
     def prepare(self, app_home: Path, account: int, run_app: RunApp) -> bool:
-        self._seed(self.path(app_home, account))
+        folder = self.path(app_home, account)
+        self._seed(folder)
+        if self.shared:
+            self._link(folder, Path(app_home) / self.shared)
         return True
 
     def prepare_shared(self, app_home: Path) -> None:
@@ -426,6 +447,24 @@ APPS: Tuple[App, ...] = (
         tv_scale=TvScale(variable="GDK_SCALE", whole=True),
     ),
     App(
+        id="prism",
+        name="Prism Launcher",
+        client="Prism Launcher",
+        flatpak="org.prismlauncher.PrismLauncher",
+        summary="Minecraft: Java Edition, with instances, mods and modpacks, set up for a TV and a controller",
+        profile=FolderProfile(
+            "data/PrismLauncher-steam-{account}",
+            "--dir={folder}",
+            shared="data/PrismLauncher",
+            defaults=(("prismlauncher.cfg", PRISM_SETTINGS),),
+            links=("assets", "libraries", "java"),
+        ),
+        controller=MINECRAFT.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        notice="Prism Launcher asks for a language and the Microsoft account that owns Minecraft on its first start, once for each Steam account",
+    ),
+    App(
         id="files",
         name="Files",
         client="Dolphin",
@@ -440,7 +479,7 @@ APPS: Tuple[App, ...] = (
             game_mode=(("QT_QPA_PLATFORM", "xcb"), ("QT_QPA_PLATFORMTHEME", "kde")),
         ),
         args=("--new-window",),
-        controller=FILES_TITLE,
+        controller=FILES.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
     ),

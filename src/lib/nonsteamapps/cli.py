@@ -202,8 +202,8 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
     added: Dict[int, List[int]] = {}
     name = _collection_name(paths)
     with steamclient.closed(f"{paths.launcher} steam add", restart):
-        if any(app.controller == layouts.FILES_TITLE for app in chosen):
-            layouts.install(root)
+        for layout in layouts.used_by(app.controller for app in chosen):
+            layouts.install(root, layout)
         for app in chosen:
             artwork = steam.collect_artwork(paths.artwork(app.id))
             logo = steam.LogoPosition.parse(app.logo_position)
@@ -253,9 +253,10 @@ def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart
                     collection.update(path, name, remove=[result.appid])
                 if app.controller:
                     controllers.release(root, result.account, result.name)
-        own = [app for app in present if app.controller == layouts.FILES_TITLE]
-        if own and not any(steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id))) for app in own):
-            layouts.remove(root)
+        for layout in layouts.used_by(app.controller for app in present):
+            users = [app for app in apps.APPS if app.controller == layout.title]
+            if not any(steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id))) for app in users):
+                layouts.remove(root, layout)
 
 
 def _install_helium(paths: Paths, archive: Optional[str], verify: bool) -> None:
@@ -541,9 +542,11 @@ def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
 def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
     record = Record.load(paths.record)
     managed = _managed(record)
-    root = _steam_root() if any(app.controller == layouts.FILES_TITLE for app in managed) else None
-    if root and layouts.install(root):
-        ui.ok(f"Refreshed the {layouts.FILES_TITLE} controller layout")
+    own_layouts = layouts.used_by(app.controller for app in managed)
+    root = _steam_root() if own_layouts else None
+    for layout in own_layouts if root else []:
+        if layouts.install(root, layout):
+            ui.ok(f"Refreshed the {layout.title} controller layout")
     if any(app.browser for app in managed):
         try:
             version = _runtime(paths).update()

@@ -225,6 +225,25 @@ The owner answered the open questions. Where these answers differ from the text 
       - NonSteamApps therefore writes its first layout of its own, "Files (NonSteamApps)". It is Valve's Web Browser layout for the Deck, read from the device, with A sending only Enter, Y only going forward, and the left stick moving the selection. It is written for every controller type Valve ships a Gamepad layout for, keeping only that controller's inputs; Valve has a Web Browser layout only for the Deck. The files go into `controller_base/templates`, where RetroDECK and EmuDeck's community guide also add layouts [29, 30], and are assigned like Valve's. `nonsteamapps update` writes them again if a Steam update removes them, and they are deleted once no account has Files.
     - **Needs a device:** whether Steam lists and applies the layouts, and Dolphin's look and scale in Game Mode.
 
+22. **Prism Launcher (owner request).** Prism Launcher plays Minecraft: Java Edition, and comes from Flathub as `org.prismlauncher.PrismLauncher`.
+    - **Data:** each Steam account gets its own data folder through Prism's `--dir`, so each has its own instances, worlds and Microsoft sign-in [31]. Minecraft's downloads are large and checked by hash, so each account's `assets`, `libraries` and `java` folders are links to Prism's own data folder, and they are downloaded once. `FolderProfile.links` makes these links, relative so that they work the same inside the sandbox.
+    - **Settings for a new folder** (`prismlauncher.cfg`, an INI file Prism reads with QSettings):
+      - the dark theme, with icons drawn for it. A valid theme also skips the first-run wizard's theme page;
+      - `CloseAfterLaunch`: the launcher closes when Minecraft opens;
+      - `QuitAfterGameStop`: the launcher quits when Minecraft exits, back to Steam. Prism adds this step after a successful game run only, so a crash leaves it open with the log;
+      - `LaunchMaximized`.
+
+      Flathub builds Prism with its Java downloader [32], and a new folder has automatic Java on, so the wizard asks only for a language and the Microsoft sign-in, which no setting can skip. Prism's migration from PolyMC or MultiMC is offered only when no settings file exists, so it is not offered here [31].
+    - **TV:** the TV scale through `QT_SCALE_FACTOR`, passed with `flatpak run --env`. Minecraft's own GUI Scale sizes the game.
+    - **Controller:** Minecraft: Java Edition has no controller support of its own, so it is played through the keyboard and mouse. Valve's Keyboard (WASD) and Mouse layout already matches Minecraft's default keys: W, A, S and D to move, Space to jump, E for the inventory, F to swap hands, the mouse buttons to attack and use, and the wheel for the hotbar. Valve ships it for the Deck only, so `layouts` generalises to more than one layout of NonSteamApps' own, and a "Minecraft (NonSteamApps)" layout is made from it for every controller type, as for Files (item 21). The changes from Valve's layout are:
+      - X drops the held item (Q), where Valve's presses R, which Minecraft does not use;
+      - Menu pauses (Escape) and View shows the player list (Tab), Valve's the other way round;
+      - the left stick click sprints (Ctrl) and the right stick click sneaks (Shift), where Valve's left click sneaks and right click is a mouse click;
+      - the left bumper steps left along the hotbar and the right bumper right.
+
+      A controller mod such as Controlify gives native controller menus; the README explains how to use it with Steam's Gamepad layout.
+    - **Needs a device:** whether Steam lists and applies the layout, the launcher's look and scale, and the launch and quit flow in Game Mode.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -259,3 +278,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 28. [KXmlGui](https://invent.kde.org/frameworks/kxmlgui): `src/kxmlguifactory.cpp`, which reads the `[Shortcuts]` group only for clients without an XML file, and `src/kxmlguiversionhandler.cpp`
 29. [RetroDECK: Steam Input](https://retrodeck.readthedocs.io/en/latest/wiki_development/general/steam-input/), on installing its layouts into `controller_base/templates`
 30. [EmuDeck: community creations](https://emudeck.github.io/community-creations/steamos/community-creations), whose guide adds layouts to the same folder
+31. [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher): `launcher/Application.cpp` for `--dir`, its settings, the first-run wizard and data migration; `launcher/launch/LaunchTask.cpp` and `launcher/minecraft/MinecraftInstance.cpp` for quitting after the game
+32. [Flathub `org.prismlauncher.PrismLauncher`](https://github.com/flathub/org.prismlauncher.PrismLauncher): the manifest, which turns on the Java downloader

@@ -13,8 +13,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "jellyfin", "localsend", "helium", "primevideo", "hbomax", "netflix", "disneyplus",
-             "protondb"],
+            ["youtube", "element", "signal", "jellyfin", "localsend", "files", "helium", "primevideo", "hbomax", "netflix",
+             "disneyplus", "protondb"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -64,7 +64,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
-        self.assertEqual([app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend"])
+        self.assertEqual([app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend", "files"])
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
         self.assertEqual(youtube.apply(2.0), (["--force-device-scale-factor=2"], []))
@@ -236,6 +236,50 @@ class ProfileTests(unittest.TestCase):
         cache = app_home / "cache/jellyfin-desktop/profiles/b2"
         cache.mkdir(parents=True)
         self.assertEqual(jellyfin.profile.existing(app_home), [ours, cache])
+
+
+
+class SystemAppTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.profile = Path(self.tmp.name) / "profile"
+        self.desktop = Path(self.tmp.name) / ".config"
+        self.desktop.mkdir()
+        (self.desktop / "user-dirs.dirs").write_text('XDG_DOWNLOAD_DIR="$HOME/Downloads"\n')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_files_profile_starts_set_up_for_a_tv_and_keeps_later_changes(self):
+        files = apps.by_id("files").system
+        files.prepare(self.profile, self.desktop)
+        config = self.profile / "config"
+        self.assertEqual((config / "dolphinrc").read_text(), "[General]\nRememberOpenedTabs=false\n\n[MainWindow]\nMenuBar=Disabled\n")
+        self.assertEqual((config / "kdeglobals").read_text(), "[KDE]\nSingleClick=true\n")
+        self.assertEqual((config / "user-dirs.dirs").resolve(), (self.desktop / "user-dirs.dirs").resolve())
+        self.assertFalse((config / "user-dirs.locale").exists())
+        self.assertTrue((self.profile / "state").is_dir())
+        (config / "dolphinrc").write_text("[General]\nRememberOpenedTabs=true\n")
+        files.prepare(self.profile, self.desktop)
+        self.assertEqual((config / "dolphinrc").read_text(), "[General]\nRememberOpenedTabs=true\n")
+
+    def test_the_profile_is_layered_over_the_desktops_settings(self):
+        files = apps.by_id("files").system
+        desktop_mode = files.environment(self.profile, self.desktop, {"XDG_CONFIG_DIRS": "/etc/xdg:/usr/share/kf6"}, game_mode=False)
+        self.assertEqual(desktop_mode, {
+            "XDG_CONFIG_HOME": str(self.profile / "config"),
+            "XDG_CONFIG_DIRS": f"{self.desktop}:/etc/xdg:/usr/share/kf6",
+            "XDG_STATE_HOME": str(self.profile / "state"),
+        })
+        game_mode = files.environment(self.profile, self.desktop, {}, game_mode=True)
+        self.assertEqual(game_mode["XDG_CONFIG_DIRS"], f"{self.desktop}:/etc/xdg")
+        self.assertEqual((game_mode["QT_QPA_PLATFORM"], game_mode["QT_QPA_PLATFORMTHEME"]), ("xcb", "kde"))
+
+    def test_a_scale_variable_suits_apps_started_without_flatpak(self):
+        self.assertEqual(apps.by_id("files").tv_scale.variables(1.5), {"QT_SCALE_FACTOR": "1.5"})
+        self.assertEqual(apps.by_id("localsend").tv_scale.variables(1.5), {})
+        self.assertEqual(apps.by_id("localsend").tv_scale.variables(3.0), {"GDK_SCALE": "3"})
+        self.assertEqual(apps.by_id("element").tv_scale.variables(2.0), {})
 
 
 if __name__ == "__main__":

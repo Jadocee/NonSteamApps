@@ -215,7 +215,17 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Settings menu size:** VacuumTube draws its settings menu at a fixed 1100 × 760 pixels, with 15-pixel text, which is a quarter of a 4K screen. Scaling only the menu with CSS was tested in Chromium and rejected. VacuumTube's scrolling compares on-screen positions with layout sizes, which CSS `zoom` and `scale` both pull apart, so the focused row would scroll out of view. VacuumTube is therefore scaled as a whole, with `--force-device-scale-factor`. The scale fits the 1080p layout YouTube's TV apps use (1.25× at 1440p, 2× at 4K, none at 1080p), and YouTube's interface fills the screen either way.
     - **Video resolution:** VacuumTube offers videos up to the screen size it sees, which the scale reduces: to 1080p at 4K [25]. That was why item 11 left VacuumTube unscaled. While it is scaled, NonSteamApps keeps VacuumTube's Unlock Resolution on, so a 4K TV still gets 4K. Only 8K videos may now stream above the screen's resolution.
 
-Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (the rest of migration phase 4).
+21. **Files (owner request).** SteamOS includes KDE's Dolphin, so Files is the first app NonSteamApps neither installs nor removes. `App.system` names its command, and the installer only checks that it is there.
+    - **TV profile:** Files gets its own `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, in `profiles/files/shared`. Desktop Mode's config folder comes first in `XDG_CONFIG_DIRS`, so KDE reads the profile, then the desktop's settings underneath, and writes only to the profile. This was checked with KDE's own `kreadconfig5` and `kwriteconfig5`. The profile starts with `RememberOpenedTabs=false` (a fresh start at home), the menu bar hidden, and single-click opening. Bookmarks, trash and file associations live outside the config folder, or are read through the layering, so they stay shared. Apps opened from Files inherit the profile.
+    - **Start:** `dolphin --new-window`, because a plain start hands its folders to any Dolphin already running, without the profile, and exits [26]. In Game Mode, Dolphin runs on X11 (`QT_QPA_PLATFORM=xcb`), as the Helium apps do. `QT_QPA_PLATFORMTHEME=kde` keeps KDE's style, colours and icons where `XDG_CURRENT_DESKTOP` is `gamescope`, and `QT_SCALE_FACTOR` carries the TV scale. gamescope resizes any resizable window Steam started to fill the screen, so no window size is needed [27].
+    - **Controller layout:** none of Valve's layouts suits a file manager.
+      - Web Browser's A sends Enter and Space together, and Space toggles Dolphin's selection mode, so every press would also toggle selection mode. Its Y also types S, which jumps to a file [26].
+      - Keyboard (WASD) and Mouse sends Space on A. Mouse Only has no arrow keys.
+      - Dolphin's shortcuts cannot be changed for the profile alone: KDE reads a `[Shortcuts]` group only for apps without an XML GUI file, and Dolphin has one, which lives in the shared data folder [28].
+      - NonSteamApps therefore writes its first layout of its own, "Files (NonSteamApps)". It is Valve's Web Browser layout for the Deck, read from the device, with A sending only Enter, Y only going forward, and the left stick moving the selection. It is written for every controller type Valve ships a Gamepad layout for, keeping only that controller's inputs; Valve has a Web Browser layout only for the Deck. The files go into `controller_base/templates`, where RetroDECK and EmuDeck's community guide also add layouts [29, 30], and are assigned like Valve's. `nonsteamapps update` writes them again if a Steam update removes them, and they are deleted once no account has Files.
+    - **Needs a device:** whether Steam lists and applies the layouts, and Dolphin's look and scale in Game Mode.
+
+Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
 
@@ -244,3 +254,8 @@ Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (th
 23. [systemd: Desktop Environments](https://systemd.io/DESKTOP_ENVIRONMENTS/), on how desktops name the units of the apps they start
 24. [KDE bug 500891](https://bugs.kde.org/show_bug.cgi?id=500891): the screen-sharing dialog names Konsole for an app started from Konsole
 25. [VacuumTube](https://github.com/shy1132/VacuumTube) 2.0.1: `src/config.js` and `src/index.js` for its settings, `src/preload/modules/guide-tabs.js`, `src/preload/modules/h5vcc/index.js` for the resolution limit, and `src/preload/modules/settings/` for the settings menu's size and scrolling
+26. [Dolphin](https://invent.kde.org/system/dolphin): `src/main.cpp` for `--new-window`, `src/dolphinmainwindow.cpp` for Space toggling selection mode, `src/dolphintabwidget.cpp` for the last tab closing Dolphin, and `src/kitemviews/kitemlistcontroller.cpp` for type-ahead search
+27. [gamescope](https://github.com/ValveSoftware/gamescope): `src/steamcompmgr.cpp`, which sizes windows to the screen unless their minimum and maximum sizes match
+28. [KXmlGui](https://invent.kde.org/frameworks/kxmlgui): `src/kxmlguifactory.cpp`, which reads the `[Shortcuts]` group only for clients without an XML file, and `src/kxmlguiversionhandler.cpp`
+29. [RetroDECK: Steam Input](https://retrodeck.readthedocs.io/en/latest/wiki_development/general/steam-input/), on installing its layouts into `controller_base/templates`
+30. [EmuDeck: community creations](https://emudeck.github.io/community-creations/steamos/community-creations), whose guide adds layouts to the same folder

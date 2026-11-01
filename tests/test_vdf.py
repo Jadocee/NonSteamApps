@@ -159,5 +159,19 @@ class TextVdfTests(unittest.TestCase):
             vdf.loads_text('"a" "b" }')
 
 
+
+class PairsVdfTests(unittest.TestCase):
+    def test_pairs_keep_repeated_keys_order_and_quotes(self):
+        text = '\ufeff"controller_mappings"\n{\n\t"group" { "id" "0" }\n\t"group" { "id" "1" }\n\t"title" "A \\"B\\""\n}\n'
+        pairs = vdf.loads_pairs(text)
+        self.assertEqual(pairs, [("controller_mappings", [("group", [("id", "0")]), ("group", [("id", "1")]), ("title", 'A "B"')])])
+        self.assertEqual(vdf.loads_pairs(vdf.dumps_pairs(pairs)), pairs)
+
+    def test_malformed_pairs_raise(self):
+        for broken in ('"a" {', '"a" }', '"a"', '"a" { "b" }'):
+            with self.subTest(broken=broken), self.assertRaises(vdf.VdfError):
+                vdf.loads_pairs(broken)
+
+
 if __name__ == "__main__":
     unittest.main()

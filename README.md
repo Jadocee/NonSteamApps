@@ -1,6 +1,6 @@
 # NonSteamApps
 
-Living-room apps for SteamOS, added to the Steam library with original artwork. They come from Flathub, or run in NonSteamApps' own copy of the Helium browser, set up for a TV and a controller. Each Steam account gets its own sign-ins. The apps work in Game Mode and Desktop Mode, and NonSteamApps keeps them up to date.
+Living-room apps for SteamOS, added to the Steam library with original artwork. They come from Flathub, run in NonSteamApps' own copy of the Helium browser, or, for Files, are part of SteamOS, and each is set up for a TV and a controller. Each Steam account gets its own sign-ins. The apps work in Game Mode and Desktop Mode, and NonSteamApps keeps them up to date.
 
 | In Steam | App | Source | Good to know |
 | --- | --- | --- | --- |
@@ -9,6 +9,7 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 | **Signal** | [Signal Desktop](https://signal.org/download/) | `org.signal.Signal` | Private messages and calls, linked to Signal on your phone. A desktop interface, like Element. Flathub's package is an unofficial repackaging of Signal's own release. |
 | **Jellyfin** | [Jellyfin Desktop](https://github.com/jellyfin/jellyfin-desktop) | `org.jellyfin.JellyfinDesktop` | Your Jellyfin server in its TV layout, with controller support. It plays more formats without the server converting them. |
 | **LocalSend** | [LocalSend](https://localsend.org) | `org.localsend.localsend_app` | Send files to and from nearby phones and computers over your own network, with no account and no internet needed. Received files go to `~/Downloads`. |
+| **Files** | [Dolphin](https://apps.kde.org/dolphin/) | Part of SteamOS | Your files, SD card and USB drives in SteamOS's own file manager, started with a TV profile: scaled for the TV, one press to open, no menu bar, a fresh start at your home folder, and a controller layout of its own. |
 | **Helium** | [Helium](https://helium.computer) | Signed Helium release | A private web browser with uBlock Origin built in, set up for a TV and a controller. |
 | **Prime Video** | Prime Video in Helium | Helium, full screen | Amazon's streaming service, full screen with no browser interface. |
 | **HBO Max** | HBO Max in Helium | Helium, full screen | Warner Bros. Discovery's streaming service, full screen with no browser interface. |
@@ -20,10 +21,10 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 
 - **No root, nothing lost on updates.** Apps install into your user Flatpak installation, which SteamOS updates leave alone. An app you already installed, for example through Discover, is used as it is and never uninstalled. The one step that needs your password is opening LocalSend's port when SteamOS's firewall is on, and NonSteamApps asks first.
 - **Every Steam account.** Each account on the device gets a shortcut, with artwork for the library, the capsule, the hero banner, the logo and the icon. The Steam overlay is off. The apps sit together in a **NonSteamApps** collection in the library.
-- **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend, which has no sign-in, so its settings are shared (see [Several Steam accounts](#several-steam-accounts)).
+- **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
 - **Console-ready browser apps.** Helium, the streaming apps and ProtonDB open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
 - **Private by default.** Helium blocks ads and trackers with its built-in uBlock Origin. NonSteamApps' Helium profiles also send Global Privacy Control and keep no crash reports (see [Privacy, security and ad blocking](#privacy-security-and-ad-blocking)).
-- **Controller layouts.** YouTube gets Steam's Gamepad controller layout, and the Helium apps, Element, Signal and LocalSend get its Web Browser layout, unless you have picked another.
+- **Controller layouts.** YouTube gets Steam's Gamepad controller layout, the Helium apps, Element, Signal and LocalSend get its Web Browser layout, and Files gets a Files layout of NonSteamApps' own, unless you have picked another.
 - **Updates.** A weekly timer updates the apps NonSteamApps installed, Helium included.
 - **Replaces SteamOS YT.** On a device with this project's earlier YouTube kiosk, its YouTube shortcut moves to VacuumTube and keeps its place in the library (see [Moving from SteamOS YT](#moving-from-steamos-yt)).
 
@@ -72,6 +73,9 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
   - **Sending:** you pick files through the system file chooser. If it does not open in Game Mode, send from Desktop Mode.
   - **Controls:** use the touchscreen, or the trackpads in Steam's Web Browser layout.
   - **On a TV:** in Game Mode, LocalSend is scaled ×2 on a 1440p TV and ×3 on a 4K one. Its toolkit only scales by whole numbers, so it is not scaled at 1080p.
+- **Files:** SteamOS's Dolphin, started with a TV profile that is kept apart from Desktop Mode's Dolphin. A single press opens a file or folder, the menu bar is hidden (the ☰ button holds the menu), and Files starts at your home folder each time. In Game Mode it is scaled for the TV (`TV_SCALE`) and drawn in KDE's own style. Desktop Mode's settings, bookmarks, file associations and trash still apply. What you change in Files stays in its profile, as do the settings of apps you open from it.
+  - **Controls (Files layout):** the D-pad or left stick moves the selection, **A** opens, **B** or **L1** goes back, **Y** or **R1** goes forward, **X** shows the on-screen keyboard to rename or search, **R2** clicks and **L2** opens the menu for the item under the pointer, which the right stick or right trackpad moves. **View** cancels, and **Menu** closes the tab; closing the last one quits Files.
+  - **The layout:** NonSteamApps makes it from Steam's Web Browser layout, for each controller type Steam has a Gamepad layout for, and saves it in Steam's `controller_base/templates` folder. If a Steam update removes it, the weekly update or `nonsteamapps steam add files` puts it back.
 - **Helium, Prime Video, HBO Max, Netflix, Disney+ and ProtonDB:** see [Helium apps](#helium-apps).
 
 ### On a TV: use its full resolution
@@ -89,6 +93,7 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | Signal | `~/.var/app/org.signal.Signal/config/Signal-steam-<ID>` |
 | Jellyfin | A Jellyfin Desktop profile named `steam-<ID>`, created on first launch |
 | LocalSend | Shared by every account: it has no sign-in, and received files go to `~/Downloads` |
+| Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
 | Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
 
 Started from the applications menu, VacuumTube, Element and Signal use their usual data instead, and Jellyfin uses its default profile. To give every account the same data, set `PROFILE_PER_STEAM_ACCOUNT=0` in `~/.config/nonsteamapps/nonsteamapps.conf`.
@@ -177,7 +182,7 @@ Signal started from the applications menu keeps Flathub's own defaults, includin
 | `PROFILE_PER_STEAM_ACCOUNT` | `1` | Separate data for each Steam account (see [Several Steam accounts](#several-steam-accounts)) |
 | `STEAM_COLLECTION` | `NonSteamApps` | Name of the Steam collection that holds the apps in each account; leave empty for no collection |
 | `HELIUM_SERVICES` | `1` | Let Helium use its services, which deliver Widevine for the streaming apps and keep the ad blocker's filter lists current |
-| `TV_SCALE` | `auto` | Scale of the Helium apps, YouTube, Element, Signal, Jellyfin and LocalSend: `auto` sizes them for a TV in Game Mode, a number such as `1.5` sets the scale, and `1` turns it off. Replaces `HELIUM_SCALE`, which is still read |
+| `TV_SCALE` | `auto` | Scale of the Helium apps, YouTube, Element, Signal, Jellyfin, LocalSend and Files: `auto` sizes them for a TV in Game Mode, a number such as `1.5` sets the scale, and `1` turns it off. Replaces `HELIUM_SCALE`, which is still read |
 | `GAME_MODE_SANDBOX` | `0` | `1` keeps Chromium's sandbox on for YouTube in Game Mode. Not yet confirmed on a Steam Deck: if YouTube then does not start, set it back to `0` |
 
 Anything you add to a shortcut's **Launch Options** in Steam after `--steam-account <ID>` is passed to the app, for example `--debug-gpu` for VacuumTube.
@@ -215,14 +220,14 @@ Installing NonSteamApps on a device with SteamOS YT, the Helium-based YouTube ki
 ## How it works
 
 1. `install.sh` copies the program to `~/.local/share/nonsteamapps` and runs `nonsteamapps install`.
-2. Each Flathub app is installed with `flatpak install --user`, unless it is already installed. The Helium apps share one signed Helium release, unpacked in `~/.local/share/nonsteamapps/helium`.
+2. Each Flathub app is installed with `flatpak install --user`, unless it is already installed. The Helium apps share one signed Helium release, unpacked in `~/.local/share/nonsteamapps/helium`. Files uses the Dolphin SteamOS includes, which NonSteamApps never installs or removes.
 3. Each app gets a link in `~/.local/share/nonsteamapps/apps/`, for example `apps/youtube`, pointing at the launcher. Steam's shortcut runs that link with `--steam-account <ID>`. Steam derives the shortcut's app ID from the link and the name, and NonSteamApps writes the shortcut to each account's `shortcuts.vdf`, with the artwork in the account's `grid` folder. It also adds the app to its collection in the account's collections file (`config/cloudstorage`), which Steam syncs through Steam Cloud. It writes that file the way Steam ROM Manager does, and leaves your other collections alone. Steam is closed while these files change, then started again in a systemd unit of its own, named as Plasma names the apps it starts (`app-steam-<random>.scope`). KDE's screen-sharing prompts then identify it as Steam, not Konsole.
 4. When an app starts, the launcher works out the Steam account: the shortcut's, otherwise the most recent sign-in. It then:
    - removes what Steam adds to a game's environment: its overlay library, which stops Helium starting in Game Mode, and the Steam Runtime's library paths;
    - prepares that account's data (for a Helium app, its profile: preferences, a clean last exit and the shared Widevine folder);
    - logs to `~/.local/state/nonsteamapps/<app>.log`;
-   - replaces itself with `flatpak run <app> …` (for Signal, `flatpak run --command=env …`, so that Signal's own launch script sees the account's folder), or with Helium and its console flags.
-5. For apps with a controller layout, NonSteamApps finds Valve's layout in Steam's `controller_base/templates` and records it for the shortcut in `steamapps/common/Steam Controller Configs/<ID>/config`, where Steam keeps the layout a user picks. It never replaces a layout you chose.
+   - replaces itself with `flatpak run <app> …` (for Signal, `flatpak run --command=env …`, so that Signal's own launch script sees the account's folder), with Helium and its console flags, or with Dolphin and its TV profile: its own `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, with Desktop Mode's settings underneath through `XDG_CONFIG_DIRS`.
+5. For apps with a controller layout, NonSteamApps finds the layout in Steam's `controller_base/templates` and records it for the shortcut in `steamapps/common/Steam Controller Configs/<ID>/config`, where Steam keeps the layout a user picks. It never replaces a layout you chose. Files' layout is NonSteamApps' own: it is written into that folder first, one file per controller type, and removed with Files.
 6. If firewalld is running, LocalSend's port is opened with `sudo firewall-cmd`, and NonSteamApps records what it opened so that it can close it again.
 7. A weekly systemd user timer runs `nonsteamapps update`. Discover updates any other Flatpaks.
 
@@ -233,6 +238,7 @@ Installing NonSteamApps on a device with SteamOS YT, the Helium-based YouTube ki
 - **A Helium app stays on Steam's loading screen in Game Mode and cannot be exited** (versions 2.2.0 to 2.8.0): run the installer again to update. Those versions let Steam's overlay library into Helium, which then never starts.
 - **After installing, a window asks to share the screen with Konsole** (before version 2.10.1): decline it, then restart Steam from the application menu or run the installer again to update. The installer started Steam again from Konsole, and KDE treats a program started from Konsole as part of Konsole, so Steam's request to capture the screen was shown as Konsole's.
 - **A new Steam account has no shortcuts:** run `nonsteamapps steam add`.
+- **Files has Steam's default controls:** run `nonsteamapps steam add files`. It writes the Files layout again, for example after a Steam update removed it.
 - **An account has no NonSteamApps collection:** Steam creates an account's collections file the first time it opens the library. Open Steam with that account once, close it, then run `nonsteamapps steam add`.
 - **A Helium update misbehaves:** `nonsteamapps rollback` switches back to the previous version.
 - **A streaming app shows a playback error the first time:** close the app and open it again, once Widevine has downloaded. `nonsteamapps doctor` shows whether it has.

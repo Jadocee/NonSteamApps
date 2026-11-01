@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stand-in for Dolphin: records its arguments and profile environment in $FAKE_DOLPHIN_LOG.
+{
+    printf 'args:'
+    printf ' %s' "$@"
+    printf '\n'
+    env | grep -E '^(XDG_CONFIG_HOME|XDG_CONFIG_DIRS|XDG_STATE_HOME|QT_[A-Z_]+)=' | sort
+} >>"${FAKE_DOLPHIN_LOG:-/dev/null}"

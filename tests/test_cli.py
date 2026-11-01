@@ -447,6 +447,83 @@ if __name__ == "__main__":
     unittest.main()
 
 
+
+class FilesTests(CliTestCase):
+    def setUp(self):
+        super().setUp()
+        self.bin = Path(self.tmp.name) / "bin"
+        self.bin.mkdir()
+        (self.bin / "dolphin").symlink_to(_fakes.FAKES / "dolphin")
+        patch = mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.profile = self.paths.profile("files", None)
+
+    def launch_files(self, game_mode=False, height=2160):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=height), \
+                mock.patch.dict(os.environ):
+            argv, _ = self.launch("files", "--steam-account", str(ALPHA))
+            environ = dict(os.environ)
+        return argv, environ
+
+    def test_files_starts_steamos_dolphin_with_its_tv_profile(self):
+        self.install("files")
+        self.assertIn(f"Dolphin is part of the system ({self.bin / 'dolphin'})", self.errors)
+        argv, environ = self.launch_files()
+        self.assertEqual(argv, [str(self.bin / "dolphin"), "--new-window"])
+        self.assertEqual(environ["XDG_CONFIG_HOME"], str(self.profile / "config"))
+        self.assertEqual(environ["XDG_STATE_HOME"], str(self.profile / "state"))
+        self.assertTrue(environ["XDG_CONFIG_DIRS"].startswith(f"{self.home / '.config'}:"))
+        self.assertFalse([name for name in environ if name.startswith("QT_")])
+        self.assertTrue((self.profile / "config" / "dolphinrc").is_file())
+
+    def test_in_game_mode_files_is_scaled_and_themed_for_a_tv(self):
+        for height, factor in ((2160, "3"), (1080, "1.5")):
+            argv, environ = self.launch_files(game_mode=True, height=height)
+            self.assertEqual(argv, [str(self.bin / "dolphin"), "--new-window"])
+            self.assertEqual(
+                (environ["QT_SCALE_FACTOR"], environ["QT_QPA_PLATFORM"], environ["QT_QPA_PLATFORMTHEME"]), (factor, "xcb", "kde")
+            )
+            self.assertEqual(environ["XDG_CONFIG_HOME"], str(self.profile / "config"))
+
+    def test_without_dolphin_files_says_what_is_missing(self):
+        (self.bin / "dolphin").unlink()
+        self.install("files")
+        self.assertIn("Dolphin (dolphin) was not found", self.errors)
+        self.assertEqual(self.run_cli("list"), 0)
+        self.assertIn("not found (dolphin)", self.output)
+        self.assertNotEqual(self.run_cli("launch", "files", "--verbose"), 0)
+        self.assertIn("Dolphin (dolphin) is not installed", self.errors)
+
+    def test_files_gets_its_own_controller_layout_until_it_is_removed(self):
+        folder = _fakes.add_controller_templates(self.root)
+        self.install("files")
+        ours = ["controller_neptune_nonsteamapps_files.vdf", "controller_xboxone_nonsteamapps_files.vdf"]
+        self.assertTrue(all((folder / name).is_file() for name in ours))
+        for account in (ALPHA, BETA):
+            config = steam_controller_config(self.root, account)
+            self.assertEqual(vdf.loads_text((config / "configset_controller_neptune.vdf").read_text()).get("controller_config").get("files").get("template"), ours[0])
+            self.assertEqual(vdf.loads_text((config / "configset_controller_xboxone.vdf").read_text()).get("controller_config").get("files").get("template"), ours[1])
+        self.assertIn("Gave Files (Dolphin) the Files (NonSteamApps) controller layout", self.errors)
+        (folder / ours[1]).unlink()
+        self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertTrue((folder / ours[1]).is_file())
+        self.assertIn("Refreshed the Files (NonSteamApps) controller layout", self.errors)
+        self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertNotIn("Refreshed", self.errors)
+        self.launch_files()
+        self.assertEqual(self.run_cli("remove", "files", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse(any((folder / name).exists() for name in ours))
+        self.assertTrue((folder / "controller_neptune_webbrowser.vdf").is_file())
+        self.assertIsNone(vdf.loads_text((steam_controller_config(self.root, ALPHA) / "configset_controller_neptune.vdf").read_text()).get("controller_config").get("files"))
+        self.assertFalse(self.profile.exists())
+
+
+def steam_controller_config(root, account):
+    return root / f"steamapps/common/Steam Controller Configs/{account}/config"
+
+
 class HeliumAppTests(CliTestCase):
     def add_templates(self):
         folder = self.root / "controller_base" / "templates"
@@ -473,8 +550,8 @@ class HeliumAppTests(CliTestCase):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
             self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_gamepad_joystick.vdf")
-        self.assertIn("Steam's Web Browser controller layout", self.errors)
-        self.assertIn("Gave YouTube (VacuumTube) Steam's Gamepad controller layout", self.errors)
+        self.assertIn("the Web Browser controller layout", self.errors)
+        self.assertIn("Gave YouTube (VacuumTube) the Gamepad controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
         self.assertEqual(sorted(self.configset()), ["helium", "netflix", "prime video", "youtube"])
 

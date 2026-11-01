@@ -16,7 +16,7 @@ trap 'rm -rf "$WORK"' EXIT
 run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
-        FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" "$@"
+        FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" "$@"
 }
 
 check() {
@@ -61,6 +61,7 @@ done
 ln -s "$ROOT/tests/fakes/flatpak" "$WORK/bin/flatpak"
 ln -s "$ROOT/tests/fakes/firewall-cmd" "$WORK/bin/firewall-cmd"
 ln -s "$ROOT/tests/fakes/sudo" "$WORK/bin/sudo"
+ln -s "$ROOT/tests/fakes/dolphin" "$WORK/bin/dolphin"
 echo '{"running": true, "default": "public", "active": ["public"], "runtime": {}, "permanent": {}}' >"$WORK/firewall.json"
 printf '%s\n' '"users"' '{' \
     '  "76561197960265839" { "AccountName" "alpha" "PersonaName" "Alpha" "MostRecent" "1" }' \
@@ -68,18 +69,20 @@ printf '%s\n' '"users"' '{' \
     '}' >"$STEAM/config/loginusers.vdf"
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
+TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
 
 echo "==> install.sh"
 run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
     cat "$WORK/install.log"
     exit 1
 }
-everything="Disney+ Element HBO Max Helium Jellyfin LocalSend Netflix Prime Video ProtonDB Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 11
+everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video ProtonDB Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 12
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 11
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 12
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "11 11"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "12 12"
+check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
 echo "==> launch through the link Steam runs"
@@ -102,17 +105,22 @@ check "Helium started without Steam's overlay library" grep -qxF "<unset>" "$WOR
 check "Prime Video started full screen in its own Helium profile" grep -qF "[\"--user-data-dir=$PROGRAM/profiles/primevideo/222\"" "$WORK/helium.log"
 check "Prime Video opened its site in a kiosk" grep -qE '"--kiosk".*"https://www.primevideo.com/"\]$' "$WORK/helium.log"
 check "the profile shares Helium's Widevine folder" test "$(readlink -f "$PROGRAM/profiles/primevideo/222/WidevineCdm")" == "$(readlink -f "$PROGRAM/helium/WidevineCdm")"
+run "$PROGRAM/apps/files" --steam-account 222
+check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
+check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"
+check "the TV profile starts without the menu bar" grep -qxF "MenuBar=Disabled" "$PROGRAM/profiles/files/shared/config/dolphinrc"
 
 echo "==> uninstall.sh"
 run "$ROOT/uninstall.sh" --yes >"$WORK/uninstall.log" 2>&1 || {
     cat "$WORK/uninstall.log"
     exit 1
 }
-check "only the Helium sign-ins remain" test "$(ls "$PROGRAM")" == "profiles"
+check "only the app profiles remain" test "$(ls "$PROGRAM")" == "profiles"
 check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 222)"
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
 check "the collection was removed" test "$(collection_size 111) $(collection_size 222)" == "0 0"
 check "LocalSend's port was closed again" grep -qF '"permanent": {"public": []}' "$WORK/firewall.json"
+check "the Files controller layouts were removed" test -z "$(find "$TEMPLATES" -name '*_nonsteamapps_*')"
 
 if ((failed)); then
     echo "==> Sandbox test FAILED"

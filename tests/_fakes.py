@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import _paths
-from nonsteamapps import firewall, steam
+from nonsteamapps import controllers, firewall, steam, vdf
 from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -88,6 +88,98 @@ def make_steam(home: Path, accounts=(ALPHA, BETA)) -> Path:
     (root / "config").mkdir(parents=True)
     (root / "config/loginusers.vdf").write_text(f'"users"\n{{\n{users}}}\n')
     return root
+
+
+WEB_BROWSER = [
+    ("switch", "switches", {
+        "button_escape": ["key_press ESCAPE"],
+        "button_menu": ["key_press LEFT_CONTROL, ⛔", "key_press W"],
+        "left_bumper": ["mouse_button BACK, ◀️"],
+        "right_bumper": ["mouse_button FORWARD, ▶️"],
+        "button_back_left": ["mouse_button MIDDLE"],
+        "button_back_right": ["key_press LEFT_CONTROL"],
+        "button_capture": ["controller_action system_key_1"],
+        "always_on_action": ["controller_action ts_n"],
+    }),
+    ("button_diamond", "four_buttons", {
+        "button_a": ["key_press RETURN, ⏯️", "key_press SPACE"],
+        "button_b": ["mouse_button BACK, ◀️"],
+        "button_x": ["controller_action SHOW_KEYBOARD, ⌨️"],
+        "button_y": ["mouse_button FORWARD, ▶️", "key_press S"],
+    }),
+    ("joystick", "dpad", {"dpad_north": ["mouse_wheel SCROLL_UP, ⏫"], "dpad_south": ["mouse_wheel SCROLL_DOWN, ⏬"]}),
+    ("left_trackpad", "dpad", {}, False),
+    ("left_trackpad", "scrollwheel", {"scroll_clockwise": ["mouse_wheel SCROLL_UP"]}),
+    ("right_trackpad", "absolute_mouse", {"click": ["mouse_button LEFT"]}),
+    ("left_trigger", "trigger", {"edge": ["mouse_button RIGHT"]}),
+    ("right_trigger", "trigger", {"edge": ["mouse_button LEFT"]}),
+    ("gyro", "mouse_joystick", {}, False),
+    ("dpad", "dpad", {
+        "dpad_north": ["key_press UP_ARROW, ⏫"],
+        "dpad_south": ["key_press DOWN_ARROW, ⏬"],
+        "dpad_east": ["key_press RIGHT_ARROW, ⏩"],
+        "dpad_west": ["key_press LEFT_ARROW, ⏪"],
+    }),
+    ("right_joystick", "joystick_mouse", {"click": ["mouse_button LEFT"]}),
+]
+
+
+def gamepad_groups(switch_inputs, trackpads=False):
+    """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs."""
+    groups = [
+        ("switch", "switches", {name: [f"xinput_button {name}"] for name in switch_inputs}),
+        ("button_diamond", "four_buttons", {f"button_{key}": [f"xinput_button {key.upper()}"] for key in "abxy"}),
+        ("joystick", "joystick_move", {}),
+        ("left_trigger", "trigger", {}),
+        ("right_trigger", "trigger", {}),
+        ("right_joystick", "joystick_move", {}),
+        ("dpad", "dpad", {"dpad_north": ["xinput_button dpad_up"]}),
+    ]
+    if trackpads:
+        groups[2:2] = [("left_trackpad", "single_button", {}), ("right_trackpad", "single_button", {})]
+    return groups
+
+
+def controller_layout(kind, title, groups, settings=(("left_trackpad_mode", "0"),)):
+    """A layout in Valve's format; each group is ``(source, mode, {input: [binding…]}[, active])``."""
+    mappings = [
+        ("version", "3"),
+        ("title", "#Title"),
+        ("controller_type", kind),
+        ("localization", [("english", [("Title", title)])]),
+    ]
+    sources = []
+    for index, (source, mode, inputs, *active) in enumerate(groups):
+        pairs = [
+            (name, [("activators", [("Full_Press", [("bindings", [("binding", binding) for binding in bindings])])])])
+            for name, bindings in inputs.items()
+        ]
+        mappings.append(("group", [("id", str(index)), ("mode", mode), ("inputs", pairs), ("settings", [("requires_click", "0")])]))
+        sources.append((str(index), f"{source} {'active' if not active or active[0] else 'inactive'}"))
+    mappings.append(("preset", [("id", "0"), ("name", "Default"), ("group_source_bindings", sources)]))
+    mappings.append(("settings", [tuple(setting) for setting in settings]))
+    return vdf.dumps_pairs([("controller_mappings", mappings)])
+
+
+XBOX_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "button_capture")
+DECK_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "button_back_left", "button_back_right")
+
+
+def add_controller_templates(root: Path) -> Path:
+    """Valve's Web Browser layout for the Deck and Gamepad layouts for the Deck, an Xbox controller and touch."""
+    folder = controllers.templates_dir(root)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "controller_neptune_webbrowser.vdf").write_text("\ufeff" + controller_layout("controller_neptune", "Web Browser", WEB_BROWSER), encoding="utf-8")
+    (folder / "controller_neptune_gamepad_joystick.vdf").write_text(
+        controller_layout("controller_neptune", "Gamepad", gamepad_groups(DECK_SWITCH, trackpads=True)), encoding="utf-8"
+    )
+    (folder / "controller_xboxone_gamepad_joystick.vdf").write_text(
+        controller_layout("controller_xboxone", "Gamepad", gamepad_groups(XBOX_SWITCH), settings=(("xbox", "1"),)), encoding="utf-8"
+    )
+    (folder / "controller_mobile_touch_gamepad_joystick.vdf").write_text(
+        controller_layout("controller_mobile_touch", "Gamepad", gamepad_groups(("button_escape",))), encoding="utf-8"
+    )
+    return folder
 
 
 def make_program(directory: Path) -> Path:

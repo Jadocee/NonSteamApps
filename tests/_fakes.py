@@ -124,6 +124,28 @@ WEB_BROWSER = [
 ]
 
 
+WASD = [
+    ("switch", "switches", {
+        "button_escape": ["key_press ESCAPE"],
+        "button_menu": ["key_press TAB"],
+        "left_bumper": ["mouse_wheel SCROLL_DOWN"],
+        "right_bumper": ["mouse_wheel SCROLL_UP"],
+    }),
+    ("button_diamond", "four_buttons", {
+        "button_a": ["key_press SPACE"],
+        "button_b": ["key_press E"],
+        "button_x": ["key_press R"],
+        "button_y": ["key_press F"],
+    }),
+    ("left_trackpad", "dpad", {"dpad_north": ["key_press 1"]}),
+    ("right_trackpad", "absolute_mouse", {"click": ["mouse_button LEFT"]}),
+    ("joystick", "dpad", {"dpad_north": ["key_press W"], "dpad_west": ["key_press A"], "click": ["key_press LEFT_SHIFT"]}),
+    ("left_trigger", "trigger", {"edge": ["mouse_button RIGHT"]}),
+    ("right_trigger", "trigger", {"edge": ["mouse_button LEFT"]}),
+    ("right_joystick", "joystick_mouse", {"click": ["mouse_button LEFT"]}),
+    ("dpad", "dpad", {"dpad_north": ["key_press UP_ARROW"]}),
+]
+
 def gamepad_groups(switch_inputs, trackpads=False):
     """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs."""
     groups = [
@@ -166,10 +188,13 @@ DECK_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "b
 
 
 def add_controller_templates(root: Path) -> Path:
-    """Valve's Web Browser layout for the Deck and Gamepad layouts for the Deck, an Xbox controller and touch."""
+    """Valve's Web Browser and WASD layouts for the Deck, and Gamepad layouts for the Deck, an Xbox controller and touch."""
     folder = controllers.templates_dir(root)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "controller_neptune_webbrowser.vdf").write_text("\ufeff" + controller_layout("controller_neptune", "Web Browser", WEB_BROWSER), encoding="utf-8")
+    (folder / "controller_neptune_wasd.vdf").write_text(
+        "\ufeff" + controller_layout("controller_neptune", "Keyboard (WASD) and Mouse", WASD), encoding="utf-8"
+    )
     (folder / "controller_neptune_gamepad_joystick.vdf").write_text(
         controller_layout("controller_neptune", "Gamepad", gamepad_groups(DECK_SWITCH, trackpads=True)), encoding="utf-8"
     )

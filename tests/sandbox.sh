@@ -76,13 +76,14 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
     cat "$WORK/install.log"
     exit 1
 }
-everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video ProtonDB Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 12
+everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher ProtonDB Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 13
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 12
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 13
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "12 12"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "13 13"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
+check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
 echo "==> launch through the link Steam runs"
@@ -105,6 +106,11 @@ check "Helium started without Steam's overlay library" grep -qxF "<unset>" "$WOR
 check "Prime Video started full screen in its own Helium profile" grep -qF "[\"--user-data-dir=$PROGRAM/profiles/primevideo/222\"" "$WORK/helium.log"
 check "Prime Video opened its site in a kiosk" grep -qE '"--kiosk".*"https://www.primevideo.com/"\]$' "$WORK/helium.log"
 check "the profile shares Helium's Widevine folder" test "$(readlink -f "$PROGRAM/profiles/primevideo/222/WidevineCdm")" == "$(readlink -f "$PROGRAM/helium/WidevineCdm")"
+PRISM="$HOME_DIR/.var/app/org.prismlauncher.PrismLauncher/data"
+run "$PROGRAM/apps/prism" --steam-account 222
+check "Prism Launcher started with the account's folder" grep -qF "[\"run\", \"org.prismlauncher.PrismLauncher\", \"--dir=$PRISM/PrismLauncher-steam-222\"]" "$WORK/flatpak.log"
+check "Prism Launcher starts dark and quits after the game" grep -qxF "QuitAfterGameStop=true" "$PRISM/PrismLauncher-steam-222/prismlauncher.cfg"
+check "Prism Launcher shares Minecraft's downloads" test "$(readlink "$PRISM/PrismLauncher-steam-222/assets")" == "../PrismLauncher/assets"
 run "$PROGRAM/apps/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"
@@ -120,7 +126,7 @@ check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 22
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
 check "the collection was removed" test "$(collection_size 111) $(collection_size 222)" == "0 0"
 check "LocalSend's port was closed again" grep -qF '"permanent": {"public": []}' "$WORK/firewall.json"
-check "the Files controller layouts were removed" test -z "$(find "$TEMPLATES" -name '*_nonsteamapps_*')"
+check "NonSteamApps' controller layouts were removed" test -z "$(find "$TEMPLATES" -name '*_nonsteamapps_*')"
 
 if ((failed)); then
     echo "==> Sandbox test FAILED"

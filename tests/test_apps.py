@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,8 +14,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "jellyfin", "localsend", "files", "helium", "primevideo", "hbomax", "netflix",
-             "disneyplus", "protondb"],
+            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "files", "helium", "primevideo", "hbomax",
+             "netflix", "disneyplus", "protondb"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -64,7 +65,9 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
-        self.assertEqual([app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend", "files"])
+        self.assertEqual(
+            [app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "files"]
+        )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
         self.assertEqual(youtube.apply(2.0), (["--force-device-scale-factor=2"], []))
@@ -177,6 +180,24 @@ class ProfileTests(unittest.TestCase):
         (folder / "config.json").write_text("{}")
         youtube.profile.prepare(app_home, 111, lambda options: 0)
         self.assertTrue(json.loads((folder / "config.json").read_text())["fullscreen"])
+
+    def test_each_prism_folder_starts_set_up_for_a_tv_and_shares_minecrafts_downloads(self):
+        prism = apps.by_id("prism")
+        app_home = prism.home(self.home)
+        self.assertEqual(prism.arguments(self.home, 111), [f"--dir={app_home}/data/PrismLauncher-steam-111"])
+        prism.profile.prepare(app_home, 111, lambda options: 0)
+        folder = app_home / "data/PrismLauncher-steam-111"
+        settings = (folder / "prismlauncher.cfg").read_text()
+        for line in ("[General]", "ApplicationTheme=dark", "IconTheme=flat_white", "CloseAfterLaunch=true", "QuitAfterGameStop=true"):
+            self.assertIn(line + "\n", settings)
+        for name in ("assets", "libraries", "java"):
+            self.assertEqual(os.readlink(folder / name), f"../PrismLauncher/{name}")
+            self.assertTrue((app_home / "data/PrismLauncher" / name).is_dir())
+        self.assertFalse((folder / "instances").exists())
+        (folder / "prismlauncher.cfg").write_text("[General]\nApplicationTheme=bright\n")
+        prism.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertEqual((folder / "prismlauncher.cfg").read_text(), "[General]\nApplicationTheme=bright\n")
+        self.assertEqual([path.name for path in prism.profile.existing(app_home)], ["PrismLauncher-steam-111"])
 
     def test_new_element_folders_quit_when_the_window_closes(self):
         element = apps.by_id("element")

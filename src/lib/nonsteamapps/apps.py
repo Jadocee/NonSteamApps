@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+from .display import TV_HEIGHT
+from .fsutil import atomic_write_json
+
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
 VACUUMTUBE_DEFAULTS = {
@@ -21,6 +24,36 @@ VACUUMTUBE_DEFAULTS = {
     "wayland_hdr": True,
 }
 ELEMENT_DEFAULTS = {"minimizeToTray": False}
+CHANGES_FILE = "nonsteamapps.json"
+
+
+@dataclass(frozen=True)
+class JsonSettings:
+    """Values for one of an app's JSON settings files, at ``file`` in its data folder."""
+
+    file: str
+    values: Tuple[Tuple[str, object], ...]
+
+    def apply(self, folder: Path) -> Optional[bool]:
+        """Write the values into the file, keeping its other settings; return whether it changed.
+
+        Returns ``None``, and leaves the file alone, when it does not hold a JSON object: the app replaces such a file itself.
+        """
+        path = Path(folder) / self.file
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = {}
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        wanted = {key: list(value) if isinstance(value, tuple) else value for key, value in self.values}
+        if all(key in data and data[key] == value for key, value in wanted.items()):
+            return False
+        data.update(wanted)
+        atomic_write_json(path, data)
+        return True
 
 
 @dataclass(frozen=True)
@@ -28,16 +61,26 @@ class FolderProfile:
     """Per-account data in a folder chosen with one command-line argument.
 
     ``defaults`` are files written into a data folder that does not have them yet,
-    including the app's own ``shared`` folder used when accounts share data.
+    including the app's own ``shared`` folder used when accounts share data. ``changes``
+    are settings changed once in every data folder, new or existing, each under its own
+    name. The names done are kept in the folder's ``nonsteamapps.json``, so a setting the
+    user changes afterwards stays as they set it.
     """
 
     folder: str
     argument: str
     shared: str = ""
     defaults: Tuple[Tuple[str, str], ...] = ()
+    changes: Tuple[Tuple[str, JsonSettings], ...] = ()
 
     def path(self, app_home: Path, account: int) -> Path:
         return Path(app_home) / self.folder.format(account=account)
+
+    def data_folder(self, app_home: Path, account: Optional[int]) -> Optional[Path]:
+        """The folder an account's data is in, or without one the shared folder."""
+        if account:
+            return self.path(app_home, account)
+        return Path(app_home) / self.shared if self.shared else None
 
     def arguments(self, app_home: Path, account: int) -> List[str]:
         return [self.argument.format(folder=self.path(app_home, account), account=account)]
@@ -55,13 +98,27 @@ class FolderProfile:
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
+        self._change(folder)
+
+    def _change(self, folder: Path) -> None:
+        if not self.changes:
+            return
+        record = folder / CHANGES_FILE
+        try:
+            done = list(json.loads(record.read_text(encoding="utf-8"))["changes"])
+        except (OSError, ValueError, TypeError, KeyError):
+            done = []
+        pending = [(name, settings) for name, settings in self.changes if name not in done]
+        applied = [name for name, settings in pending if settings.apply(folder) is not None]
+        if applied:
+            atomic_write_json(record, {"changes": done + applied})
 
     def prepare(self, app_home: Path, account: int, run_app: RunApp) -> bool:
         self._seed(self.path(app_home, account))
         return True
 
     def prepare_shared(self, app_home: Path) -> None:
-        if self.shared and self.defaults:
+        if self.shared and (self.defaults or self.changes):
             self._seed(Path(app_home) / self.shared)
 
     def existing(self, app_home: Path) -> List[Path]:
@@ -103,6 +160,9 @@ class JellyfinProfile:
 
     def arguments(self, app_home: Path, account: int) -> List[str]:
         return [f"--profile={self.name(account)}"]
+
+    def data_folder(self, app_home: Path, account: Optional[int]) -> Optional[Path]:
+        return None
 
     def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
         return [*args, *self.arguments(app_home, account)]
@@ -164,11 +224,15 @@ class TvScale:
     """How an app takes its TV scale: a command-line ``argument`` with ``{factor}`` in it, or an environment ``variable``.
 
     A ``whole`` scale is rounded down, and dropped below 2, for toolkits that only scale by whole numbers.
+    ``layout`` is the screen height the app's layout is made for, which the automatic scale fits a TV to.
+    ``requires`` are settings the app needs while it is scaled, set before each scaled start.
     """
 
     argument: str = ""
     variable: str = ""
     whole: bool = False
+    layout: int = TV_HEIGHT
+    requires: Optional[JsonSettings] = None
 
     def apply(self, factor: float) -> Tuple[List[str], List[str]]:
         """Return the app's arguments and ``flatpak run`` options for this scale."""
@@ -182,6 +246,10 @@ class TvScale:
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
+VACUUMTUBE_TV = JsonSettings(
+    "config.json",
+    (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
+)
 
 
 @dataclass(frozen=True)
@@ -238,9 +306,15 @@ APPS: Tuple[App, ...] = (
             "--portable={folder}",
             shared="config/VacuumTube",
             defaults=(("config.json", json.dumps(VACUUMTUBE_DEFAULTS, indent=4) + "\n"),),
+            changes=(("2.11.0", VACUUMTUBE_TV),),
         ),
         controller=GAMEPAD,
         legacy_exes=("~/.local/share/steamos-yt/bin/steamos-yt",),
+        tv_scale=TvScale(
+            argument="--force-device-scale-factor={factor}",
+            layout=1080,
+            requires=JsonSettings("config.json", (("unlock_resolution", True),)),
+        ),
         sandbox_off_when=("SteamGamepadUI",),
     ),
     App(

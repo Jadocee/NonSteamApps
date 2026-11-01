@@ -208,6 +208,13 @@ The owner answered the open questions. Where these answers differ from the text 
 
       Flathub therefore stays the source, as decided above.
 
+19. **Restarting Steam (bug fix, owner report).** After the installer restarted Steam, KDE asked to share the screen with Konsole. xdg-desktop-portal identifies an unsandboxed app by the systemd unit it runs in, `app-<ID>-<random>.scope` [22][23], and a program started from a terminal stays in the terminal's unit. Steam, started again by the installer, ran in Konsole's unit, and its screen-capture request named Konsole [24]. The installer now starts Steam with `systemd-run --user --scope --unit=app-steam-<random>.scope --slice=app.slice`, as Plasma names the apps it starts, so the portal identifies it as Steam. When `systemd-run --user --scope true` fails, there is no user service manager to ask, and Steam is started directly, as before.
+
+20. **VacuumTube's window, side menu and settings size (owner request).**
+    - **Settings:** every VacuumTube data folder, new or existing, gets `fullscreen`, `no_window_decorations` and `disabled_tabs` (the Shorts and Podcasts tabs) once [25]. The change is recorded in the folder's `nonsteamapps.json`, so later choices in VacuumTube's settings stay. A `config.json` that is not valid JSON is left for VacuumTube, which replaces it, and is changed on a later start. VacuumTube already started full screen, because NonSteamApps passes `--fullscreen`. Its setting showed off because VacuumTube only sets it in a config file it creates itself, and NonSteamApps had created that file first.
+    - **Settings menu size:** VacuumTube draws its settings menu at a fixed 1100 × 760 pixels, with 15-pixel text, which is a quarter of a 4K screen. Scaling only the menu with CSS was tested in Chromium and rejected. VacuumTube's scrolling compares on-screen positions with layout sizes, which CSS `zoom` and `scale` both pull apart, so the focused row would scroll out of view. VacuumTube is therefore scaled as a whole, with `--force-device-scale-factor`. The scale fits the 1080p layout YouTube's TV apps use (1.25× at 1440p, 2× at 4K, none at 1080p), and YouTube's interface fills the screen either way.
+    - **Video resolution:** VacuumTube offers videos up to the screen size it sees, which the scale reduces: to 1080p at 4K [25]. That was why item 11 left VacuumTube unscaled. While it is scaled, NonSteamApps keeps VacuumTube's Unlock Resolution on, so a 4K TV still gets 4K. Only 8K videos may now stream above the screen's resolution.
+
 Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -233,3 +240,7 @@ Still open: layouts NonSteamApps designs itself, and Maximum Game Resolution (th
 19. [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): `src/lib/category-manager.ts`, which writes collections to Steam's cloud storage file
 20. [decky-insomnia](https://zff.dev/kartikynwa/decky-insomnia), on Game Mode ignoring apps' requests to keep the screen on
 21. [Robert Kirkman's SteamOS pacman guide](https://gist.github.com/robertkirkman/753922262259486ec417e5ff8b5b924b), on the 5 GB system partition and SteamOS's repositories
+22. [xdg-desktop-portal 1.20.3](https://github.com/flatpak/xdg-desktop-portal/blob/1.20.3/src/xdp-app-info-host.c): `src/xdp-app-info-host.c`, which reads an unsandboxed app's ID from its systemd unit's name
+23. [systemd: Desktop Environments](https://systemd.io/DESKTOP_ENVIRONMENTS/), on how desktops name the units of the apps they start
+24. [KDE bug 500891](https://bugs.kde.org/show_bug.cgi?id=500891): the screen-sharing dialog names Konsole for an app started from Konsole
+25. [VacuumTube](https://github.com/shy1132/VacuumTube) 2.0.1: `src/config.js` and `src/index.js` for its settings, `src/preload/modules/guide-tabs.js`, `src/preload/modules/h5vcc/index.js` for the resolution limit, and `src/preload/modules/settings/` for the settings menu's size and scrolling

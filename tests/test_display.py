@@ -16,6 +16,10 @@ class ScaleTests(unittest.TestCase):
         self.assertIsNone(display.scale("1", True))
         self.assertIsNone(display.scale("big", True))
 
+    def test_auto_scale_can_fit_a_1080p_layout_instead(self):
+        self.assertEqual([display.scale("auto", True, h, layout=1080) for h in (1080, 1200, 1440, 2160)], [None, None, 1.25, 2.0])
+        self.assertEqual(display.scale("1.5", True, 2160, layout=1080), 1.5)
+
     def test_the_screen_height_comes_from_xrandr(self):
         output = "Screen 0: minimum 16 x 16, current 3840 x 2160, maximum 32767 x 32767\n"
         with mock.patch.dict(os.environ, {"DISPLAY": ":0"}), \

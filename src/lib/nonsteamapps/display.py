@@ -25,8 +25,8 @@ def screen_height() -> Optional[int]:
     return int(match.group(2)) if match else None
 
 
-def scale(setting: str, game_mode: bool, height: Optional[int] = None) -> Optional[float]:
-    """The interface scale: a number from the settings, or in Game Mode one that shows a 720p-sized layout."""
+def scale(setting: str, game_mode: bool, height: Optional[int] = None, layout: int = TV_HEIGHT) -> Optional[float]:
+    """The interface scale: a number from the settings, or in Game Mode one that fits a layout ``layout`` pixels tall to the screen."""
     value = (setting or "auto").strip().lower()
     if value != "auto":
         try:
@@ -39,4 +39,5 @@ def scale(setting: str, game_mode: bool, height: Optional[int] = None) -> Option
     height = screen_height() if height is None else height
     if not height or height < 1000:
         return None
-    return round(height / TV_HEIGHT * 4) / 4
+    factor = round(height / layout * 4) / 4
+    return factor if factor > 1 else None

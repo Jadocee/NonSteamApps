@@ -244,6 +244,15 @@ The owner answered the open questions. Where these answers differ from the text 
       A controller mod such as Controlify gives native controller menus; the README explains how to use it with Steam's Gamepad layout.
     - **Needs a device:** whether Steam lists and applies the layout, the launcher's look and scale, and the launch and quit flow in Game Mode.
 
+23. **Proton Calendar, and Mullvad VPN (owner request).**
+    - **Proton Calendar** runs full screen in Helium, like ProtonDB, at `https://calendar.proton.me/`, with Steam's Web Browser layout and a Helium profile for each Steam account. Links to Proton's other apps open in new tabs, which Menu (Ctrl+W) closes. NonSteamApps' Helium profiles refuse notification requests, so its reminders do not pop up.
+    - **Mullvad VPN cannot come from Flathub.** Flathub has Mullvad Browser (`net.mullvad.MullvadBrowser`) but no Mullvad VPN app, because the app depends on a system daemon, which Flatpak cannot run [33]. Mullvad publishes it as `.deb` and `.rpm` packages only. The ways open on SteamOS are:
+      - WireGuard through SteamOS's own NetworkManager, with Mullvad's configuration files;
+      - Mullvad's own app, installed outside the read-only system with its daemon as a system service;
+      - pacman, which item 18 ruled out.
+
+      They are put to the owner before anything is built.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -280,3 +289,4 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 30. [EmuDeck: community creations](https://emudeck.github.io/community-creations/steamos/community-creations), whose guide adds layouts to the same folder
 31. [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher): `launcher/Application.cpp` for `--dir`, its settings, the first-run wizard and data migration; `launcher/launch/LaunchTask.cpp` and `launcher/minecraft/MinecraftInstance.cpp` for quitting after the game
 32. [Flathub `org.prismlauncher.PrismLauncher`](https://github.com/flathub/org.prismlauncher.PrismLauncher): the manifest, which turns on the Java downloader
+33. [Flathub forum: Mullvad VPN](https://discourse.flathub.org/t/vpn-mullvad-vpn/2594), on why the app cannot be packaged; Flathub's repositories on GitHub have `net.mullvad.MullvadBrowser` and no Mullvad VPN app

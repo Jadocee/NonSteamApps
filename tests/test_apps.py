@@ -15,7 +15,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(
             apps.ids(),
             ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "files", "helium", "primevideo", "hbomax",
-             "netflix", "disneyplus", "protondb"],
+             "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -53,13 +53,14 @@ class ArgumentTests(unittest.TestCase):
         for app_id, url, kiosk in (("helium", "", False), ("primevideo", "https://www.primevideo.com/", True),
                                    ("hbomax", "https://www.hbomax.com/", True), ("netflix", "https://www.netflix.com/", True),
                                    ("disneyplus", "https://www.disneyplus.com/", True),
-                                   ("protondb", "https://www.protondb.com/", True)):
+                                   ("protondb", "https://www.protondb.com/", True),
+                                   ("protoncalendar", "https://calendar.proton.me/", True)):
             app = apps.by_id(app_id)
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
             self.assertEqual(app.controller, apps.WEB_BROWSER)
         self.assertEqual(
             [app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER],
-            ["element", "signal", "localsend", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb"],
+            ["element", "signal", "localsend", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual([app.id for app in apps.APPS if app.controller == apps.GAMEPAD], ["youtube"])
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])

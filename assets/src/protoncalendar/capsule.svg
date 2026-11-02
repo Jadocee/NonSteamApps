@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17171D"/>
+      <stop offset="1" stop-color="#08080A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="300" cy="330" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8E4FC6" stop-opacity="0.45"/>
+      <stop offset="0.5" stop-color="#8E4FC6" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#8E4FC6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="420" cy="560" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E07BB8" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#E07BB8" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#E07BB8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2A33"/>
+      <stop offset="1" stop-color="#18181E"/>
+    </linearGradient>
+    <linearGradient id="p0" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B2A5C"/><stop offset="1" stop-color="#1C1530"/></linearGradient>
+    <linearGradient id="p1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F3A4D"/><stop offset="1" stop-color="#10202B"/></linearGradient>
+    <linearGradient id="p2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4A2F22"/><stop offset="1" stop-color="#22150F"/></linearGradient>
+    <linearGradient id="p3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#23402E"/><stop offset="1" stop-color="#102118"/></linearGradient>
+    <linearGradient id="p4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2E2A4F"/><stop offset="1" stop-color="#161427"/></linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#08080A" stop-opacity="0"/>
+      <stop offset="1" stop-color="#08080A" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C08AE8"/>
+      <stop offset="1" stop-color="#5A2386"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <symbol id="emblem" viewBox="0 0 240 204">
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#screen)"/>
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#gloss)"/>
+      <rect x="70" y="40" width="100" height="92" rx="16" fill="#FFFFFF"/>
+      <path d="M70 56 Q70 40 86 40 H154 Q170 40 170 56 V64 H70 Z" fill="#E7D3F6"/>
+      <rect x="92" y="30" width="9" height="20" rx="4.5" fill="#FFFFFF" stroke="#5A2386" stroke-width="3"/>
+      <rect x="139" y="30" width="9" height="20" rx="4.5" fill="#FFFFFF" stroke="#5A2386" stroke-width="3"/>
+      <circle cx="94" cy="84" r="6" fill="#B9A6C9"/>
+      <circle cx="120" cy="84" r="6" fill="#B9A6C9"/>
+      <circle cx="146" cy="84" r="6" fill="#B9A6C9"/>
+      <circle cx="94" cy="108" r="6" fill="#B9A6C9"/>
+      <rect x="108" y="96" width="24" height="24" rx="7" fill="#7A3BB0"/>
+      <circle cx="146" cy="108" r="6" fill="#B9A6C9"/>
+      <rect x="76" y="182" width="88" height="16" rx="8" fill="#C08AE8"/>
+    </symbol>
+  </defs>
+  <rect width="600" height="900" fill="url(#bg)"/>
+  <rect width="600" height="900" fill="url(#glow)"/>
+  <rect width="600" height="900" fill="url(#glow2)"/>
+  <g>
+    <rect x="-30" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="58" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="70" y="726" width="37" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="146" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="234" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="246" y="726" width="36" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="322" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="334" y="726" width="45" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="410" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="498" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="510" y="726" width="33" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="586" y="676" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="598" y="726" width="45" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="10" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="22" y="818" width="34" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="98" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="110" y="818" width="22" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="186" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="198" y="818" width="32" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="274" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="362" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="450" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="462" y="818" width="45" height="8" rx="4" fill="#8E4FC6" fill-opacity="0.85"/>
+    <rect x="538" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+    <rect x="626" y="768" width="72" height="72" rx="14" fill="url(#tile)"/>
+  </g>
+  <rect y="640" width="600" height="260" fill="url(#fade)"/>
+  <use href="#emblem" x="170" y="190" width="260" height="221" filter="url(#shadow)"/>
+  <text x="300" y="560" text-anchor="middle" font-family="Inter Display" font-weight="900" font-size="98.6" letter-spacing="-3.5" fill="#FFFFFF">Calendar</text>
+  <text x="306" y="622" text-anchor="middle" font-family="Inter" font-weight="600" font-size="28" letter-spacing="12" fill="#B8B8C4">BY PROTON</text>
+</svg>

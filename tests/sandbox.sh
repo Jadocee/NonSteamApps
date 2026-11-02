@@ -76,12 +76,12 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
     cat "$WORK/install.log"
     exit 1
 }
-everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher ProtonDB Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 13
+everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 14
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 13
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 14
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "13 13"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "14 14"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"

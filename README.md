@@ -17,13 +17,14 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 | **Netflix** | Netflix in Helium | Helium, full screen | Netflix's streaming service, full screen with no browser interface. |
 | **Disney+** | Disney+ in Helium | Helium, full screen | Disney's streaming service, full screen with no browser interface. |
 | **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. |
+| **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. Sign in with your Proton account. |
 
 ## Features
 
 - **No root, nothing lost on updates.** Apps install into your user Flatpak installation, which SteamOS updates leave alone. An app you already installed, for example through Discover, is used as it is and never uninstalled. The one step that needs your password is opening LocalSend's port when SteamOS's firewall is on, and NonSteamApps asks first.
 - **Every Steam account.** Each account on the device gets a shortcut, with artwork for the library, the capsule, the hero banner, the logo and the icon. The Steam overlay is off. The apps sit together in a **NonSteamApps** collection in the library.
 - **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
-- **Console-ready browser apps.** Helium, the streaming apps and ProtonDB open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
+- **Console-ready browser apps.** Helium, the streaming apps, ProtonDB and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
 - **Private by default.** Helium blocks ads and trackers with its built-in uBlock Origin. NonSteamApps' Helium profiles also send Global Privacy Control and keep no crash reports (see [Privacy, security and ad blocking](#privacy-security-and-ad-blocking)).
 - **Controller layouts.** YouTube gets Steam's Gamepad controller layout, and the Helium apps, Element, Signal and LocalSend get its Web Browser layout. Files and Prism Launcher get layouts of NonSteamApps' own, Files and Minecraft. Each app keeps a layout you have picked yourself.
 - **Updates.** A weekly timer updates the apps NonSteamApps installed, Helium included.
@@ -82,7 +83,7 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
 - **Files:** SteamOS's Dolphin, started with a TV profile that is kept apart from Desktop Mode's Dolphin. A single press opens a file or folder, the menu bar is hidden (the ☰ button holds the menu), and Files starts at your home folder each time. In Game Mode it is scaled for the TV (`TV_SCALE`) and drawn in KDE's own style. Desktop Mode's settings, bookmarks, file associations and trash still apply. What you change in Files stays in its profile, as do the settings of apps you open from it.
   - **Controls (Files layout):** the D-pad or left stick moves the selection, **A** opens, **B** or **L1** goes back, **Y** or **R1** goes forward, **X** shows the on-screen keyboard to rename or search, **R2** clicks and **L2** opens the menu for the item under the pointer, which the right stick or right trackpad moves. **View** cancels, and **Menu** closes the tab; closing the last one quits Files.
   - **The layout:** NonSteamApps makes it from Steam's Web Browser layout, for each controller type Steam has a Gamepad layout for, and saves it in Steam's `controller_base/templates` folder. If a Steam update removes it, the weekly update or `nonsteamapps steam add files` puts it back.
-- **Helium, Prime Video, HBO Max, Netflix, Disney+ and ProtonDB:** see [Helium apps](#helium-apps).
+- **Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB and Proton Calendar:** see [Helium apps](#helium-apps).
 
 ### On a TV: use its full resolution
 
@@ -101,7 +102,7 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | LocalSend | Shared by every account: it has no sign-in, and received files go to `~/Downloads` |
 | Prism Launcher | `~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher-steam-<ID>`, with Minecraft's assets, libraries and Java linked from Prism Launcher's own `data/PrismLauncher` |
 | Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
-| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
+| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Calendar | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
 
 Started from the applications menu, VacuumTube, Element and Signal use their usual data instead, and Jellyfin uses its default profile. To give every account the same data, set `PROFILE_PER_STEAM_ACCOUNT=0` in `~/.config/nonsteamapps/nonsteamapps.conf`.
 
@@ -110,17 +111,17 @@ Started from the applications menu, VacuumTube, Element and Signal use their usu
 Helium publishes no Flatpak, so NonSteamApps installs its signed release itself. It checks the signature against Helium's public key, keeps the installed version and the one before it in `~/.local/share/nonsteamapps/helium`, and updates it with the other apps. The apps run as follows:
 
 - **Helium** opens as a full browser, maximised.
-- **Prime Video**, **HBO Max**, **Netflix**, **Disney+** and **ProtonDB** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, press the Steam button and choose **Exit game**.
+- **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, press the Steam button and choose **Exit game**.
 
 Each app has its own Helium profile for each Steam account, so signing in to one never signs you in to another. Before every start, NonSteamApps sets up that profile for a console:
 
 - **No interruptions:** onboarding and welcome pages are marked as seen, and the last session is recorded as closed cleanly. Steam ends apps by signalling them, which would otherwise bring up "Restore pages?".
-- **Fewer prompts:** sites cannot ask to send notifications. The full-screen apps also turn off translation, password and address saving, and permission prompts.
+- **Fewer prompts:** sites cannot ask to send notifications, so Proton Calendar's reminders do not pop up; see them on your phone or computer instead. The full-screen apps also turn off translation, password and address saving, and permission prompts.
 - **Navigation:** the arrow keys move between links and buttons, as on a TV (Chromium's spatial navigation).
 - **Dark:** Helium's interface is dark, and so are sites that offer a dark theme. In the Helium app, **Settings → Appearance → Mode** switches back to light.
 - **Scale:** in Game Mode, pages are scaled so a TV shows a 720p-sized layout (1.5× at 1080p, 3× at 4K). Set `TV_SCALE` to choose a fixed scale.
 - **Video:** decoding uses the graphics chip (VA-API), and video plays without waiting for a click.
-- **Controllers:** the apps get Steam's Web Browser controller layout. The trackpads work as a mouse and scroll wheel, and **Steam + X** opens the on-screen keyboard. On the Steam Deck, **L1** and **R1** go back and forward, and the **Menu** button closes a tab. In ProtonDB, links to the Steam store and other sites open in a new tab, so **Menu** brings you back to ProtonDB. Change the layout under the controller icon on the app's library page.
+- **Controllers:** the apps get Steam's Web Browser controller layout. The trackpads work as a mouse and scroll wheel, and **Steam + X** opens the on-screen keyboard. On the Steam Deck, **L1** and **R1** go back and forward, and the **Menu** button closes a tab. In ProtonDB, links to the Steam store and other sites open in a new tab, so **Menu** brings you back to ProtonDB; Proton Calendar's links to Proton's other apps work the same way. Change the layout under the controller icon on the app's library page.
 
 ### Streaming apps: what to expect
 
@@ -294,6 +295,8 @@ To add an app:
 - [LocalSend](https://github.com/localsend/localsend) by Tien Do Nam and contributors.
 - [Helium](https://github.com/imputnet/helium) by imput, built on ungoogled-chromium.
 - [ProtonDB](https://www.protondb.com), where players report how well games run with Proton.
+- [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher) by its contributors, and the maintainers of its [Flathub package](https://github.com/flathub/org.prismlauncher.PrismLauncher).
+- [Dolphin](https://apps.kde.org/dolphin/) by KDE, as SteamOS ships it.
 - [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): reference for Steam's shortcut, artwork and controller conventions.
 
-NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, the Jellyfin project, LocalSend, imput, ProtonDB, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; other names belong to their owners. The artwork in this repository is original.
+NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, the Jellyfin project, LocalSend, imput, ProtonDB, Proton AG, KDE, the Prism Launcher project, Mojang Studios, Microsoft, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; Minecraft is a trademark of Mojang Synergies AB; other names belong to their owners. The artwork in this repository is original.

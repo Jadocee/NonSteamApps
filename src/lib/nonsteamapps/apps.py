@@ -537,6 +537,15 @@ APPS: Tuple[App, ...] = (
         controller=WEB_BROWSER,
         logo_position="BottomLeft:44:56",
     ),
+    App(
+        id="protoncalendar",
+        name="Proton Calendar",
+        client="Helium",
+        summary="Proton's end-to-end encrypted calendar, full screen in Helium",
+        browser=Browser(url="https://calendar.proton.me/", kiosk=True),
+        controller=WEB_BROWSER,
+        logo_position="BottomLeft:44:56",
+    ),
 )
 
 

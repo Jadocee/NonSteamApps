@@ -253,6 +253,11 @@ The owner answered the open questions. Where these answers differ from the text 
 
       The owner chose to skip Mullvad VPN.
 
+24. **Steam Play settings (owner request).** The owner asked for the best Steam Play compatibility tool for each app: none, Proton Experimental or another. For every app it is none.
+    - **Why:** every app is a native Linux program, started by NonSteamApps' launcher. That covers the Flathub apps, Helium and its sites, SteamOS's Dolphin, and Prism Launcher, whose Minecraft is Java. Proton, in any version, runs the launcher as a Windows program, which fails. The Steam Linux Runtime runs it in a container that hides Flatpak, the user's Helium and SteamOS's own apps. Each would stop the app starting.
+    - **How Steam stores it:** a tool forced on a non-Steam shortcut is kept in the install's `config/config.vdf`, under `InstallConfigStore/Software/Valve/Steam/CompatToolMapping` and the shortcut's 32-bit app ID. A shortcut without an entry, or with one that names no tool, runs natively [34]. Guides apply Proton to non-Steam games through this per-shortcut setting [35].
+    - **What NonSteamApps does:** `compat` removes any forced tool from NonSteamApps' shortcuts, as Steam ROM Manager's "none" does. It runs on `steam add`, so on every install and repair, while Steam is closed, and says which app it reset. It keeps a backup, and writes nothing when nothing needs to change; the file round-trips byte for byte. Removing an app drops its entries once no account has its shortcut, because Steam never prunes them. `doctor` reports a forced tool.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -290,3 +295,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 31. [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher): `launcher/Application.cpp` for `--dir`, its settings, the first-run wizard and data migration; `launcher/launch/LaunchTask.cpp` and `launcher/minecraft/MinecraftInstance.cpp` for quitting after the game
 32. [Flathub `org.prismlauncher.PrismLauncher`](https://github.com/flathub/org.prismlauncher.PrismLauncher): the manifest, which turns on the Java downloader
 33. [Flathub forum: Mullvad VPN](https://discourse.flathub.org/t/vpn-mullvad-vpn/2594), on why the app cannot be packaged; Flathub's repositories on GitHub have `net.mullvad.MullvadBrowser` and no Mullvad VPN app
+34. [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): `src/lib/compat-tool-manager.ts` and `src/lib/helpers/steam/list-compat-tools.ts`, which force or clear a shortcut's tool in `config.vdf`
+35. [Evetech: how to add a non-Steam game and run it with Proton](https://evezone.evetech.co.za/build-lab/how-to-add-a-non-steam-game-to-steam-and-run-it-with-proton), on forcing a tool per shortcut

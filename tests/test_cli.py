@@ -10,7 +10,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import apps, cli, collection, config, steam, vdf
+from nonsteamapps import apps, cli, collection, compat, config, steam, vdf
 
 
 class Exec(Exception):
@@ -470,6 +470,32 @@ class InformationTests(CliTestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+
+class SteamPlayTests(CliTestCase):
+    def force(self, app_id, tool):
+        app = apps.by_id(app_id)
+        appid = steam.shortcut_appid(steam.quote(str(self.paths.app_link(app.id))), app.name)
+        path = compat.config_file(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(vdf.dumps_pairs([("InstallConfigStore", [("Software", [("Valve", [("Steam", [("CompatToolMapping", [
+            (str(appid), [("name", tool), ("config", ""), ("priority", "250")]),
+            ("1245620", [("name", "proton_9"), ("config", ""), ("priority", "250")]),
+        ])])])])])]))
+        return appid
+
+    def test_a_forced_steam_play_tool_is_removed_so_the_app_runs_natively(self):
+        appid = self.force("localsend", "proton_experimental")
+        self.install("localsend")
+        self.assertIn("LocalSend no longer forces the Steam Play tool proton_experimental", self.errors)
+        self.assertEqual(compat.forced(self.root, [appid, 1245620]), {1245620: "proton_9"})
+        self.force("localsend", "steamlinuxruntime_sniper")
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn("forced to the Steam Play tool steamlinuxruntime_sniper", self.output)
+        self.assertEqual(self.run_cli("remove", "localsend", "--yes"), 0, self.errors)
+        self.assertNotIn(str(appid), compat.config_file(self.root).read_text())
+        self.assertEqual(compat.forced(self.root, [1245620]), {1245620: "proton_9"})
 
 
 class FilesTests(CliTestCase):

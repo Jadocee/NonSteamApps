@@ -251,7 +251,7 @@ The owner answered the open questions. Where these answers differ from the text 
       - Mullvad's own app, installed outside the read-only system with its daemon as a system service;
       - pacman, which item 18 ruled out.
 
-      They are put to the owner before anything is built.
+      The owner chose to skip Mullvad VPN.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

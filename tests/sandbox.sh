@@ -70,6 +70,10 @@ printf '%s\n' '"users"' '{' \
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
+YOUTUBE_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import steam; print(steam.shortcut_appid(steam.quote(sys.argv[2]), "YouTube"))' "$ROOT/src/lib" "$PROGRAM/apps/youtube")
+printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"' '{' '"CompatToolMapping"' '{' \
+    "\"$YOUTUBE_ID\" { \"name\" \"proton_experimental\" \"config\" \"\" \"priority\" \"250\" }" \
+    '"1245620" { "name" "proton_9" "config" "" "priority" "250" }' '}' '}' '}' '}' '}' >"$STEAM/config/config.vdf"
 
 echo "==> install.sh"
 run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
@@ -82,6 +86,7 @@ check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_name
 check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 14
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
 check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "14 14"
+check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"

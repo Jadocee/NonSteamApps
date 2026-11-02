@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import __version__, apps, browser, collection, config, controllers, display, layouts, legacy, steam, steamclient, timer, ui
+from . import __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, steam, steamclient, timer, ui
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
@@ -200,6 +200,7 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
     names = steam.account_names(root)
     found_layouts: Dict[str, Dict[str, str]] = {}
     added: Dict[int, List[int]] = {}
+    owners: Dict[int, App] = {}
     name = _collection_name(paths)
     with steamclient.closed(f"{paths.launcher} steam add", restart):
         for layout in layouts.used_by(app.controller for app in chosen):
@@ -210,6 +211,7 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
             for result in steam.add_shortcut(root, accounts, _spec(paths, app), artwork, logo, rename=False):
                 ui.ok(_report(result, "added" if result.created else "updated", names))
                 added.setdefault(result.account, []).append(result.appid)
+                owners[result.appid] = app
                 if app.controller:
                     if app.controller not in found_layouts:
                         found_layouts[app.controller] = controllers.find_templates(root, app.controller)
@@ -223,6 +225,9 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
                 collection.update(path, name, add=appids)
             else:
                 collection.delete(path)
+        native = compat.clear(root, owners)
+    for appid, tool in sorted(native.items()):
+        ui.ok(f"{owners[appid].name} no longer forces the Steam Play tool {tool}: like every NonSteamApps app, it runs natively")
     if name and len(waiting) < len(added):
         ui.ok(f'Put {_listing(chosen)} in the "{name}" collection')
     if name and waiting:
@@ -244,15 +249,19 @@ def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart
         return
     names = steam.account_names(root)
     name = _collection_name(paths) or DEFAULT_COLLECTION
+    removed: Dict[str, List[int]] = {}
     with steamclient.closed(f"{paths.launcher} steam remove", restart):
         for app in present:
             for result in steam.remove_shortcut(root, accounts, str(paths.app_link(app.id))):
                 ui.ok(_report(result, "removed", names))
+                removed.setdefault(app.id, []).append(result.appid)
                 path = collection.storage_file(root, result.account)
                 if path is not None:
                     collection.update(path, name, remove=[result.appid])
                 if app.controller:
                     controllers.release(root, result.account, result.name)
+        gone = [app for app in present if not steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id)))]
+        compat.clear(root, [appid for app in gone for appid in removed.get(app.id, [])], everything=True)
         for layout in layouts.used_by(app.controller for app in present):
             users = [app for app in apps.APPS if app.controller == layout.title]
             if not any(steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id))) for app in users):
@@ -682,8 +691,11 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
             continue
         print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium)}")
         if root:
-            for result in steam.shortcut_status(root, accounts, str(paths.app_link(app.id))):
+            results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
+            for result in results:
                 print(f"  {'':<10} {_report(result, 'in the library as', names)}")
+            for tool in sorted(set(compat.forced(root, [result.appid for result in results]).values())):
+                print(f"  {'':<10} forced to the Steam Play tool {tool}, so it may not start; run: {paths.launcher} steam add {app.id}")
         if app.browser or app.system:
             folders = sorted(path for path in (paths.profiles / app.id).glob("*") if path.is_dir())
         else:

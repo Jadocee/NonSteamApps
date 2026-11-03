@@ -77,6 +77,19 @@ class RecordTests(unittest.TestCase):
             loaded.discard("youtube")
             self.assertEqual(loaded.managed(), ["element"])
 
+    def test_apps_never_offered_are_new_and_old_records_count_what_they_do_not_manage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "apps.json"
+            path.write_text('{"version": 1, "apps": {"youtube": {}}}')
+            record = config.Record.load(path)
+            self.assertIsNone(record.offered)
+            self.assertEqual((record.is_new("youtube"), record.is_new("prism")), (False, True))
+            record.mark_offered(["youtube", "prism", "files"])
+            record.save()
+            loaded = config.Record.load(path)
+            self.assertEqual(loaded.offered, ["youtube", "prism", "files"])
+            self.assertEqual((loaded.is_new("prism"), loaded.is_new("protoncalendar")), (False, True))
+
     def test_corrupt_record_starts_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "apps.json"

@@ -119,6 +119,42 @@ class InstallTests(CliTestCase):
         self.assertEqual([call[-1] for call in self.fake.calls("install")], ["rocks.shy.VacuumTube"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
 
+    def write_record(self, managed, offered=None):
+        data = {"version": 1, "apps": {app_id: {"installed_flatpak": False} for app_id in managed}}
+        if offered is not None:
+            data["offered"] = offered
+        self.paths.record.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.record.write_text(json.dumps(data))
+
+    def test_rerunning_adds_the_apps_added_since_the_last_install_but_never_a_removed_one(self):
+        self.write_record(["youtube", "localsend"], [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")])
+        self.install()
+        self.assertIn("org.prismlauncher.PrismLauncher", [call[-1] for call in self.fake.calls("install")])
+        record = config.Record.load(self.paths.record)
+        self.assertEqual(record.managed(), ["youtube", "localsend", "prism", "protoncalendar"])
+        self.assertEqual(record.offered, [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")] + ["prism", "protoncalendar"])
+        self.assertEqual(self.run_cli("remove", "localsend", "--yes"), 0, self.errors)
+        self.install()
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "prism", "protoncalendar"])
+
+    def test_new_apps_declined_once_are_not_offered_again(self):
+        self.write_record(["youtube"])
+        asked = []
+
+        def confirm(question, default=False):
+            asked.append(question)
+            return not question.startswith("New in NonSteamApps")
+
+        options = ("--no-auto-update", "--helium-archive", str(self.helium_archive), "--skip-verify")
+        with mock.patch("nonsteamapps.ui.confirm", side_effect=confirm):
+            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
+            others = [app_id for app_id in apps.ids() if app_id != "youtube"]
+            self.assertIn(f"To add them later, run: {self.paths.launcher} install {' '.join(others)}", self.errors)
+            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
+        self.assertEqual(len([question for question in asked if question.startswith("New in NonSteamApps")]), 1)
+        self.assertTrue(asked[0].startswith("New in NonSteamApps since your last install: Element (Element Desktop), Signal (Signal Desktop)"))
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube"])
+
     def test_unknown_app_is_rejected(self):
         self.assertEqual(self.run_cli("install", "kodi", "--yes"), 1)
         self.assertIn("unknown app 'kodi'", self.errors)

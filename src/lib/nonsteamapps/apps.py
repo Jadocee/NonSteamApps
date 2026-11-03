@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
+from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -100,11 +100,13 @@ def _set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
 class IniSettings:
     """Values for one of an app's INI settings files, as Qt's QSettings and KDE's KConfig write them, at ``file`` in a folder.
 
-    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are.
+    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``new``
+    are further values a file NonSteamApps creates starts with.
     """
 
     file: str
     values: Tuple[Tuple[str, str, str], ...]
+    new: Tuple[Tuple[str, str, str], ...] = ()
 
     def target(self, folder: Path) -> Path:
         return Path(folder) / self.file
@@ -115,16 +117,36 @@ class IniSettings:
         Returns ``None``, and leaves the file alone, when it cannot be read as text.
         """
         path = self.target(folder)
+        fresh = False
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except FileNotFoundError:
-            lines = []
+            lines, fresh = [], True
         except (OSError, UnicodeDecodeError):
             return None
-        if not any([_set_ini(lines, group, key, value) for group, key, value in self.values]):
+        wanted = [*self.values, *(self.new if fresh else ())]
+        if not any([_set_ini(lines, group, key, value) for group, key, value in wanted]):
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
         return True
+
+
+def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
+    """The keys of ``[group]`` in an INI file that start with ``prefix``, with their values as they are written."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    found, current = [], ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped[1:-1]
+            continue
+        key, separator, value = stripped.partition("=")
+        if current == group and separator and key.startswith(prefix):
+            found.append((key, value))
+    return found
 
 
 Settings = Union[JsonSettings, IniSettings]
@@ -144,6 +166,42 @@ BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
     (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
 )
+KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),))
+STEAM_VIRTUAL_GAMEPAD = "03000000de280000ff11000001000000"
+
+
+def _eden_setting(group: str, key: str, value: str) -> Tuple[Tuple[str, str, str], ...]:
+    return ((group, f"{key}\\default", "false"), (group, key, value))
+
+
+def _eden_pad(binding: str) -> str:
+    return f'"engine:sdl,port:0,guid:{STEAM_VIRTUAL_GAMEPAD},{binding}"'
+
+
+EDEN_TV = (
+    *_eden_setting("UI", "fullscreen", "true"),
+    *_eden_setting("UI", "confirmStop", "2"),
+    *_eden_setting("UI", "gui_hide_backend_warning", "true"),
+    *_eden_setting("UI", "theme", "colorful_dark"),
+    *_eden_setting("UI", "UIGameList\\game_list_mode", "1"),
+    *_eden_setting("UI", "UIGameList\\game_icon_size", "256"),
+)
+EDEN_CONTROLS = tuple(
+    value
+    for key, binding in (
+        ("button_a", "button:1"), ("button_b", "button:0"), ("button_x", "button:3"), ("button_y", "button:2"),
+        ("button_lstick", "button:9"), ("button_rstick", "button:10"), ("button_l", "button:4"), ("button_r", "button:5"),
+        ("button_zl", "axis:2,threshold:0.5,invert:+"), ("button_zr", "axis:5,threshold:0.5,invert:+"),
+        ("button_plus", "button:7"), ("button_minus", "button:6"), ("button_home", "button:8"),
+        ("button_dleft", "hat:0,direction:left"), ("button_dup", "hat:0,direction:up"),
+        ("button_dright", "hat:0,direction:right"), ("button_ddown", "hat:0,direction:down"),
+        ("lstick", "axis_x:0,axis_y:1,offset_x:0.000000,offset_y:0.000000,invert_x:+,invert_y:+"),
+        ("rstick", "axis_x:3,axis_y:4,offset_x:0.000000,offset_y:0.000000,invert_x:+,invert_y:+"),
+    )
+    for value in _eden_setting("Controls", f"player_0_{key}", _eden_pad(binding))
+)
+EDEN_SETTINGS = IniSettings("user/config/qt-config.ini", EDEN_TV, new=EDEN_CONTROLS)
+EDEN_SHARED_SETTINGS = IniSettings("config/eden/qt-config.ini", EDEN_TV, new=EDEN_CONTROLS)
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
     tuple(("General", key, value) for key, value in (
@@ -289,6 +347,71 @@ class EnvProfile(FolderProfile):
 
 
 @dataclass(frozen=True)
+class PortableProfile(FolderProfile):
+    """Per-account data in a ``user`` folder in the app's working directory, in which the app then keeps everything, as Eden does.
+
+    ``flatpak run --cwd`` starts the app in the account's folder; ``argument`` is unused. ``settings`` are files
+    in that folder, and ``shared_settings`` the same settings at the app's own paths, for when accounts share
+    its data. ``shared_links`` pair a path in the account's folder with one in the ``shared`` data folder, which
+    it links to, so that games and what they need are kept once. ``carried`` are ``(group, key prefix)``
+    entries that a new account's first settings file takes from the most recently saved of the other accounts'
+    and the app's own: the settings that point at the shared games.
+    """
+
+    shared_settings: Tuple[IniSettings, ...] = ()
+    shared_links: Tuple[Tuple[str, str], ...] = ()
+    carried: Tuple[Tuple[str, str], ...] = ()
+
+    def arguments(self, app_home: Path, account: int) -> List[str]:
+        return []
+
+    def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
+        return list(args)
+
+    def run_options(self, app_home: Path, account: int) -> List[str]:
+        return [f"--cwd={self.path(app_home, account)}"]
+
+    def prepare(self, app_home: Path, account: int, run_app: RunApp) -> bool:
+        folder = self.path(app_home, account)
+        first = self.settings[0] if self.settings else None
+        fresh = first is not None and not first.target(folder).exists()
+        self._seed(folder)
+        shared = Path(app_home) / self.shared
+        for name, target_name in self.shared_links:
+            target, link = shared / target_name, folder / name
+            target.mkdir(parents=True, exist_ok=True)
+            link.parent.mkdir(parents=True, exist_ok=True)
+            if not link.exists() and not link.is_symlink():
+                link.symlink_to(os.path.relpath(target, link.parent), target_is_directory=True)
+        if fresh and self.carried and isinstance(first, IniSettings):
+            self._carry(Path(app_home), folder, first)
+        return True
+
+    def _carry(self, app_home: Path, folder: Path, settings: IniSettings) -> None:
+        sources = [settings.target(other) for other in self.existing(app_home) if other != folder]
+        sources += [shared.target(app_home) for shared in self.shared_settings[:1]]
+        files = [source for source in sources if source.is_file()]
+        if not files:
+            return
+        newest = max(files, key=lambda source: source.stat().st_mtime)
+        values = tuple((group, key, value) for group, prefix in self.carried for key, value in ini_entries(newest, group, prefix))
+        if values:
+            IniSettings(settings.file, values).apply(folder)
+
+    def prepare_shared(self, app_home: Path) -> None:
+        for settings in self.shared_settings:
+            if not settings.target(app_home).exists():
+                settings.apply(app_home)
+
+    def reset(self, app_home: Path, shared: bool = False) -> List[Path]:
+        """Put the ``settings`` back in each account's folder, and the ``shared_settings`` in the app's own data while accounts share it."""
+        changed = [folder for folder in self.existing(app_home) if any([settings.apply(folder) for settings in self.settings])]
+        if shared and any([settings.target(app_home).exists() and bool(settings.apply(app_home)) for settings in self.shared_settings]):
+            changed.append(Path(app_home))
+        return changed
+
+
+@dataclass(frozen=True)
 class JellyfinProfile:
     """Jellyfin Desktop's named profiles, which must exist before ``--profile`` can select one."""
 
@@ -351,7 +474,7 @@ class JellyfinProfile:
         return folders
 
 
-Profile = Union[FolderProfile, ScriptProfile, EnvProfile, JellyfinProfile]
+Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile]
 WEB_BROWSER = "Web Browser"
 GAMEPAD = "Gamepad"
 
@@ -399,6 +522,17 @@ class SystemApp:
         if game_mode:
             variables.update(self.game_mode)
         return variables
+
+
+@dataclass(frozen=True)
+class Release:
+    """An app NonSteamApps downloads itself from its project's GitHub releases, as it does for KytyPS5 (see :mod:`kyty`).
+
+    Each Steam account runs it from a folder of its own, where it keeps its data. ``settings`` are written there
+    when their files are missing and put back by every install.
+    """
+
+    settings: Tuple[IniSettings, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -461,7 +595,8 @@ CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
 
 @dataclass(frozen=True)
 class App:
-    """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), or one SteamOS includes (``system``).
+    """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
+    (``system``), or one it downloads from its project's releases (``release``).
 
     ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
     :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
@@ -490,6 +625,7 @@ class App:
     flatpak: str = ""
     browser: Optional[Browser] = None
     system: Optional[SystemApp] = None
+    release: Optional[Release] = None
     args: Tuple[str, ...] = ()
     profile: Optional[Profile] = None
     controller: str = ""
@@ -645,6 +781,48 @@ APPS: Tuple[App, ...] = (
         game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
         qt_window=True,
         notice="Prism Launcher asks for a language and the Microsoft account that owns Minecraft on its first start, once for each Steam account",
+    ),
+    App(
+        id="eden",
+        name="Eden",
+        client="Eden",
+        flatpak="dev.eden_emu.eden",
+        summary="Nintendo Switch games you own, through the Eden emulator, set up for a TV and a controller",
+        args=("-f",),
+        profile=PortableProfile(
+            "data/eden-steam-{account}",
+            "",
+            shared="data/eden",
+            settings=(EDEN_SETTINGS,),
+            shared_settings=(EDEN_SHARED_SETTINGS,),
+            shared_links=(
+                ("user/keys", "keys"),
+                ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
+                ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
+                ("user/load", "load"),
+                ("user/shader", "shader"),
+            ),
+            carried=(("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\")),
+        ),
+        controller=EMULATOR.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        qt_window=True,
+        notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
+    ),
+    App(
+        id="kytyps5",
+        name="KytyPS5",
+        client="KytyPS5",
+        summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
+        release=Release(settings=(KYTY_SETTINGS,)),
+        controller=EMULATOR.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        fullscreen_class="nonsteamapps-kytyps5",
+        notice="KytyPS5 plays only games you own, copied from your own console; it updates with `nonsteamapps update`, not every week",
     ),
     App(
         id="protonup",

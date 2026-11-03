@@ -76,6 +76,11 @@ class Paths:
         return self.program / "share" / "keys" / "helium.asc"
 
     @property
+    def kyty(self) -> Path:
+        """KytyPS5's builds; each Steam account's KytyPS5 data is in its profile."""
+        return self.program / "kytyps5"
+
+    @property
     def focus_extension(self) -> Path:
         """The Helium extension that outlines the link or button the arrow keys reach."""
         return self.program / "share" / "extensions" / "focus"

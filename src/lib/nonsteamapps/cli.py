@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient,
-    timer, ui, x11,
+    __version__, appmenu, apps, browser, collection, compat, config, controllers, display, kyty, layouts, legacy, links, selfupdate, steam,
+    steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -69,6 +69,10 @@ def _listing(chosen: Sequence[App]) -> str:
 
 def _runtime(paths: Paths) -> Runtime:
     return Runtime(paths.helium, paths.helium_key)
+
+
+def _kyty(paths: Paths) -> kyty.Runtime:
+    return kyty.Runtime(paths.kyty)
 
 
 def _firewall() -> Firewall:
@@ -317,6 +321,17 @@ def _install_helium(paths: Paths, archive: Optional[str], verify: bool) -> None:
     ui.ok(f"Installed Helium {version}")
 
 
+def _install_kyty(paths: Paths, archive: Optional[str], verify: bool) -> None:
+    runtime = _kyty(paths)
+    current = runtime.current()
+    if current and not archive:
+        ui.ok(f"KytyPS5 {kyty.describe(current)} is installed; {paths.launcher} update installs a newer build")
+        return
+    ui.log("Installing KytyPS5" + (f" from {archive}" if archive else " from its GitHub releases"))
+    tag = runtime.install(Path(archive) if archive else None, verify=verify)
+    ui.ok(f"Installed KytyPS5 {kyty.describe(tag)}")
+
+
 def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found: Optional[Installed]) -> None:
     if app.system:
         command = shutil.which(app.system.command)
@@ -325,7 +340,7 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
         else:
             ui.warn(f"{app.client} ({app.system.command}) was not found; SteamOS includes it, other systems install it from their own packages")
         record.add(app.id, installed_flatpak=False)
-    elif app.browser:
+    elif app.browser or app.release:
         record.add(app.id, installed_flatpak=False)
     elif found:
         version = f" {found.version}" if found.version else ""
@@ -345,6 +360,9 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
         return sum(browser.reset(folder, app.browser.kiosk) for folder in sorted((paths.profiles / app.id).glob("*")) if folder.is_dir())
     if app.system:
         return int(app.system.reset(paths.profile(app.id, None)))
+    if app.release:
+        homes = sorted(folder for folder in (paths.profiles / app.id).glob("*") if folder.is_dir() and folder.name != kyty.GAMES)
+        return sum(any([wanted.apply(home) for wanted in app.release.settings]) for home in homes)
     home = app.home(paths.home)
     count = len(app.profile.reset(home, shared=not separate)) if app.profile else 0
     if app.settings and home.is_dir() and any([wanted.apply(home) for wanted in app.settings]):
@@ -353,7 +371,7 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
 
 
 def _purge(paths: Paths, app: App) -> None:
-    if app.browser or app.system:
+    if app.browser or app.system or app.release:
         folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
     else:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
@@ -431,6 +449,14 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
 
     if any(app.browser for app in chosen):
         _install_helium(paths, args.helium_archive, not args.skip_verify)
+    if any(app.release for app in chosen):
+        try:
+            _install_kyty(paths, args.kytyps5_archive, not args.skip_verify)
+        except (kyty.KytyError, OSError) as exc:
+            if all(app.release for app in chosen):
+                raise ui.Abort(f"KytyPS5 was not installed: {exc}") from exc
+            ui.warn(f"KytyPS5 was not installed, so it is left out: {exc}")
+            chosen = [app for app in chosen if not app.release]
     installed = flatpak.installed() if any(app.flatpak for app in chosen) else {}
     for app in chosen:
         _install_app(paths, flatpak, record, app, installed.get(app.flatpak))
@@ -482,8 +508,20 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     if not args.keep_app and not any(app.browser for app in _managed(record)) and paths.helium.exists():
         _runtime(paths).remove()
         ui.ok("Removed Helium, which no other app uses")
+    if not args.keep_app and not any(app.release for app in _managed(record)) and paths.kyty.exists():
+        _unlink_kyty_homes(paths)
+        _kyty(paths).remove()
+        kept = (paths.profiles / "kytyps5").is_dir()
+        ui.ok("Removed KytyPS5's builds" + (f"; each Steam account's saves and settings stay in {paths.profiles / 'kytyps5'}" if kept else ""))
     ui.ok(f"Removed {_listing(chosen)}")
     return 0
+
+
+def _unlink_kyty_homes(paths: Paths) -> None:
+    """Remove the links to KytyPS5's programs from each account's folder, which keeps only KytyPS5's data."""
+    for home in sorted((paths.profiles / "kytyps5").glob("*")):
+        if home.is_dir() and home.name != kyty.GAMES:
+            kyty.unlink_home(home)
 
 
 def _parse_launch(argv: Sequence[str]) -> Tuple[str, str, bool, List[str]]:
@@ -540,6 +578,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _launch_helium(paths, app, account, extra)
     if app.system:
         return _launch_system(paths, app, extra)
+    if app.release:
+        return _launch_kyty(paths, app, account, extra)
     if account and app.profile:
         ready = app.profile.prepare(app.home(paths.home), account, lambda options: flatpak.run_quietly(app.flatpak, options))
         if not ready:
@@ -675,6 +715,48 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     return EXIT_ERROR
 
 
+def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence[str]) -> int:
+    """Start KytyPS5's launcher in the account's folder, which holds its settings and saves (see :mod:`kyty`).
+
+    The launcher runs a game through the program in ``$TERMINAL``; NonSteamApps' own runs it without a window.
+    """
+    runtime = _kyty(paths)
+    if not runtime.current():
+        raise ui.Abort(f"KytyPS5 is not installed; run: {paths.launcher} install {app.id}")
+    settings = config.read_settings(paths.settings)
+    home = paths.profile(app.id, account)
+    fresh = not (home / kyty.SETTINGS_FILE).exists()
+    launcher = runtime.prepare_home(home)
+    for name in kyty.share_game_data(home, paths.profiles / app.id / kyty.GAMES):
+        print(f"  {home / name} stays as it is: it holds what the shared folder already has")
+    for wanted in app.release.settings:
+        if not wanted.target(home).exists():
+            wanted.apply(home)
+    if fresh:
+        others = [path for path in sorted((paths.profiles / app.id).glob(f"*/{kyty.SETTINGS_FILE}")) if path.parent != home]
+        folders = kyty.game_folders(others)
+        if folders:
+            apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", folders),)).apply(home)
+            print(f"  starting with the game folders another account set up: {folders}")
+    game_mode = steamclient.in_game_mode()
+    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}
+    if factor:
+        variables.update(app.tv_scale.variables(factor))
+    if game_mode:
+        variables.update(app.game_mode_env)
+        variables.update(RESOURCE_NAME=app.fullscreen_class, SDL_APP_ID=app.fullscreen_class)
+    os.environ.update(variables)
+    os.chdir(home)
+    argv = [str(launcher), *extra]
+    print(f"  KytyPS5 {kyty.describe(runtime.current() or '')} in {home}: "
+          + " ".join([*(f"{name}={value}" for name, value in variables.items()), *argv]), flush=True)
+    if game_mode:
+        _tidy_window(app)
+    os.execv(argv[0], argv)
+    return EXIT_ERROR
+
+
 def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
     command = shutil.which(app.system.command)
     if not command:
@@ -724,7 +806,7 @@ def _update_program(args, paths: Paths) -> None:
     os.execv(str(paths.launcher), argv)
 
 
-def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequence[App]) -> None:
+def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequence[App], manual: bool = True) -> None:
     own_layouts = layouts.used_by(app.controller for app in managed)
     root = _steam_root() if own_layouts else None
     for layout in own_layouts if root else []:
@@ -737,6 +819,13 @@ def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequen
             ui.warn(f"could not update Helium: {exc}")
         else:
             ui.ok(f"Updated Helium to {version}" if version else "Helium is up to date")
+    if manual and any(app.release for app in managed):
+        try:
+            tag = _kyty(paths).update()
+        except (kyty.KytyError, OSError) as exc:
+            ui.warn(f"could not update KytyPS5: {exc}")
+        else:
+            ui.ok(f"Updated KytyPS5 to {kyty.describe(tag)}" if tag else "KytyPS5 is up to date")
     installed = flatpak.installed() if any(app.flatpak for app in managed) else {}
     ours = [
         app for app in managed
@@ -746,7 +835,7 @@ def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequen
         ui.log(f"Updating {_listing(ours)}")
         flatpak.update([app.flatpak for app in ours], quiet=ui.quiet)
         ui.ok("Apps are up to date")
-    elif not any(app.browser for app in managed):
+    elif not any(app.browser or app.release for app in managed):
         ui.info("NonSteamApps installed no apps to update; Discover updates the rest")
 
 
@@ -756,7 +845,7 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
         _update_program(args, paths)
     record = Record.load(paths.record)
     managed = _managed(record)
-    _update_apps(paths, flatpak, record, managed)
+    _update_apps(paths, flatpak, record, managed, manual=not args.apps_only)
     if args.apps_only or not managed:
         return 0
     message = config.install_defaults(paths.program / "share" / "config" / config.SETTINGS_FILE, paths.settings)
@@ -773,6 +862,10 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
 
 
 def cmd_rollback(args, paths: Paths, flatpak: Flatpak) -> int:
+    if args.app == "kytyps5":
+        tag = _kyty(paths).rollback()
+        ui.ok(f"Switched KytyPS5 back to {kyty.describe(tag)}")
+        return 0
     version = _runtime(paths).rollback()
     ui.ok(f"Switched Helium back to {version}")
     return 0
@@ -802,7 +895,9 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
     return 0
 
 
-def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None) -> str:
+def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None, build: Optional[str] = None) -> str:
+    if app.release:
+        return f"KytyPS5 {kyty.describe(build)}" if build else "not installed"
     if app.system:
         command = shutil.which(app.system.command)
         return f"{app.client} from the system ({command})" if command else f"not found ({app.system.command})"
@@ -819,8 +914,10 @@ def cmd_list(args, paths: Paths, flatpak: Flatpak) -> int:
     record = Record.load(paths.record)
     installed = flatpak.installed() if flatpak.available() else {}
     helium = _runtime(paths).current()
+    build = _kyty(paths).current()
     for app in apps.APPS:
-        status = _describe(app, record, installed.get(app.flatpak), helium if app.id in record.apps else None)
+        managed = app.id in record.apps
+        status = _describe(app, record, installed.get(app.flatpak), helium if managed else None, build if managed else None)
         managed = "in use" if app.id in record.apps else "available"
         print(f"{app.id:<10}{managed:<11}{status}")
         print(f"{'':<21}{app.summary}")
@@ -828,7 +925,8 @@ def cmd_list(args, paths: Paths, flatpak: Flatpak) -> int:
 
 
 def _size(path: Path) -> str:
-    total = sum(entry.stat().st_size for entry in path.rglob("*") if entry.is_file() and not entry.is_symlink())
+    """The size of what is only in ``path``: links, hard ones included, are not counted."""
+    total = sum(entry.stat().st_size for entry in path.rglob("*") if entry.is_file() and not entry.is_symlink() and entry.stat().st_nlink == 1)
     for unit in ("B", "KB", "MB", "GB"):
         if total < 1024 or unit == "GB":
             return f"{total:.0f} {unit}" if unit == "B" else f"{total:.1f} {unit}"
@@ -846,6 +944,15 @@ def _helium_status(paths: Paths, settings: Dict[str, str]) -> str:
     widevine = "downloaded" if any(runtime.widevine.glob("*/manifest.json")) else "not downloaded yet"
     return (f"{current}" + (f" (also {', '.join(others)})" if others else "")
             + f"; services {services}; Widevine {widevine}")
+
+
+def _kyty_status(paths: Paths) -> str:
+    runtime = _kyty(paths)
+    current = runtime.current()
+    if not current:
+        return "not installed"
+    others = [kyty.describe(tag) for tag in runtime.versions() if tag != current]
+    return kyty.describe(current) + (f" (also {', '.join(others)})" if others else "") + f"; newer builds with: {paths.launcher} update"
 
 
 def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
@@ -866,6 +973,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         ("Python", platform.python_version()),
         ("Flatpak", "available" if flatpak.available() else "not installed"),
         ("Helium", _helium_status(paths, settings)),
+        ("KytyPS5", _kyty_status(paths)),
         ("Firewall", _firewall_status(Record.load(paths.record))),
         ("TV scale", f"{_scale_setting(settings)} (Helium apps, {_names([app for app in apps.APPS if app.tv_scale])})"),
         ("Updates", timer.status(paths)),
@@ -880,17 +988,18 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
     names = steam.account_names(root) if root else {}
     print(ui.bold("Apps"))
     helium = _runtime(paths).current()
+    build = _kyty(paths).current()
     for app in apps.APPS:
         if app.id not in record.apps and (not app.flatpak or app.flatpak not in installed):
             continue
-        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium)}")
+        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build)}")
         if root:
             results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
             for result in results:
                 print(f"  {'':<10} {_report(result, 'in the library as', names)}")
             for tool in sorted(set(compat.forced(root, [result.appid for result in results]).values())):
                 print(f"  {'':<10} forced to the Steam Play tool {tool}, so it may not start; run: {paths.launcher} steam add {app.id}")
-        if app.browser or app.system:
+        if app.browser or app.system or app.release:
             folders = sorted(path for path in (paths.profiles / app.id).glob("*") if path.is_dir())
         else:
             folders = app.profile.existing(app.home(paths.home)) if app.profile else []
@@ -927,6 +1036,7 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
         _uninstall_flatpaks(flatpak, record, managed)
     timer.remove(paths)
     shutil.rmtree(paths.state, ignore_errors=True)
+    _unlink_kyty_homes(paths)
     if args.purge:
         shutil.rmtree(paths.config, ignore_errors=True)
         shutil.rmtree(paths.program)
@@ -971,7 +1081,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--no-steam", dest="steam", action="store_false", help="do not change the Steam library")
     sub.add_argument("--no-auto-update", dest="auto_update", action="store_false", help="do not install the weekly update timer")
     sub.add_argument("--helium-archive", metavar="FILE", help="install Helium from a release archive (its .asc signature beside it)")
-    sub.add_argument("--skip-verify", action="store_true", help="install Helium without checking its signature (not recommended)")
+    sub.add_argument("--kytyps5-archive", metavar="FILE",
+                     help="install KytyPS5 from a Linux build archive, named as its releases name them (KytyPS5-DATE-COMMIT-Linux-x86_64.tar.gz)")
+    sub.add_argument("--skip-verify", action="store_true",
+                     help="install Helium without checking its signature, or KytyPS5 without checking it against GitHub (not recommended)")
     restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_install)
@@ -988,12 +1101,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_list)
 
     sub = commands.add_parser("update", help="update NonSteamApps and the apps it installed, keeping your apps and their settings")
-    sub.add_argument("--apps-only", action="store_true", help="update only the apps and Helium, as the weekly timer does")
+    sub.add_argument("--apps-only", action="store_true", help="update only the apps and Helium, as the weekly timer does; KytyPS5 stays as it is")
     restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_update)
 
-    sub = commands.add_parser("rollback", help="switch Helium back to the version installed before")
+    sub = commands.add_parser("rollback", help="switch Helium, or KytyPS5, back to the version installed before")
+    sub.add_argument("app", nargs="?", choices=("helium", "kytyps5"), default="helium")
     common(sub)
     sub.set_defaults(func=cmd_rollback)
 
@@ -1033,7 +1147,7 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[Paths] = None, fl
         return args.func(args, paths, flatpak)
     except ui.Abort as exc:
         ui.error(str(exc))
-    except (steam.SteamError, FlatpakError, HeliumError, OSError) as exc:
+    except (steam.SteamError, FlatpakError, HeliumError, kyty.KytyError, OSError) as exc:
         ui.error(str(exc))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED

@@ -1,0 +1,8 @@
+#!/bin/sh
+# NonSteamApps' stand-in for a terminal, which KytyPS5's launcher finds
+# through $TERMINAL. It runs the game's command without a window, with its
+# output in KytyPS5's log, and with no key to wait for once the game ends.
+if [ "${1-}" = -e ]; then
+    shift
+fi
+exec "$@" </dev/null

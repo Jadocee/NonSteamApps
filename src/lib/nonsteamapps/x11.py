@@ -4,7 +4,8 @@ In Game Mode, gamescope gives a window that Steam started the screen's size only
 Any other window keeps the size it asked for, and is scaled to fit with black bars; gamescope ignores requests to
 maximise. Chromium makes a window one pixel smaller than the screen size it is given, but a full-screen request
 from another program makes it fill the screen while it keeps its tabs and address bar. This sends that request,
-as a desktop's window list would, to the windows of one ``WM_CLASS``, through libX11 with ctypes.
+as a desktop's window list would, to the windows of one ``WM_CLASS``, through libX11 with ctypes. Dialogs,
+windows that are transient for another shown window, keep their own size.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ SUBSTRUCTURE_REDIRECT = 1 << 20
 ADD = 1
 FROM_APPLICATION = 1
 
-Window = Tuple[int, str, str, bool]
+Window = Tuple[int, str, str, bool, int]
 
 
 class ClientMessage(ctypes.Structure):
@@ -77,6 +78,7 @@ def library() -> Optional[ctypes.CDLL]:
                                       ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)), ctypes.POINTER(ctypes.c_uint)]),
         "XGetClassHint": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ClassHint)]),
         "XGetWindowAttributes": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(Attributes)]),
+        "XGetTransientForHint": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]),
         "XSendEvent": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.POINTER(Event)]),
         "XSync": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_int]),
         "XFree": (ctypes.c_int, [ctypes.c_void_p]),
@@ -113,7 +115,8 @@ class Display:
         return text
 
     def windows(self) -> List[Window]:
-        """The root's child windows: their ID, ``WM_CLASS`` name and class, and whether they are shown and managed."""
+        """The root's child windows: their ID, ``WM_CLASS`` name and class, whether they are shown and managed, and the
+        window they are transient for (0 for none)."""
         root, parent = ctypes.c_ulong(), ctypes.c_ulong()
         children, count = ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
         if not self.lib.XQueryTree(self.handle, self.root, ctypes.byref(root), ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count)):
@@ -128,7 +131,9 @@ class Display:
                 continue
             name, kind = self._text(hint.res_name), self._text(hint.res_class)
             shown = bool(self.lib.XGetWindowAttributes(self.handle, window, ctypes.byref(attributes)))
-            found.append((window, name, kind, shown and attributes.map_state == IS_VIEWABLE and not attributes.override_redirect))
+            owner = ctypes.c_ulong()
+            transient = owner.value if self.lib.XGetTransientForHint(self.handle, window, ctypes.byref(owner)) else 0
+            found.append((window, name, kind, shown and attributes.map_state == IS_VIEWABLE and not attributes.override_redirect, transient))
         return found
 
     def fullscreen(self, window: int) -> None:
@@ -145,8 +150,17 @@ class Display:
 
 
 def matching(windows: Iterable[Window], wm_class: str, done: Set[int]) -> List[int]:
-    """The shown windows of ``wm_class`` (as ``WM_CLASS`` name or class) not yet made full screen."""
-    return [window for window, name, kind, shown in windows if shown and wm_class in (name, kind) and window not in done]
+    """The shown windows of ``wm_class`` (as ``WM_CLASS`` name or class) not yet made full screen, except dialogs.
+
+    A dialog is transient for another shown window. A main window may be transient for a hidden one, such as the
+    group leader Qt gives a dialog that is an app's main window.
+    """
+    windows = list(windows)
+    visible = {window for window, _, _, shown, _ in windows if shown}
+    return [
+        window for window, name, kind, shown, transient in windows
+        if shown and wm_class in (name, kind) and window not in done and transient not in visible
+    ]
 
 
 def running(pid: int) -> bool:

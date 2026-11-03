@@ -120,6 +120,7 @@ check "both accounts have every app in the NonSteamApps collection" test "$(coll
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
+check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
 check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
@@ -132,7 +133,8 @@ check "Jellyfin's profile for the account was created first" grep -qF '["run", "
 check "Jellyfin started with that profile" grep -qF '"--tv", "--fullscreen", "--profile=steam-222"]' "$WORK/flatpak.log"
 check "VacuumTube started with the account's folder" grep -qF "\"--portable=$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222\"]" "$WORK/flatpak.log"
 check "VacuumTube's new folder hides the Shorts and Podcasts tabs" grep -qF '"podcasts"' "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
-check "VacuumTube's folder records the settings change" grep -qF '"2.11.0"' "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/nonsteamapps.json"
+check "VacuumTube's folder records the settings changes" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/nonsteamapps.json" changes)" == '["2.11.0", "2.21.0"]'
+check "VacuumTube skips self-promotion and end cards" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_selfpromo) $(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_outro)" == "true true"
 check "the launch was logged" grep -q 'starting YouTube (VacuumTube) for Steam account 222' "$HOME_DIR/.local/state/nonsteamapps/youtube.log"
 run "$PROGRAM/apps/element" --steam-account 222
 check "Element's new profile quits when its window closes" grep -qF '"minimizeToTray": false' "$HOME_DIR/.var/app/im.riot.Riot/config/Element-steam-222/electron-config.json"

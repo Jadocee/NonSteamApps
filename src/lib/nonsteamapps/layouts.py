@@ -29,6 +29,9 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
 - **Bitwarden** is Tools with Bitwarden's shortcuts for what its menu bar holds, which Game Mode hides
   (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L), L1 searches it
   (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
+- **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
+  the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
+  home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down.
 """
 
 from __future__ import annotations
@@ -145,6 +148,12 @@ def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
     return group
 
 
+def _youtube(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "switch":
+        _hold(group, "button_escape", ["key_press LEFT_CONTROL, Reload", "key_press R"])
+    return group
+
+
 def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     group = _tools(source, group, base)
     if source == "switch":
@@ -231,7 +240,14 @@ BITWARDEN = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_bitwarden,
 )
-LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS)
+YOUTUBE = Layout(
+    slug="youtube",
+    title="YouTube (NonSteamApps)",
+    description="Steam's Gamepad layout, which VacuumTube reads as a controller, with View held to reload YouTube and refresh its home screen",
+    base="controller_neptune_gamepad_joystick.vdf",
+    change=_youtube,
+)
+LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

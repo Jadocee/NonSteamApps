@@ -719,12 +719,12 @@ class HeliumAppTests(CliTestCase):
         for account in (ALPHA, BETA):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
-            self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_gamepad_joystick.vdf")
+            self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_nonsteamapps_youtube.vdf")
             self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_webbrowser.vdf")
             self.assertEqual(self.configset(account).get("netflix").get("template"), "controller_neptune_nonsteamapps_browser.vdf")
         self.assertIn("Gave Element (Element Desktop) the Web Browser controller layout", self.errors)
         self.assertIn("Gave Helium, Prime Video (Helium), HBO Max (Helium), Netflix (Helium) and Disney+ (Helium) the Browser (NonSteamApps) controller layout", self.errors)
-        self.assertIn("Gave YouTube (VacuumTube) the Gamepad controller layout", self.errors)
+        self.assertIn("Gave YouTube (VacuumTube) the YouTube (NonSteamApps) controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
         self.assertEqual(sorted(self.configset()), ["helium", "netflix", "prime video", "youtube"])
 

@@ -11,13 +11,16 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS
+from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
+VACUUMTUBE_SKIPPED = ("sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "hook")
+VACUUMTUBE_SKIPS = tuple((f"sponsorblock_skip_{category}", True) for category in VACUUMTUBE_SKIPPED)
 VACUUMTUBE_DEFAULTS = {
     "sponsorblock": True,
+    **dict(VACUUMTUBE_SKIPS),
     "dearrow": True,
     "dislikes": True,
     "block_continue_watching": True,
@@ -155,6 +158,7 @@ VACUUMTUBE_TV = JsonSettings(
     (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
 )
 VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
+VACUUMTUBE_SEGMENTS = JsonSettings("config.json", tuple((f"sponsorblock_skip_{category}", True) for category in VACUUMTUBE_SKIPPED if category != "sponsor"))
 ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
 LOCALSEND_SETTINGS = JsonSettings(
     "data/org.localsend.localsend_app/shared_preferences.json",
@@ -476,7 +480,6 @@ class JellyfinProfile:
 
 Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile]
 WEB_BROWSER = "Web Browser"
-GAMEPAD = "Gamepad"
 
 
 @dataclass(frozen=True)
@@ -671,9 +674,9 @@ APPS: Tuple[App, ...] = (
             "--portable={folder}",
             shared="config/VacuumTube",
             settings=(VACUUMTUBE_SETTINGS,),
-            changes=(("2.11.0", VACUUMTUBE_TV),),
+            changes=(("2.11.0", VACUUMTUBE_TV), ("2.21.0", VACUUMTUBE_SEGMENTS)),
         ),
-        controller=GAMEPAD,
+        controller=YOUTUBE.title,
         legacy_exes=("~/.local/share/steamos-yt/bin/steamos-yt",),
         tv_scale=TvScale(
             argument="--force-device-scale-factor={factor}",

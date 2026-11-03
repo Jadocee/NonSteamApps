@@ -1,12 +1,12 @@
 /*
- * SteamOS theme for VacuumTube, from NonSteamApps: Game Mode's dark slate panels and blue focus on
- * YouTube's TV interface and VacuumTube's settings. It changes colours only. NonSteamApps writes this
- * file again at every start; to change it, copy it under another name and turn this one off in
- * VacuumTube's settings, under Custom CSS.
+ * SteamOS theme for VacuumTube, from NonSteamApps: Game Mode's dark slate and blue on YouTube's TV interface
+ * and VacuumTube's settings. It changes colours only, and finds YouTube's parts by their element names,
+ * the zylon-focus class YouTube gives what is highlighted, and named idomkey attributes, never by YouTube's
+ * minified class names, which change with each build. NonSteamApps writes this file again at every start;
+ * to change it, copy it under another name and turn this one off in VacuumTube's settings, under Custom CSS.
  */
 
 :root {
-    --nonsteamapps-darkest: #0e141b;
     --nonsteamapps-dark: #171d25;
     --nonsteamapps-panel: #23262e;
     --nonsteamapps-grey: #3d4450;
@@ -14,37 +14,22 @@
     --nonsteamapps-glow: rgba(26, 159, 255, 0.55);
 }
 
-.ytLrTvBrowseRendererHost,
-[class="ytVirtualListContainer"],
-.ytLrClassicSearchPageHost,
-.ytLrAccountSelectorHost,
-.ytLrTvSurfaceContentRendererContentHasOffsetInlineSearchBar {
+body:not(.WEB_PAGE_TYPE_WATCH):not(.WEB_PAGE_TYPE_SHORTS) {
     background-color: var(--nonsteamapps-dark) !important;
 }
 
-.ytLrGuideResponseContainer,
-.ytLrGuideResponseCollapsed .ytLrGuideResponseContainer,
-.ytLrAnimatedOverlaySidesheet .ytLrAnimatedOverlayContainer {
-    background-color: var(--nonsteamapps-darkest) !important;
-}
-
-.ytLrTileRendererFocused.ytLrTileRendererFocusAppearanceRing .ytLrTileRendererHeader::after {
+ytlr-tile-renderer.zylon-focus ytlr-tile-header-renderer::after {
     border-color: var(--nonsteamapps-blue) !important;
     box-shadow: 0 0 1.5rem var(--nonsteamapps-glow) !important;
 }
 
-.ytLrButtonListShape.ytLrButtonFocused {
+ytlr-button.zylon-focus,
+ytlr-guide-entry-renderer.zylon-focus > div > div {
     background-color: var(--nonsteamapps-blue) !important;
 }
 
-.ytLrTextBoxFocusable,
-.ytLrSearchVoiceMicButtonHost {
-    background-color: var(--nonsteamapps-panel) !important;
-}
-
-.ytLrProgressBarPlayed,
-.ytLrProgressBarPlayhead {
-    background-color: var(--nonsteamapps-blue) !important;
+ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"] {
+    background-image: linear-gradient(var(--nonsteamapps-blue), var(--nonsteamapps-blue)) !important;
 }
 
 #vt-settings-overlay-root {

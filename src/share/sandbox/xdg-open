@@ -1,0 +1,22 @@
+#!/bin/sh
+# NonSteamApps' xdg-open, first on PATH for an app that Steam starts in Game
+# Mode and for the Helium window that opens its links. Web links, and the
+# sign-in callbacks in $NONSTEAMAPPS_SCHEMES, go to NonSteamApps through the
+# pipe in $NONSTEAMAPPS_OPEN, so they open in front of the app instead of in
+# Steam's browser. Anything else goes to the usual xdg-open.
+url=${1-}
+forward=
+case $url in
+http://* | https://*) forward=1 ;;
+*:*)
+    for scheme in ${NONSTEAMAPPS_SCHEMES-}; do
+        case $url in "$scheme":*) forward=1 ;; esac
+    done
+    ;;
+esac
+# shellcheck disable=SC2016
+if [ -n "$forward" ] && [ "$#" -eq 1 ] && [ -p "${NONSTEAMAPPS_OPEN-}" ] &&
+    timeout 2 sh -c 'printf "%s\n" "$1" >"$2"' sh "$url" "$NONSTEAMAPPS_OPEN"; then
+    exit 0
+fi
+exec "${NONSTEAMAPPS_XDG_OPEN:-/usr/bin/xdg-open}" "$@"

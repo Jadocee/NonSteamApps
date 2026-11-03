@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
+from typing import Dict
 
 from . import ui
 from .config import Paths
@@ -25,18 +27,39 @@ def _systemctl(*args: str) -> bool:
         return False
 
 
+def _units(paths: Paths) -> Dict[Path, bytes]:
+    templates = paths.program / "share" / "systemd"
+    service = (templates / f"{UNIT}.service").read_text(encoding="utf-8").replace("@LAUNCHER@", str(paths.launcher))
+    return {
+        paths.systemd / f"{UNIT}.service": service.encode("utf-8"),
+        paths.systemd / f"{UNIT}.timer": (templates / f"{UNIT}.timer").read_bytes(),
+    }
+
+
+def _write_units(paths: Paths) -> bool:
+    changed = False
+    for path, content in _units(paths).items():
+        if not path.is_file() or path.read_bytes() != content:
+            atomic_write_bytes(path, content)
+            changed = True
+    return changed
+
+
 def install(paths: Paths) -> None:
     if not shutil.which("systemctl"):
         ui.warn(f"systemd is not available, so apps will not update automatically; run '{paths.launcher} update' now and then")
         return
-    templates = paths.program / "share" / "systemd"
-    service = (templates / f"{UNIT}.service").read_text(encoding="utf-8").replace("@LAUNCHER@", str(paths.launcher))
-    atomic_write_bytes(paths.systemd / f"{UNIT}.service", service.encode("utf-8"))
-    atomic_write_bytes(paths.systemd / f"{UNIT}.timer", (templates / f"{UNIT}.timer").read_bytes())
+    _write_units(paths)
     if _systemctl("daemon-reload") and _systemctl("enable", "--now", f"{UNIT}.timer"):
         ui.ok(f"Enabled weekly app updates ({UNIT}.timer)")
     else:
         ui.warn(f"could not enable {UNIT}.timer (no systemd user session?); run '{paths.launcher} update' now and then")
+
+
+def refresh(paths: Paths) -> None:
+    """Bring the timer's units up to date when it is installed, leaving it on or off as it is."""
+    if (paths.systemd / f"{UNIT}.timer").exists() and _write_units(paths) and shutil.which("systemctl"):
+        _systemctl("daemon-reload")
 
 
 def remove(paths: Paths) -> None:

@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17171D"/>
+      <stop offset="1" stop-color="#08080A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="300" cy="330" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3F5C99" stop-opacity="0.45"/>
+      <stop offset="0.5" stop-color="#3F5C99" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#3F5C99" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="420" cy="560" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F5C451" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#F5C451" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#F5C451" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2A33"/>
+      <stop offset="1" stop-color="#18181E"/>
+    </linearGradient>
+    <linearGradient id="p0" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B2A5C"/><stop offset="1" stop-color="#1C1530"/></linearGradient>
+    <linearGradient id="p1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F3A4D"/><stop offset="1" stop-color="#10202B"/></linearGradient>
+    <linearGradient id="p2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4A2F22"/><stop offset="1" stop-color="#22150F"/></linearGradient>
+    <linearGradient id="p3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#23402E"/><stop offset="1" stop-color="#102118"/></linearGradient>
+    <linearGradient id="p4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2E2A4F"/><stop offset="1" stop-color="#161427"/></linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#08080A" stop-opacity="0"/>
+      <stop offset="1" stop-color="#08080A" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B6E92"/>
+      <stop offset="1" stop-color="#141B2E"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <symbol id="emblem" viewBox="0 0 240 204">
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#screen)"/>
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#gloss)"/>
+      <circle cx="86" cy="86" r="27" fill="#F5C451"/>
+      <circle cx="86" cy="86" r="11" fill="#141B2E" fill-opacity="0.75"/>
+      <rect x="106" y="79" width="74" height="14" rx="7" fill="#F5C451"/>
+      <rect x="148" y="88" width="11" height="22" rx="4" fill="#F5C451"/>
+      <rect x="165" y="88" width="11" height="15" rx="4" fill="#F5C451"/>
+      <rect x="76" y="182" width="88" height="16" rx="8" fill="#8FA3C7"/>
+    </symbol>
+  </defs>
+  <rect width="600" height="900" fill="url(#bg)"/>
+  <rect width="600" height="900" fill="url(#glow)"/>
+  <rect width="600" height="900" fill="url(#glow2)"/>
+  <g>
+    <rect x="-30" y="690" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="-11.8" y="708.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="36.5" y="708.2" width="107.1" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="43.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="57.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="71.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="85.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="99.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="113.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <path d="M195 713.1 L198.1 720.8 L206.3 721.3 L200 726.6 L202 734.6 L195 730.2 L188 734.6 L190 726.6 L183.7 721.3 L191.9 720.8 Z" fill="#F5C451"/>
+    <rect x="250" y="690" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="268.2" y="708.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="316.5" y="708.2" width="87.8" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="323.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="337.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="351.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="365.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="379.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="393.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <path d="M475 713.1 L478.1 720.8 L486.3 721.3 L480 726.6 L482 734.6 L475 730.2 L468 734.6 L470 726.6 L463.7 721.3 L471.9 720.8 Z" fill="#F5C451"/>
+    <rect x="530" y="690" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="548.2" y="708.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="596.5" y="708.2" width="91.7" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="603.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="617.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="631.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="645.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="659.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="673.5" cy="736.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <rect x="-160" y="774" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="-141.8" y="792.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="-93.5" y="792.2" width="112.4" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="-86.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="-72.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="-58.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="-44.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="-30.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="-16.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <path d="M65 797.1 L68.1 804.8 L76.3 805.3 L70 810.6 L72 818.6 L65 814.2 L58 818.6 L60 810.6 L53.7 805.3 L61.9 804.8 Z" fill="#F5C451"/>
+    <rect x="120" y="774" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="138.2" y="792.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="186.5" y="792.2" width="114.4" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="193.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="207.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="221.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="235.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="249.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="263.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <path d="M345 797.1 L348.1 804.8 L356.3 805.3 L350 810.6 L352 818.6 L345 814.2 L338 818.6 L340 810.6 L333.7 805.3 L341.9 804.8 Z" fill="#F5C451"/>
+    <rect x="400" y="774" width="260" height="70" rx="15.4" fill="url(#tile)"/>
+    <rect x="418.2" y="792.2" width="33.6" height="33.6" rx="8.4" fill="#FFFFFF" fill-opacity="0.24"/>
+    <rect x="466.5" y="792.2" width="107" height="11.2" rx="5.6" fill="#FFFFFF" fill-opacity="0.3"/>
+    <circle cx="473.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="487.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="501.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="515.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="529.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+    <circle cx="543.5" cy="820.2" r="4.2" fill="#FFFFFF" fill-opacity="0.35"/>
+  </g>
+  <rect y="640" width="600" height="260" fill="url(#fade)"/>
+  <use href="#emblem" x="170" y="190" width="260" height="221" filter="url(#shadow)"/>
+  <text x="300" y="560" text-anchor="middle" font-family="Inter Display" font-weight="900" font-size="89.6" letter-spacing="-3.2" fill="#FFFFFF">Bitwarden</text>
+  <text x="306" y="622" text-anchor="middle" font-family="Inter" font-weight="600" font-size="28" letter-spacing="12" fill="#B8B8C4">PASSWORD MANAGER</text>
+</svg>

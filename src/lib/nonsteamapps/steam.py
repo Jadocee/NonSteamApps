@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 import os
 import re
 import zlib
@@ -85,6 +87,7 @@ class ShortcutResult:
     name: str
     created: bool = False
     artwork: List[Path] = field(default_factory=list)
+    changed: bool = True
 
     @property
     def game_id(self) -> int:
@@ -151,6 +154,17 @@ def find_steam_root(explicit: Optional[str] = None, home: Optional[Path] = None)
         if (resolved / "userdata").is_dir():
             return resolved
     return None
+
+
+def library_folders(root: Path) -> List[Path]:
+    """The folders of Steam's game libraries, as ``steamapps/libraryfolders.vdf`` lists them."""
+    try:
+        data = vdf.loads_text((Path(root) / "steamapps" / "libraryfolders.vdf").read_text(encoding="utf-8", errors="replace"))
+    except (OSError, vdf.VdfError):
+        return []
+    folders = data.get("libraryfolders")
+    entries = folders.values() if isinstance(folders, vdf.KeyValues) else []
+    return [Path(entry.get("path")) for entry in entries if isinstance(entry, vdf.KeyValues) and isinstance(entry.get("path"), str)]
 
 
 def account_ids(root: Path) -> List[int]:
@@ -299,6 +313,13 @@ class ShortcutsFile:
     def entries(self) -> List[vdf.KeyValues]:
         return [value for value in self.shortcuts.values() if isinstance(value, vdf.KeyValues)]
 
+    def dumps(self) -> bytes:
+        return vdf.dumps_binary(self.root)
+
+    def matches(self, spec: ShortcutSpec) -> List[vdf.KeyValues]:
+        """The shortcut for ``spec.exe``, or else one for any of ``spec.legacy_exes``."""
+        return self.find(spec.exe) or [entry for exe in spec.legacy_exes for entry in self.find(exe)]
+
     def find(self, exe: str) -> List[vdf.KeyValues]:
         return [entry for entry in self.entries() if _same_path(unquote(str(entry.get("Exe", ""))), exe)]
 
@@ -307,13 +328,15 @@ class ShortcutsFile:
         value = entry.get("appid")
         return to_unsigned32(value) if isinstance(value, int) else None
 
-    def upsert(self, spec: ShortcutSpec, rename: bool = True) -> Tuple[vdf.KeyValues, int, bool]:
+    def upsert(self, spec: ShortcutSpec, overwrite: bool = True) -> Tuple[vdf.KeyValues, int, bool]:
         """Add or refresh the shortcut whose executable is ``spec.exe``.
 
         Without one, an entry for any of ``spec.legacy_exes`` is taken over instead,
-        so the shortcut keeps its app ID, play time and per-game settings.
+        so the shortcut keeps its app ID, play time and per-game settings. ``overwrite``
+        sets the name, launch options and overlay back to ``spec``; without it, a name the
+        user gave, options they added and their overlay choice stay.
         """
-        matches = self.find(spec.exe) or [entry for exe in spec.legacy_exes for entry in self.find(exe)]
+        matches = self.matches(spec)
         if not matches:
             appid = shortcut_appid(quote(spec.exe), spec.name)
             entry = _new_entry(appid, spec)
@@ -323,12 +346,14 @@ class ShortcutsFile:
         entry = matches[0]
         for duplicate in matches[1:]:
             self._drop(duplicate)
-        if rename or not entry.get("AppName"):
+        if overwrite or not entry.get("AppName"):
             entry.set("AppName", spec.name)
         entry.set("Exe", quote(spec.exe))
         entry.set("StartDir", quote(spec.start_dir))
-        entry.set("LaunchOptions", merge_launch_options(str(entry.get("LaunchOptions", "")), spec.launch_options))
-        entry.set("AllowOverlay", int(spec.overlay), vdf.INT32)
+        options = spec.launch_options if overwrite else merge_launch_options(str(entry.get("LaunchOptions", "")), spec.launch_options)
+        entry.set("LaunchOptions", options)
+        if overwrite or entry.get("AllowOverlay") is None:
+            entry.set("AllowOverlay", int(spec.overlay), vdf.INT32)
         if spec.icon:
             entry.set("icon", spec.icon)
         appid = self.entry_appid(entry)
@@ -361,7 +386,7 @@ class ShortcutsFile:
             self.shortcuts.set(str(index), entry, vdf.MAP)
 
     def save(self, backup: bool = True) -> None:
-        data = vdf.dumps_binary(self.root)
+        data = self.dumps()
         if backup and self.path.exists():
             atomic_write_bytes(self.path.with_name(self.path.name + BACKUP_SUFFIX), self.path.read_bytes())
         atomic_write_bytes(self.path, data)
@@ -376,16 +401,41 @@ def artwork_targets(grid_dir: Path, appid: int) -> Iterable[Path]:
     yield Path(grid_dir) / f"{appid}.json"
 
 
-def install_artwork(
-    grid_dir: Path,
-    appid: int,
-    sources: Dict[str, Path],
-    logo_position: Optional[LogoPosition] = None,
-) -> Dict[str, Path]:
-    """Copy artwork into Steam's grid folder using the names Steam looks up."""
-    appid = to_unsigned32(appid)
-    grid_dir = Path(grid_dir)
-    installed: Dict[str, Path] = {}
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+class ArtworkRecord:
+    """What NonSteamApps last wrote into Steam's grid folders, by file, to tell its artwork from artwork chosen since."""
+
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self.path = Path(path) if path else None
+        self.files: Dict[str, str] = {}
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8")) if self.path else {}
+        except (OSError, ValueError):
+            data = {}
+        if isinstance(data, dict):
+            self.files = {name: digest for name, digest in data.items() if isinstance(digest, str)}
+
+    def note(self, path: Path) -> None:
+        self.files[str(path)] = _digest(Path(path).read_bytes())
+
+    def custom(self, path: Path, wanted: Optional[str] = None) -> bool:
+        """Whether ``path`` holds something NonSteamApps neither wrote nor would write now (``wanted``, a digest)."""
+        if not Path(path).is_file():
+            return False
+        digest = _digest(Path(path).read_bytes())
+        return digest != self.files.get(str(path)) and digest != wanted
+
+    def save(self) -> None:
+        if self.path:
+            atomic_write_json(self.path, {name: digest for name, digest in sorted(self.files.items()) if Path(name).is_file()})
+
+
+def _artwork_plan(grid_dir: Path, appid: int, sources: Dict[str, Path], record: ArtworkRecord, keep_custom: bool) -> Dict[str, Tuple[Path, Path]]:
+    """Map each slot to write to its source and destination; with ``keep_custom``, slots holding the user's artwork are left out."""
+    plan: Dict[str, Tuple[Path, Path]] = {}
     for slot, source in sources.items():
         if slot not in ARTWORK_SLOTS:
             raise SteamError(f"unknown artwork slot {slot!r}")
@@ -393,18 +443,47 @@ def install_artwork(
         if not source.is_file():
             raise SteamError(f"artwork file not found: {source}")
         stem = ARTWORK_SLOTS[slot].format(appid=appid)
-        suffix = source.suffix.lower() or ".png"
+        destination = grid_dir / f"{stem}{source.suffix.lower() or '.png'}"
+        if keep_custom:
+            wanted = _digest(source.read_bytes())
+            candidates = [grid_dir / f"{stem}{extension}" for extension in ARTWORK_EXTENSIONS]
+            if any(record.custom(path, wanted if path == destination else None) for path in candidates):
+                continue
+        plan[slot] = (source, destination)
+    return plan
+
+
+def install_artwork(
+    grid_dir: Path,
+    appid: int,
+    sources: Dict[str, Path],
+    logo_position: Optional[LogoPosition] = None,
+    record: Optional[ArtworkRecord] = None,
+    keep_custom: bool = False,
+) -> Dict[str, Path]:
+    """Copy artwork into Steam's grid folder using the names Steam looks up, and note it in ``record``.
+
+    With ``keep_custom``, a slot, or the logo position, holding artwork the user chose since stays as it is.
+    """
+    appid = to_unsigned32(appid)
+    grid_dir = Path(grid_dir)
+    record = record if record is not None else ArtworkRecord()
+    installed: Dict[str, Path] = {}
+    for slot, (source, destination) in _artwork_plan(grid_dir, appid, sources, record, keep_custom).items():
         for extension in ARTWORK_EXTENSIONS:
-            stale = grid_dir / f"{stem}{extension}"
-            if extension != suffix and stale.exists():
+            stale = destination.with_suffix(extension)
+            if stale != destination and stale.exists():
                 stale.unlink()
-        destination = grid_dir / f"{stem}{suffix}"
         atomic_copy(source, destination)
+        record.note(destination)
         installed[slot] = destination
     if logo_position is not None:
         destination = grid_dir / f"{appid}.json"
-        atomic_write_json(destination, logo_position.to_json(), compact=True)
-        installed["logo_position"] = destination
+        content = json.dumps(logo_position.to_json(), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if not (keep_custom and record.custom(destination, _digest(content))):
+            atomic_write_bytes(destination, content)
+            record.note(destination)
+            installed["logo_position"] = destination
     return installed
 
 
@@ -436,23 +515,44 @@ def add_shortcut(
     spec: ShortcutSpec,
     artwork: Optional[Dict[str, Path]] = None,
     logo_position: Optional[LogoPosition] = None,
-    rename: bool = True,
+    overwrite: bool = True,
     backup: bool = True,
+    record: Optional[ArtworkRecord] = None,
+    create: bool = True,
+    dry_run: bool = False,
+    save: bool = True,
 ) -> List[ShortcutResult]:
-    """Create or refresh the shortcut and its artwork for every account in ``accounts``."""
+    """Create or refresh the shortcut and its artwork for every account in ``accounts``.
+
+    ``overwrite`` makes the shortcut, its icon and its artwork NonSteamApps' again. Without it, what the
+    user changed stays (see :meth:`ShortcutsFile.upsert` and :func:`install_artwork`), and without ``create``
+    an account that lacks the shortcut is skipped. ``dry_run`` writes nothing and ``save=False`` writes only
+    the artwork; each result says whether the shortcut itself changed.
+    """
     results = []
+    record = record if record is not None else ArtworkRecord()
     for account in accounts:
         directory = config_dir(root, account)
         shortcuts = ShortcutsFile.load(directory / "shortcuts.vdf")
+        if not create and not shortcuts.matches(spec):
+            continue
+        before = shortcuts.dumps() if shortcuts.path.exists() else b""
         options = spec.launch_options.replace(ACCOUNT_PLACEHOLDER, str(account))
-        entry, appid, created = shortcuts.upsert(dataclasses.replace(spec, launch_options=options), rename=rename)
-        installed = install_artwork(directory / "grid", appid, artwork or {}, logo_position)
-        if "icon" in installed:
-            entry.set("icon", str(installed["icon"]))
-        shortcuts.save(backup=backup)
-        results.append(
-            ShortcutResult(account, appid, str(entry.get("AppName", spec.name)), created, list(installed.values()))
-        )
+        entry, appid, created = shortcuts.upsert(dataclasses.replace(spec, launch_options=options), overwrite=overwrite)
+        grid = directory / "grid"
+        if dry_run:
+            planned = _artwork_plan(grid, to_unsigned32(appid), artwork or {}, record, not overwrite)
+            installed = {slot: destination for slot, (_, destination) in planned.items()}
+        else:
+            installed = install_artwork(grid, appid, artwork or {}, logo_position, record, keep_custom=not overwrite)
+        icon = installed.get("icon")
+        if icon and (overwrite or str(entry.get("icon", "")) in ("", str(icon))):
+            entry.set("icon", str(icon))
+        changed = shortcuts.dumps() != before
+        if changed and save and not dry_run:
+            shortcuts.save(backup=backup)
+        files = [] if dry_run else list(installed.values())
+        results.append(ShortcutResult(account, appid, str(entry.get("AppName", spec.name)), created, files, changed))
     return results
 
 

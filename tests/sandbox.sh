@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
 # fake flatpak, a running fake firewall, a stand-in Helium release and two Steam
-# accounts, launches through the links Steam runs, and uninstall.sh. Needs bash,
+# accounts, launches through the links Steam runs, an update that keeps what the
+# user changed, an install that puts it back, and uninstall.sh. Needs bash,
 # python3 and xz.
 set -Eeuo pipefail
 
@@ -42,6 +43,32 @@ print(" ".join(sorted(entry.get("AppName") for entry in entries)))
 EOF
 }
 
+rename_shortcut() {
+    python3 -I - "$ROOT/src/lib" "$STEAM/userdata/$1/config/shortcuts.vdf" "$2" "$3" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from nonsteamapps import steam
+shortcuts = steam.ShortcutsFile.load(sys.argv[2])
+for entry in shortcuts.entries():
+    if entry.get("AppName") == sys.argv[3]:
+        entry.set("AppName", sys.argv[4])
+shortcuts.save(backup=False)
+EOF
+}
+
+shortcut_named() {
+    python3 -I - "$ROOT/src/lib" "$STEAM/userdata/$1/config/shortcuts.vdf" "$2" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+from nonsteamapps import steam
+sys.exit(0 if sys.argv[3] in [entry.get("AppName") for entry in steam.ShortcutsFile.load(sys.argv[2]).entries()] else 1)
+EOF
+}
+
+json_value() {
+    python3 -I -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]]))' "$1" "$2"
+}
+
 collection_size() {
     python3 -I - "$ROOT/src/lib" "$STEAM" "$1" <<'EOF'
 import sys
@@ -52,7 +79,7 @@ print(len(collection.members(collection.storage_file(Path(sys.argv[2]), int(sys.
 EOF
 }
 
-mkdir -p "$WORK/bin" "$STEAM/userdata/111/config" "$STEAM/userdata/222/config" "$STEAM/config"
+mkdir -p "$WORK/bin" "$WORK/sdcard" "$STEAM/userdata/111/config" "$STEAM/userdata/222/config" "$STEAM/config" "$STEAM/steamapps"
 for account in 111 222; do
     mkdir -p "$STEAM/userdata/$account/config/cloudstorage"
     echo '[[1,"798"]]' >"$STEAM/userdata/$account/config/cloudstorage/cloud-storage-namespaces.json"
@@ -67,6 +94,7 @@ printf '%s\n' '"users"' '{' \
     '  "76561197960265839" { "AccountName" "alpha" "PersonaName" "Alpha" "MostRecent" "1" }' \
     '  "76561197960265950" { "AccountName" "beta" "PersonaName" "Beta" "MostRecent" "0" }' \
     '}' >"$STEAM/config/loginusers.vdf"
+printf '%s\n' '"libraryfolders"' '{' "\"0\" { \"path\" \"$STEAM\" }" "\"1\" { \"path\" \"$WORK/sdcard\" }" '}' >"$STEAM/steamapps/libraryfolders.vdf"
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
@@ -80,15 +108,16 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
     cat "$WORK/install.log"
     exit 1
 }
-everything="Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 14
+everything="Bitwarden Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 17
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 14
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 17
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "14 14"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "17 17"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
+check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
 echo "==> launch through the link Steam runs"
@@ -120,6 +149,38 @@ run "$PROGRAM/apps/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"
 check "the TV profile starts without the menu bar" grep -qxF "MenuBar=Disabled" "$PROGRAM/profiles/files/shared/config/dolphinrc"
+run "$PROGRAM/apps/bitwarden" --steam-account 222
+BITWARDEN="$HOME_DIR/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-222"
+check "Bitwarden started with the account's folder and its tokens on disk" grep -qF "[\"run\", \"--env=BITWARDEN_APPDATA_DIR=$BITWARDEN\", \"--env=ACCESS_TOKEN_LOCATION=DISK\", \"com.bitwarden.desktop\"]" "$WORK/flatpak.log"
+check "Bitwarden quits when its window closes" test "$(json_value "$BITWARDEN/data.json" global_desktopSettings_runInBackground)" == "false"
+run "$PROGRAM/apps/localsend" --steam-account 222
+check "LocalSend starts dark, in its OLED colours" test "$(json_value "$HOME_DIR/.var/app/org.localsend.localsend_app/data/org.localsend.localsend_app/shared_preferences.json" flutter.ls_color)" == '"oled"'
+run "$PROGRAM/apps/protonup" --steam-account 222
+check "ProtonUp-Qt started without its own gamepad input and with every Steam library" grep -qF "[\"run\", \"--env=PUPGUI2_DISABLE_GAMEPAD=1\", \"--filesystem=$STEAM\", \"--filesystem=$WORK/sdcard\", \"net.davidotek.pupgui2\"]" "$WORK/flatpak.log"
+check "ProtonUp-Qt starts in the Steam Deck theme" grep -qxF "theme=steam" "$HOME_DIR/.var/app/net.davidotek.pupgui2/config/pupgui/config.ini"
+run "$PROGRAM/apps/protontricks" --steam-account 222
+check "Protontricks opened its game picker with the SD card's library" grep -qF "\"--filesystem=$WORK/sdcard\", \"com.github.Matoking.protontricks\", \"--no-term\", \"--gui\"]" "$WORK/flatpak.log"
+
+VACUUMTUBE="$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
+echo "==> update keeps what the user changed"
+rename_shortcut 222 YouTube "My Tube"
+python3 -I -c 'import json, sys; data = json.load(open(sys.argv[1])); data["disabled_tabs"] = []; json.dump(data, open(sys.argv[1], "w"))' "$VACUUMTUBE"
+run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/bin/nonsteamapps" update --yes >"$WORK/update.log" 2>&1 || {
+    cat "$WORK/update.log"
+    exit 1
+}
+check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 17
+check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
+check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"
+
+echo "==> installing again puts NonSteamApps' set-up back"
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --skip-verify >"$WORK/reinstall.log" 2>&1 || {
+    cat "$WORK/reinstall.log"
+    exit 1
+}
+check "the shortcut is called YouTube again" test "$(shortcut_names 222)" == "$everything"
+check "VacuumTube hides the Shorts and Podcasts tabs again" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == '["shorts", "podcasts"]'
 
 echo "==> uninstall.sh"
 run "$ROOT/uninstall.sh" --yes >"$WORK/uninstall.log" 2>&1 || {

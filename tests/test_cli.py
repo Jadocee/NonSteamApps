@@ -10,7 +10,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import apps, cli, collection, compat, config, steam, vdf
+from nonsteamapps import __version__, apps, cli, collection, compat, config, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -22,6 +22,8 @@ def fake_exec(file, argv):
 
 
 class CliTestCase(unittest.TestCase):
+    self_update = False
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name) / "home"
@@ -38,6 +40,10 @@ class CliTestCase(unittest.TestCase):
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
         ]
+        if not self.self_update:
+            patches.append(mock.patch("nonsteamapps.cli._update_program"))
+        self.watch = mock.patch("nonsteamapps.cli.x11.watch")
+        patches.append(self.watch)
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -63,6 +69,21 @@ class CliTestCase(unittest.TestCase):
         data = (steam.config_dir(self.root, account) / "shortcuts.vdf").read_bytes()
         return {entry.get("AppName"): entry for entry in vdf.loads_binary(data).get("shortcuts").values()}
 
+    def customise(self, account=ALPHA):
+        """Rename YouTube's shortcut, add a launch option, choose its hero and change its TV settings, as a user might."""
+        path = steam.config_dir(self.root, account) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        entry = shortcuts.find(str(self.paths.app_link("youtube")))[0]
+        entry.set("AppName", "My Tube")
+        entry.set("LaunchOptions", f"--steam-account {account} --debug-gpu")
+        shortcuts.save()
+        hero = steam.config_dir(self.root, account) / "grid" / f"{steam.to_unsigned32(entry.get('appid'))}_hero.jpg"
+        hero.write_bytes(b"chosen in Steam")
+        self.launch("youtube", "--steam-account", str(account))
+        settings = apps.by_id("youtube").home(self.home) / f"config/VacuumTube-steam-{account}/config.json"
+        settings.write_text(json.dumps({"disabled_tabs": [], "fullscreen": False, "volume": 80}))
+        return hero, settings
+
     def launch(self, *argv):
         with mock.patch("nonsteamapps.cli.os.execvp", side_effect=fake_exec), \
                 mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), \
@@ -78,13 +99,14 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
-            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "org.jellyfin.JellyfinDesktop", "org.localsend.localsend_app",
-             "org.prismlauncher.PrismLauncher"],
+            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
+             "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "net.davidotek.pupgui2", "com.github.Matoking.protontricks"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
-            [app.id for app in apps.APPS if record.owns_flatpak(app.id)], ["youtube", "element", "signal", "jellyfin", "localsend", "prism"]
+            [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -113,47 +135,33 @@ class InstallTests(CliTestCase):
         self.assertIn("    Sign-ins:  separate for each Steam account\n", self.errors)
         self.assertNotIn("Note:", self.errors)
 
-    def test_rerunning_without_names_repairs_only_the_apps_in_use(self):
+    def test_rerunning_without_names_installs_every_app_and_puts_back_their_set_up(self):
         self.install("youtube")
+        hero, settings = self.customise()
         self.install()
-        self.assertEqual([call[-1] for call in self.fake.calls("install")], ["rocks.shy.VacuumTube"])
-        self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
+        self.assertEqual([call[-1] for call in self.fake.calls("install")], [app.flatpak for app in apps.APPS if app.flatpak])
+        entries = self.entries(ALPHA)
+        self.assertEqual(sorted(entries), sorted(app.name for app in apps.APPS))
+        self.assertEqual(entries["YouTube"].get("LaunchOptions"), f"--steam-account {ALPHA}")
+        self.assertEqual(hero.read_bytes(), (self.paths.artwork("youtube") / "hero.jpg").read_bytes())
+        data = json.loads(settings.read_text())
+        self.assertEqual((data["disabled_tabs"], data["fullscreen"], data["volume"]), (["shorts", "podcasts"], True, 80))
+        self.assertIn("Put back YouTube's TV settings (1 data folder); sign-ins are kept", self.errors)
 
-    def write_record(self, managed, offered=None):
-        data = {"version": 1, "apps": {app_id: {"installed_flatpak": False} for app_id in managed}}
-        if offered is not None:
-            data["offered"] = offered
-        self.paths.record.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.record.write_text(json.dumps(data))
-
-    def test_rerunning_adds_the_apps_added_since_the_last_install_but_never_a_removed_one(self):
-        self.write_record(["youtube", "localsend"], [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")])
-        self.install()
-        self.assertIn("org.prismlauncher.PrismLauncher", [call[-1] for call in self.fake.calls("install")])
-        record = config.Record.load(self.paths.record)
-        self.assertEqual(record.managed(), ["youtube", "localsend", "prism", "protoncalendar"])
-        self.assertEqual(record.offered, [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")] + ["prism", "protoncalendar"])
-        self.assertEqual(self.run_cli("remove", "localsend", "--yes"), 0, self.errors)
-        self.install()
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "prism", "protoncalendar"])
-
-    def test_new_apps_declined_once_are_not_offered_again(self):
-        self.write_record(["youtube"])
+    def test_a_full_install_asks_first_and_declining_changes_nothing(self):
+        self.install("youtube")
         asked = []
 
-        def confirm(question, default=False):
+        def confirm(question, default=False, unattended=None):
             asked.append(question)
-            return not question.startswith("New in NonSteamApps")
+            return False
 
-        options = ("--no-auto-update", "--helium-archive", str(self.helium_archive), "--skip-verify")
         with mock.patch("nonsteamapps.ui.confirm", side_effect=confirm):
-            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
-            others = [app_id for app_id in apps.ids() if app_id != "youtube"]
-            self.assertIn(f"To add them later, run: {self.paths.launcher} install {' '.join(others)}", self.errors)
-            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
-        self.assertEqual(len([question for question in asked if question.startswith("New in NonSteamApps")]), 1)
-        self.assertTrue(asked[0].startswith("New in NonSteamApps since your last install: Element (Element Desktop), Signal (Signal Desktop)"))
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube"])
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
+        self.assertTrue(asked[0].startswith("Install YouTube (VacuumTube), Element (Element Desktop), "))
+        self.assertIn("The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept.", asked[0])
+        self.assertIn(f"or update the apps you have with: {self.paths.launcher} update", self.errors)
+        self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
 
     def test_unknown_app_is_rejected(self):
         self.assertEqual(self.run_cli("install", "kodi", "--yes"), 1)
@@ -172,12 +180,17 @@ class InstallTests(CliTestCase):
         calls = Path(self.tmp.name) / "systemctl.log"
         (bin_dir / "systemctl").write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
         (bin_dir / "systemctl").chmod(0o755)
+        service = self.paths.systemd / "nonsteamapps-update.service"
         with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
             self.assertEqual(self.run_cli("install", "youtube", "--yes"), 0, self.errors)
-            service = (self.paths.systemd / "nonsteamapps-update.service").read_text()
-            self.assertIn(f'ExecStart="{self.paths.launcher}" update --quiet', service)
+            self.assertIn(f'ExecStart="{self.paths.launcher}" update --quiet --apps-only\n', service.read_text())
             self.assertIn("--user enable --now nonsteamapps-update.timer", calls.read_text())
-            self.assertEqual(self.run_cli("install", "--yes", "--no-auto-update"), 0, self.errors)
+            service.write_text("from an older NonSteamApps")
+            reloads = calls.read_text().count("daemon-reload")
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            self.assertIn("update --quiet --apps-only", service.read_text())
+            self.assertEqual(calls.read_text().count("daemon-reload"), reloads + 1)
+            self.assertEqual(self.run_cli("install", "youtube", "--yes", "--no-auto-update"), 0, self.errors)
         self.assertFalse((self.paths.systemd / "nonsteamapps-update.timer").exists())
 
 
@@ -250,11 +263,23 @@ class LaunchTests(CliTestCase):
             argv, _ = self.launch("jellyfin", "--steam-account", str(ALPHA))
         self.assertEqual(argv[3:], ["--tv", "--fullscreen"])
 
-    def test_localsend_starts_with_its_own_settings_for_every_account(self):
+    def test_localsend_starts_dark_in_its_oled_colours_with_one_set_of_settings_for_every_account(self):
         argv, redirect = self.launch("localsend", "--steam-account", str(BETA))
         self.assertEqual(argv, [self.fake.command, "run", "org.localsend.localsend_app"])
-        self.assertFalse((self.home / ".var").exists())
+        settings = self.home / ".var/app/org.localsend.localsend_app/data/org.localsend.localsend_app/shared_preferences.json"
+        self.assertEqual(json.loads(settings.read_text())["flutter.ls_color"], "oled")
+        settings.write_text(json.dumps({"flutter.ls_theme": "light", "flutter.ls_color": "localsend"}))
+        self.launch("localsend", "--steam-account", str(ALPHA))
+        self.assertEqual(json.loads(settings.read_text()), {"flutter.ls_theme": "light", "flutter.ls_color": "localsend"})
         redirect.assert_called_once_with(self.paths.log("localsend"))
+
+    def test_bitwarden_starts_with_each_accounts_folder_and_its_tokens_on_disk(self):
+        argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        self.assertEqual(argv, [
+            self.fake.command, "run", f"--env=BITWARDEN_APPDATA_DIR={folder}", "--env=ACCESS_TOKEN_LOCATION=DISK", "com.bitwarden.desktop",
+        ])
+        self.assertFalse(json.loads((folder / "data.json").read_text())["global_desktopSettings_runInBackground"])
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)
@@ -320,9 +345,42 @@ class LaunchTests(CliTestCase):
         self.assertTrue((folder / "prismlauncher.cfg").is_file())
         self.assertTrue((folder / "assets").is_symlink())
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
-                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+                mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
             argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
-        self.assertEqual(argv, [self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "org.prismlauncher.PrismLauncher", f"--dir={folder}"])
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb", "org.prismlauncher.PrismLauncher", f"--dir={folder}",
+            "-qwindowgeometry", "1280x720+0+0",
+        ])
+
+    def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
+        library = Path(self.tmp.name) / "SD Card"
+        library.mkdir()
+        (self.root / "steamapps").mkdir()
+        (self.root / "steamapps/libraryfolders.vdf").write_text(
+            f'"libraryfolders" {{ "0" {{ "path" "{self.root}" }} "1" {{ "path" "{library}" }} "2" {{ "path" "/run/media/gone" }} }}\n'
+        )
+        argv, _ = self.launch("protonup", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--env=PUPGUI2_DISABLE_GAMEPAD=1", f"--filesystem={self.root}", f"--filesystem={library}", "net.davidotek.pupgui2",
+        ])
+        config_ini = self.home / ".var/app/net.davidotek.pupgui2/config/pupgui/config.ini"
+        self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n")
+        config_ini.write_text("[pupgui2]\ntheme = light\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080), \
+                mock.patch.dict(os.environ, {"STEAM_COMPAT_DATA_PATH": "/somewhere/compatdata/1245620"}):
+            argv, _ = self.launch("protonup", "--steam-account", str(ALPHA))
+            self.assertEqual(argv[2:5], ["--env=QT_SCALE_FACTOR=1.5", "--env=PUPGUI2_DISABLE_GAMEPAD=1", "--env=QT_QPA_PLATFORM=xcb"])
+            argv, _ = self.launch("protontricks", "--steam-account", str(ALPHA))
+            self.assertEqual(argv, [
+                self.fake.command, "run", "--env=GDK_DPI_SCALE=1.5", "--env=GDK_BACKEND=x11", f"--filesystem={self.root}", f"--filesystem={library}",
+                "com.github.Matoking.protontricks", "--no-term", "--gui",
+            ])
+            self.assertNotIn("STEAM_COMPAT_DATA_PATH", os.environ)
+        self.assertIn("theme = light", config_ini.read_text())
+        self.install("protonup")
+        self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
+        self.assertIn("Put back ProtonUp-Qt's TV settings (1 data folder)", self.errors)
 
     def test_prism_gets_the_minecraft_layout(self):
         folder = _fakes.add_controller_templates(self.root)
@@ -503,11 +561,6 @@ class InformationTests(CliTestCase):
         self.assertIn('in the library as "YouTube"', self.output)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-
 
 class SteamPlayTests(CliTestCase):
     def force(self, app_id, tool):
@@ -573,6 +626,15 @@ class FilesTests(CliTestCase):
             )
             self.assertEqual(environ["XDG_CONFIG_HOME"], str(self.profile / "config"))
 
+    def test_in_game_mode_files_opens_as_large_as_the_screen(self):
+        self.install("files")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(1920, 1080)), mock.patch.dict(os.environ):
+            argv, _ = self.launch("files", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1:], ["--new-window", "-qwindowgeometry", "1280x720+0+0"])
+        argv, _ = self.launch_files()
+        self.assertEqual(argv[1:], ["--new-window"])
+
     def test_without_dolphin_files_says_what_is_missing(self):
         (self.bin / "dolphin").unlink()
         self.install("files")
@@ -611,39 +673,29 @@ def steam_controller_config(root, account):
 
 
 class HeliumAppTests(CliTestCase):
-    def add_templates(self):
-        folder = self.root / "controller_base" / "templates"
-        folder.mkdir(parents=True)
-        (folder / "controller_neptune_webbrowser.vdf").write_text(
-            '"controller_mappings"\n{\n "controller_type" "controller_neptune"\n'
-            ' "localization" { "english" { "title" "Web Browser" } }\n}\n'
-        )
-        (folder / "controller_neptune_gamepad_joystick.vdf").write_text(
-            '\ufeff"controller_mappings"\n{\n "title" "#Title"\n "controller_type" "controller_neptune"\n'
-            ' "localization" { "english" { "title" "Gamepad" } }\n}\n',
-            encoding="utf-8",
-        )
-
     def configset(self, account=ALPHA):
         path = self.root / f"steamapps/common/Steam Controller Configs/{account}/config/configset_controller_neptune.vdf"
         return vdf.loads_text(path.read_text()).get("controller_config") if path.exists() else vdf.KeyValues()
 
-    def test_helium_apps_share_one_helium_and_get_the_web_browser_layout(self):
-        self.add_templates()
+    def test_helium_apps_share_one_helium_and_get_the_browser_layout(self):
+        _fakes.add_controller_templates(self.root)
         self.install("youtube", "element", "helium", "primevideo", "hbomax", "netflix", "disneyplus")
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
         for account in (ALPHA, BETA):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
             self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_gamepad_joystick.vdf")
-        self.assertIn("the Web Browser controller layout", self.errors)
+            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_webbrowser.vdf")
+            self.assertEqual(self.configset(account).get("netflix").get("template"), "controller_neptune_nonsteamapps_browser.vdf")
+        self.assertIn("Gave Element (Element Desktop) the Web Browser controller layout", self.errors)
+        self.assertIn("Gave Helium, Prime Video (Helium), HBO Max (Helium), Netflix (Helium) and Disney+ (Helium) the Browser (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave YouTube (VacuumTube) the Gamepad controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
         self.assertEqual(sorted(self.configset()), ["helium", "netflix", "prime video", "youtube"])
 
     def test_missing_layouts_are_reported_not_fatal(self):
         self.install("helium")
-        self.assertIn("Web Browser controller layout was not found", self.errors)
+        self.assertIn("The Browser (NonSteamApps) controller layout was not found", self.errors)
 
     def test_prime_video_starts_full_screen_in_its_own_profile_for_each_account(self):
         self.install("primevideo")
@@ -693,6 +745,23 @@ class HeliumAppTests(CliTestCase):
             self.assertNotIn("LD_PRELOAD", os.environ, app_id)
             self.assertNotIn("LD_LIBRARY_PATH", os.environ, app_id)
 
+    def test_in_game_mode_the_browser_window_fills_the_screen_and_keeps_its_tabs(self):
+        self.install("helium", "netflix")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(1920, 1080)), \
+                mock.patch("nonsteamapps.cli.x11.watch") as watch:
+            argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
+            watch.assert_called_once_with("nonsteamapps-helium", os.getpid())
+            self.assertIn("--window-size=1280,720", argv)
+            self.assertIn("--window-position=0,0", argv)
+            self.assertNotIn("--start-maximized", argv)
+            watch.reset_mock()
+            argv, _ = self.launch("netflix", "--steam-account", str(ALPHA))
+            watch.assert_not_called()
+            self.assertIn("--kiosk", argv)
+        argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
+        self.assertIn("--start-maximized", argv)
+
     def test_game_mode_scales_the_pages_for_the_tv(self):
         self.install("hbomax")
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
@@ -731,3 +800,170 @@ class HeliumAppTests(CliTestCase):
                                       "--helium-archive", str(_fakes.make_helium_archive(newer, "0.0.0.2")), "--skip-verify"), 0, self.errors)
         self.assertEqual(self.run_cli("rollback"), 0, self.errors)
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
+
+
+class UpdateTests(CliTestCase):
+    def test_update_keeps_the_apps_and_what_the_user_changed_and_renews_nonsteamapps_artwork(self):
+        self.install("youtube", "localsend")
+        hero, settings = self.customise()
+        before = settings.read_text()
+        (self.paths.artwork("localsend") / "capsule.png").write_bytes(b"newer capsule")
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertEqual([call[-1] for call in self.fake.calls("install")], ["rocks.shy.VacuumTube", "org.localsend.localsend_app"])
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "localsend"])
+        entries = self.entries(ALPHA)
+        self.assertEqual(sorted(entries), ["LocalSend", "My Tube"])
+        self.assertEqual(entries["My Tube"].get("LaunchOptions"), f"--steam-account {ALPHA} --debug-gpu")
+        self.assertEqual(hero.read_bytes(), b"chosen in Steam")
+        self.assertEqual(settings.read_text(), before)
+        for account in (ALPHA, BETA):
+            appid = steam.to_unsigned32(self.entries(account)["LocalSend"].get("appid"))
+            self.assertEqual((steam.config_dir(self.root, account) / "grid" / f"{appid}p.png").read_bytes(), b"newer capsule")
+        self.assertNotIn("Put back", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+    def test_update_closes_steam_only_when_a_shortcut_must_change(self):
+        self.install("localsend")
+        with mock.patch("nonsteamapps.steamclient.stop", return_value=False) as stop:
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            stop.assert_not_called()
+            path = steam.config_dir(self.root, BETA) / "shortcuts.vdf"
+            shortcuts = steam.ShortcutsFile.load(path)
+            shortcuts.find(str(self.paths.app_link("localsend")))[0].set("StartDir", '"/somewhere/else"')
+            shortcuts.save()
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            stop.assert_called_once()
+        self.assertEqual(self.entries(BETA)["LocalSend"].get("StartDir"), f'"{self.paths.program}"')
+        self.assertIn(f'Steam account P{BETA} ({BETA}): updated "LocalSend"', self.errors)
+        self.assertNotIn(f"P{ALPHA}", self.errors)
+
+    def test_update_adds_no_shortcut_to_an_account_without_one(self):
+        self.install("localsend", "--steam-user", str(ALPHA))
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertFalse((steam.config_dir(self.root, BETA) / "shortcuts.vdf").exists())
+
+    def test_a_steam_that_cannot_be_closed_leaves_the_library_as_it_was(self):
+        self.install("localsend")
+        path = steam.config_dir(self.root, ALPHA) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        shortcuts.find(str(self.paths.app_link("localsend")))[0].set("StartDir", '"/somewhere/else"')
+        shortcuts.save()
+        with mock.patch("nonsteamapps.steamclient.running", return_value=True), \
+                mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True):
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertIn("left the Steam library as it was: Steam is running in Game Mode", self.errors)
+        self.assertEqual(self.entries(ALPHA)["LocalSend"].get("StartDir"), '"/somewhere/else"')
+
+    def test_apps_only_leaves_nonsteamapps_and_the_steam_library_alone(self):
+        self.install("youtube")
+        with mock.patch("nonsteamapps.cli.steam_add") as add:
+            self.assertEqual(self.run_cli("update", "--quiet", "--apps-only"), 0, self.errors)
+        add.assert_not_called()
+        cli._update_program.assert_not_called()
+        self.assertEqual(self.fake.calls("update"), [["update", "--user", "--noninteractive", "-y", "rocks.shy.VacuumTube"]])
+
+
+class SelfUpdateTests(CliTestCase):
+    self_update = True
+
+    def make_source(self, script):
+        source = Path(self.tmp.name) / "source"
+        source.mkdir()
+        (source / "install.sh").write_text(script)
+        selfupdate.remember(self.paths, {selfupdate.SOURCE_VARIABLE: str(source)})
+        return source
+
+    def test_update_copies_nonsteamapps_from_its_source_and_hands_over_to_the_new_version(self):
+        self.install("localsend")
+        marker = Path(self.tmp.name) / "copied"
+        self.make_source(f'#!/bin/bash\necho "$NONSTEAMAPPS_COPY_ONLY $NONSTEAMAPPS_HOME" > "{marker}"\n')
+        with mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), mock.patch.dict(os.environ):
+            with self.assertRaises(Exec) as raised:
+                self.run_cli("update", "--yes", "--no-restart-steam")
+            handed_over = os.environ.get(selfupdate.UPDATED_FROM_VARIABLE)
+        self.assertEqual(raised.exception.args[0], [str(self.paths.launcher), "update", "--yes", "--no-restart-steam"])
+        self.assertEqual(handed_over, __version__)
+        self.assertEqual(marker.read_text(), f"1 {self.paths.program}\n")
+        self.assertEqual(self.fake.calls("update"), [])
+
+    def test_the_new_version_says_what_it_replaced_and_updates_the_apps(self):
+        self.install("localsend")
+        with mock.patch.dict(os.environ, {selfupdate.UPDATED_FROM_VARIABLE: "2.0.0"}):
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            self.assertNotIn(selfupdate.UPDATED_FROM_VARIABLE, os.environ)
+        self.assertIn(f"Updated NonSteamApps from 2.0.0 to {__version__}", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+    def test_when_nonsteamapps_cannot_be_copied_the_apps_are_still_updated(self):
+        self.install("localsend")
+        self.make_source("#!/bin/bash\necho 'error: run the installer as your normal user' >&2\nexit 1\n")
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertIn("could not update NonSteamApps (error: run the installer as your normal user)", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+
+
+class SignInTests(CliTestCase):
+    def sign_in(self, app_id, authorize, callback):
+        runtime = Path(self.tmp.name) / "run"
+        runtime.mkdir(exist_ok=True)
+        variables = {
+            "XDG_CURRENT_DESKTOP": "gamescope",
+            "XDG_RUNTIME_DIR": str(runtime),
+            "FAKE_FLATPAK_OPEN": authorize,
+            "FAKE_FLATPAK_DONE": str(Path(self.tmp.name) / "signed-in"),
+            "FAKE_HELIUM_OPEN": callback,
+            "FAKE_HELIUM_LOG": str(Path(self.tmp.name) / "helium.log"),
+        }
+        with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            status = cli.main(["launch", app_id, "--steam-account", str(ALPHA)], self.paths, self.flatpak)
+        return status, output.getvalue(), runtime
+
+    def test_in_game_mode_element_signs_in_in_helium_and_the_callback_returns_to_it(self):
+        self.install("element", "helium")
+        authorize = "https://account.example.org/authorize?redirect_uri=io.element.desktop%3A%2Fvector%2Fwebapp%2F&state=s"
+        callback = "io.element.desktop:/vector/webapp/?no_universal_links=true#code=c&state=s"
+        status, output, runtime = self.sign_in("element", authorize, callback)
+        self.assertEqual(status, 0, output)
+        app, relay = self.fake.calls("run")
+        scripts = self.paths.program / "share" / "sandbox"
+        for option in (f"--filesystem={scripts}:ro", f"--env=PATH={scripts}:/app/bin:/usr/bin", "--env=NONSTEAMAPPS_SCHEMES=io.element.desktop element",
+                       f"--profile=steam-{ALPHA}"):
+            self.assertIn(option, app)
+        self.assertEqual(relay, [*app, callback])
+        profile = self.paths.profile("element", ALPHA)
+        [helium] = [json.loads(line) for line in (Path(self.tmp.name) / "helium.log").read_text().splitlines()]
+        self.assertEqual((helium[0], helium[-1]), (f"--user-data-dir={profile}", authorize))
+        self.assertIn("--ozone-platform=x11", helium)
+        preferences = json.loads((profile / "Default" / "Preferences").read_text())
+        self.assertTrue(preferences["protocol_handler"]["allowed_origin_protocol_pairs"]["https://account.example.org"]["io.element.desktop"])
+        self.assertIn("opening the sign-in page at account.example.org in Helium", output)
+        self.assertIn("handing the sign-in back to Element Desktop", output)
+        self.assertNotIn("code=c", output)
+        self.assertEqual(list((runtime / "app" / "im.riot.Riot" / "nonsteamapps").iterdir()), [])
+        self.assertEqual(self.run_cli("remove", "element", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse(profile.exists())
+
+    def test_a_bitwarden_sso_callback_reaches_the_accounts_own_bitwarden(self):
+        self.install("bitwarden", "helium")
+        sso = "https://vault.bitwarden.com/#/sso?clientId=desktop&redirectUri=bitwarden%3A%2F%2Fsso-callback&state=s"
+        status, output, _ = self.sign_in("bitwarden", sso, "bitwarden://sso-callback?code=c&state=s")
+        self.assertEqual(status, 0, output)
+        app, relay = self.fake.calls("run")
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        self.assertIn(f"--env=BITWARDEN_APPDATA_DIR={folder}", relay)
+        self.assertEqual(relay, [*app, "bitwarden://sso-callback?code=c&state=s"])
+        self.assertIn("opening the sign-in page at vault.bitwarden.com in Helium", output)
+
+    def test_outside_game_mode_or_without_helium_element_starts_as_before(self):
+        self.install("element")
+        argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
+            argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+
+
+if __name__ == "__main__":
+    unittest.main()

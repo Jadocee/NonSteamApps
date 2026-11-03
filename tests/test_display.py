@@ -26,6 +26,10 @@ class ScaleTests(unittest.TestCase):
                 mock.patch("nonsteamapps.display.shutil.which", return_value="/usr/bin/xrandr"), \
                 mock.patch("nonsteamapps.display.subprocess.run", return_value=SimpleNamespace(stdout=output)):
             self.assertEqual(display.screen_height(), 2160)
+            self.assertEqual(display.screen_size(), (3840, 2160))
+            self.assertEqual([display.window_size(factor) for factor in (None, 1.5, 3.0)], [(3840, 2160), (2560, 1440), (1280, 720)])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(display.window_size(1.5))
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertIsNone(display.screen_height())
 

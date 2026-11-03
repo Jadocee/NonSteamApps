@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Optional
 
 quiet = False
 assume_yes = False
@@ -46,8 +47,8 @@ def bold(text: str) -> str:
     return _paint("1", text)
 
 
-def confirm(question: str, default: bool = False) -> bool:
-    """Ask a yes/no question on the terminal; without one, return ``default``."""
+def confirm(question: str, default: bool = False, unattended: Optional[bool] = None) -> bool:
+    """Ask a yes/no question on the terminal; without one, return ``unattended``, or else ``default``."""
     if assume_yes:
         return True
     try:
@@ -56,5 +57,5 @@ def confirm(question: str, default: bool = False) -> bool:
             output.flush()
             reply = answers.readline().strip().lower()
     except OSError:
-        return default
+        return default if unattended is None else unattended
     return default if not reply else reply in ("y", "yes")

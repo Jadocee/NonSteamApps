@@ -15,16 +15,19 @@ and do not keep crash reports to offer for upload.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import urllib.parse
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
 
 from .fsutil import atomic_write_bytes, atomic_write_json
 
 BLOCK = 2
 SCHEMA_VERSION = 1
 CRASH_REPORTS_OFF = -1
+LOCAL_STATE = {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}
 FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
 BROWSER_BINARIES = ("helium", "chrome", "chromium")
 
@@ -100,8 +103,51 @@ def write_local_state(profile: Path) -> Path:
     """Start a new profile with crash reports off, so no upload question follows a crash; later starts keep the user's choice."""
     path = Path(profile) / "Local State"
     if not path.exists():
-        atomic_write_json(path, {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}, compact=True)
+        atomic_write_json(path, LOCAL_STATE, compact=True)
     return path
+
+
+def reset(profile: Path, kiosk: bool) -> bool:
+    """Put a new profile's settings back into an existing one, as an install does; return whether it changed.
+
+    A missing or damaged file is left for Helium, which writes a new one.
+    """
+    changed = False
+    for path, wanted in ((Path(profile) / "Default" / "Preferences", first_run_preferences(kiosk)), (Path(profile) / "Local State", LOCAL_STATE)):
+        data = _load(path) if path.is_file() else None
+        if not data:
+            continue
+        merged = deep_merge(copy.deepcopy(data), wanted)
+        if merged != data:
+            atomic_write_json(path, merged, compact=True)
+            changed = True
+    return changed
+
+
+def allow_callbacks(profile: Path, url: str, schemes: Sequence[str]) -> List[str]:
+    """Let the sign-in page at ``url`` open the app's callback without asking, when it names one of ``schemes`` as its return address.
+
+    Chromium asks before a page opens a link that only another app handles, unless the page's origin may open
+    that kind of link, as ticking "Always allow" records. Returns the schemes allowed.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        return []
+    returns = [
+        value
+        for query in (parts.query, parts.fragment.partition("?")[2])
+        for key, value in urllib.parse.parse_qsl(query)
+        if key.lower() in ("redirect_uri", "redirecturi", "redirecturl")
+    ]
+    allowed = [scheme for scheme in schemes if any(value.lower().startswith(f"{scheme.lower()}:") for value in returns)]
+    path = Path(profile) / "Default" / "Preferences"
+    data = _load(path) if allowed else None
+    if data is None:
+        return []
+    origin = f"https://{parts.netloc}"
+    deep_merge(data, {"protocol_handler": {"allowed_origin_protocol_pairs": {origin: {scheme: True for scheme in allowed}}}})
+    atomic_write_json(path, data, compact=True)
+    return allowed
 
 
 def clear_stale_lock(profile: Path) -> bool:
@@ -144,7 +190,10 @@ def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:
     link_widevine(profile, widevine)
 
 
-def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str) -> List[str]:
+def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None) -> List[str]:
+    """Helium's arguments. ``window`` is the size, in device-independent pixels, that a browser window takes instead of
+    being maximised: gamescope ignores maximising.
+    """
     arguments = [
         f"--user-data-dir={profile}",
         f"--class={name}",
@@ -168,6 +217,8 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
             "--disable-pinch",
             "--overscroll-history-navigation=0",
         ]
+    elif window:
+        arguments += ["--window-position=0,0", f"--window-size={window[0]},{window[1]}"]
     else:
         arguments.append("--start-maximized")
     return arguments + ([url] if url else [])

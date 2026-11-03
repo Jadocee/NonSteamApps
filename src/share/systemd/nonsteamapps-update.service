@@ -4,6 +4,6 @@ Documentation=https://github.com/jadocee/steamos-yt
 
 [Service]
 Type=oneshot
-ExecStart="@LAUNCHER@" update --quiet
+ExecStart="@LAUNCHER@" update --quiet --apps-only
 Nice=10
 IOSchedulingClass=idle

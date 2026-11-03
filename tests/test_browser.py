@@ -55,6 +55,41 @@ class PreferencesTests(unittest.TestCase):
         self.assertFalse(data["helium"]["services"]["enabled"])
         self.assertEqual(data["helium"]["services"]["schema_version"], 3)
 
+    def test_an_install_puts_the_new_profile_settings_back_and_keeps_the_rest(self):
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        browser.write_local_state(self.profile)
+        data = self.read()
+        data["translate"]["enabled"] = True
+        data["profile"]["default_content_setting_values"]["notifications"] = 1
+        data["homepage"] = "https://example.com/"
+        self.preferences.write_text(json.dumps(data))
+        (self.profile / "Local State").write_text(json.dumps({"helium": {"crash_reporting": {"mode": 1}}, "browser": {"x": 1}}))
+        self.assertTrue(browser.reset(self.profile, kiosk=True))
+        data = self.read()
+        self.assertFalse(data["translate"]["enabled"])
+        self.assertEqual(data["profile"]["default_content_setting_values"]["notifications"], 2)
+        self.assertEqual(data["homepage"], "https://example.com/")
+        self.assertEqual(json.loads((self.profile / "Local State").read_text()), {"helium": {"crash_reporting": {"mode": -1}}, "browser": {"x": 1}})
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        self.preferences.write_text("{")
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        self.assertEqual(self.preferences.read_text(), "{")
+
+    def test_a_sign_in_page_may_hand_its_callback_to_the_app_without_asking(self):
+        browser.write_preferences(self.profile, services=True, kiosk=False)
+        authorize = "https://account.matrix.org/authorize?response_type=code&redirect_uri=io.element.desktop%3A%2Fvector%2Fwebapp%2F&state=x"
+        self.assertEqual(browser.allow_callbacks(self.profile, authorize, ("io.element.desktop", "element")), ["io.element.desktop"])
+        sso = "https://vault.bitwarden.com/#/sso?clientId=desktop&redirectUri=bitwarden%3A%2F%2Fsso-callback&state=y"
+        self.assertEqual(browser.allow_callbacks(self.profile, sso, ("bitwarden",)), ["bitwarden"])
+        for url in ("https://example.org/news?redirect_uri=https://example.org/", "http://account.matrix.org/authorize?redirect_uri=io.element.desktop:x",
+                    "https://example.org/"):
+            self.assertEqual(browser.allow_callbacks(self.profile, url, ("io.element.desktop", "bitwarden")), [])
+        self.assertEqual(self.read()["protocol_handler"]["allowed_origin_protocol_pairs"], {
+            "https://account.matrix.org": {"io.element.desktop": True},
+            "https://vault.bitwarden.com": {"bitwarden": True},
+        })
+
     def test_a_corrupt_file_is_kept_aside(self):
         self.preferences.parent.mkdir(parents=True)
         self.preferences.write_text("{broken")
@@ -109,6 +144,13 @@ class FlagTests(unittest.TestCase):
                      "--force-device-scale-factor=1.5", "--autoplay-policy=no-user-gesture-required"):
             self.assertIn(flag, arguments)
         self.assertEqual(arguments[-1], "https://www.primevideo.com/")
+
+    def test_a_browser_window_can_be_given_the_screens_size_instead_of_being_maximised(self):
+        arguments = browser.flags(Path("/p"), "https://example.org/", False, True, 1.5, "nonsteamapps-helium", (1280, 720))
+        self.assertEqual(arguments[-3:], ["--window-position=0,0", "--window-size=1280,720", "https://example.org/"])
+        self.assertNotIn("--start-maximized", arguments)
+        kiosk = browser.flags(Path("/p"), "https://example.org/", True, True, 1.5, "nonsteamapps-netflix", (1280, 720))
+        self.assertFalse(any(flag.startswith("--window-") for flag in kiosk))
 
     def test_the_browser_opens_maximised_with_its_own_interface(self):
         arguments = browser.flags(Path("/p"), "", False, False, None, "nonsteamapps-helium")

@@ -33,6 +33,11 @@ class SteamEnvironmentTests(unittest.TestCase):
             },
         )
 
+    def test_a_proton_prefix_from_steam_is_dropped(self):
+        environ = {"STEAM_COMPAT_DATA_PATH": "/home/deck/.local/share/Steam/steamapps/compatdata/1245620", "PATH": "/usr/bin"}
+        self.assertTrue(steamclient.leave_steam_environment(environ))
+        self.assertEqual(environ, {"PATH": "/usr/bin"})
+
     def test_the_systems_own_library_path_comes_back(self):
         environ = {"LD_PRELOAD": OVERLAY_64, "LD_LIBRARY_PATH": f"{RUNTIME}:/opt/lib", "SYSTEM_LD_LIBRARY_PATH": "/opt/lib"}
         self.assertTrue(steamclient.leave_steam_environment(environ))
@@ -86,6 +91,28 @@ class SteamStartTests(unittest.TestCase):
             _, call = self.start()
             units.add(call.args[0][4])
         self.assertEqual(len(units), 2)
+
+
+class SteamStopTests(unittest.TestCase):
+    def test_without_a_terminal_steam_is_closed_only_when_told_to(self):
+        with mock.patch("nonsteamapps.steamclient.running", return_value=True), \
+                mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=False), \
+                mock.patch("nonsteamapps.ui.open", side_effect=OSError("no terminal"), create=True), \
+                mock.patch("nonsteamapps.steamclient._detach") as detach, \
+                mock.patch.object(steamclient.ui, "assume_yes", False):
+            with self.assertRaises(steamclient.ui.Abort) as raised:
+                steamclient.stop("nonsteamapps update")
+        self.assertIn("Steam was left running", str(raised.exception))
+        detach.assert_not_called()
+        with mock.patch("nonsteamapps.steamclient.running", side_effect=[True, False]), \
+                mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=False), \
+                mock.patch("nonsteamapps.steamclient.command", return_value="/usr/bin/steam"), \
+                mock.patch("nonsteamapps.steamclient._detach") as detach, \
+                mock.patch("nonsteamapps.steamclient.time.sleep"), \
+                mock.patch("nonsteamapps.steamclient.ui.log"), \
+                mock.patch.object(steamclient.ui, "assume_yes", True):
+            self.assertTrue(steamclient.stop("nonsteamapps update"))
+        detach.assert_called_once_with(["/usr/bin/steam", "-shutdown"])
 
 
 if __name__ == "__main__":

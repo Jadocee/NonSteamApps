@@ -17,8 +17,8 @@ def groups(layout):
     return {sources[find(group, "id")].split()[0]: group for name, group in mappings if name == "group"}
 
 
-def bindings(group, button):
-    activator = find(find(find(find(group, "inputs"), button), "activators"), "Full_Press")
+def bindings(group, button, kind="Full_Press"):
+    activator = find(find(find(find(group, "inputs"), button), "activators"), kind)
     return [value for _, value in find(activator, "bindings")]
 
 
@@ -120,8 +120,36 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(layouts.install(self.root, layouts.FILES), [])
         self.assertEqual(layouts.install(self.root / "elsewhere", layouts.MINECRAFT), [])
 
+    def test_tools_select_with_a_confirm_with_y_and_step_between_controls_with_the_dpad(self):
+        layout = layouts.build(layouts.TOOLS, self.read(layouts.TOOLS.base), self.read("controller_neptune_gamepad_joystick.vdf"))
+        found = groups(layout)
+        self.assertEqual(
+            [bindings(found["button_diamond"], button) for button in ("button_a", "button_b", "button_x", "button_y")],
+            [["key_press SPACE, Select"], ["key_press ESCAPE, Cancel"], ["controller_action SHOW_KEYBOARD, ⌨️"], ["key_press RETURN, OK"]],
+        )
+        self.assertEqual(
+            [bindings(found["dpad"], button) for button in ("dpad_north", "dpad_south", "dpad_west", "dpad_east")],
+            [["key_press UP_ARROW, ⏫"], ["key_press DOWN_ARROW, ⏬"], ["key_press LEFT_SHIFT", "key_press TAB, Previous"], ["key_press TAB, Next"]],
+        )
+        self.assertEqual(bindings(found["right_trigger"], "edge"), ["mouse_button LEFT"])
+        self.assertEqual(find(found["joystick"], "mode"), "dpad")
+        self.assertEqual(bindings(found["joystick"], "dpad_north"), ["mouse_wheel SCROLL_UP, ⏫"])
+
+    def test_holding_menu_quits_helium_and_files_and_a_short_press_still_closes_the_tab(self):
+        for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"]),
+                                  (layouts.FILES, ["key_press LEFT_CONTROL, Quit", "key_press Q"])):
+            built = layouts.build(layout, self.read(layout.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
+            switch = groups(built)["switch"]
+            self.assertEqual(bindings(switch, "button_menu"), ["key_press LEFT_CONTROL, ⛔", "key_press W"])
+            self.assertEqual(bindings(switch, "button_menu", "Long_Press"), quit_keys)
+            full = find(find(find(find(switch, "inputs"), "button_menu"), "activators"), "Full_Press")
+            self.assertEqual(find(full, "settings"), [("interruptable", "1")])
+        found = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_neptune_gamepad_joystick.vdf")))
+        self.assertEqual(bindings(found["button_diamond"], "button_a"), ["key_press RETURN, ⏯️", "key_press SPACE"])
+
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])
+        self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])
         self.assertEqual(layouts.used_by(["Gamepad", ""]), [])
 
 

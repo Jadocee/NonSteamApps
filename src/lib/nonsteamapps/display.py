@@ -6,13 +6,14 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Optional
+from typing import Optional, Tuple
 
 TV_HEIGHT = 720
 _SCREEN = re.compile(r"current (\d+) x (\d+)")
 
 
-def screen_height() -> Optional[int]:
+def screen_size() -> Optional[Tuple[int, int]]:
+    """The width and height of the screen apps start on, as xrandr reports it; in Game Mode, the resolution Steam runs the app at."""
     if not os.environ.get("DISPLAY") or not shutil.which("xrandr"):
         return None
     try:
@@ -22,7 +23,12 @@ def screen_height() -> Optional[int]:
     except (OSError, subprocess.TimeoutExpired):
         return None
     match = _SCREEN.search(output)
-    return int(match.group(2)) if match else None
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def screen_height() -> Optional[int]:
+    size = screen_size()
+    return size[1] if size else None
 
 
 def scale(setting: str, game_mode: bool, height: Optional[int] = None, layout: int = TV_HEIGHT) -> Optional[float]:

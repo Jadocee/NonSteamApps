@@ -57,11 +57,8 @@ class ArgumentTests(unittest.TestCase):
                                    ("protoncalendar", "https://calendar.proton.me/", True)):
             app = apps.by_id(app_id)
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
-            self.assertEqual(app.controller, apps.WEB_BROWSER)
-        self.assertEqual(
-            [app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER],
-            ["element", "signal", "localsend", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
-        )
+            self.assertEqual(app.controller, "Browser (NonSteamApps)")
+        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal", "localsend"])
         self.assertEqual([app.id for app in apps.APPS if app.controller == apps.GAMEPAD], ["youtube"])
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 
@@ -351,7 +348,10 @@ class SystemAppTests(unittest.TestCase):
         files = apps.by_id("files").system
         files.prepare(self.profile, self.desktop)
         config = self.profile / "config"
-        self.assertEqual((config / "dolphinrc").read_text(), "[General]\nRememberOpenedTabs=false\n\n[MainWindow]\nMenuBar=Disabled\n")
+        self.assertEqual((config / "dolphinrc").read_text(), (
+            "[General]\nRememberOpenedTabs=false\nConfirmClosingMultipleTabs=false\nBrowseThroughArchives=true\n\n"
+            "[MainWindow]\nMenuBar=Disabled\n\n[IconsMode]\nPreviewSize=96\n\n[PlacesPanel]\nIconSize=32\n"
+        ))
         self.assertEqual((config / "kdeglobals").read_text(), "[KDE]\nSingleClick=true\n")
         self.assertEqual((config / "user-dirs.dirs").resolve(), (self.desktop / "user-dirs.dirs").resolve())
         self.assertFalse((config / "user-dirs.locale").exists())
@@ -369,7 +369,10 @@ class SystemAppTests(unittest.TestCase):
         (config / "dolphinrc").write_text("# mine\n[General]\nRememberOpenedTabs=true\nShowFullPath=true\n\n[MainWindow]\nMenuBar=Enabled\n")
         (config / "kdeglobals").unlink()
         self.assertTrue(files.reset(self.profile))
-        self.assertEqual((config / "dolphinrc").read_text(), "# mine\n[General]\nRememberOpenedTabs=false\nShowFullPath=true\n\n[MainWindow]\nMenuBar=Disabled\n")
+        self.assertEqual((config / "dolphinrc").read_text(), (
+            "# mine\n[General]\nRememberOpenedTabs=false\nShowFullPath=true\nConfirmClosingMultipleTabs=false\nBrowseThroughArchives=true\n\n"
+            "[MainWindow]\nMenuBar=Disabled\n\n[IconsMode]\nPreviewSize=96\n\n[PlacesPanel]\nIconSize=32\n"
+        ))
         self.assertEqual((config / "kdeglobals").read_text(), "[KDE]\nSingleClick=true\n")
         self.assertFalse(files.reset(self.profile))
 

@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import FILES, MINECRAFT, TOOLS
+from .layouts import BROWSER, FILES, MINECRAFT, TOOLS
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -594,7 +594,14 @@ APPS: Tuple[App, ...] = (
         system=SystemApp(
             command="dolphin",
             settings=(
-                IniSettings("dolphinrc", (("General", "RememberOpenedTabs", "false"), ("MainWindow", "MenuBar", "Disabled"))),
+                IniSettings("dolphinrc", (
+                    ("General", "RememberOpenedTabs", "false"),
+                    ("General", "ConfirmClosingMultipleTabs", "false"),
+                    ("General", "BrowseThroughArchives", "true"),
+                    ("MainWindow", "MenuBar", "Disabled"),
+                    ("IconsMode", "PreviewSize", "96"),
+                    ("PlacesPanel", "IconSize", "32"),
+                )),
                 IniSettings("kdeglobals", (("KDE", "SingleClick", "true"),)),
             ),
             shared=("user-dirs.dirs", "user-dirs.locale"),
@@ -611,7 +618,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="A private, ad-blocking web browser, set up for a TV and a controller",
         browser=Browser(),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -620,7 +627,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="Prime Video's films and series, full screen in Helium",
         browser=Browser(url="https://www.primevideo.com/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -629,7 +636,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="HBO Max's series and films, full screen in Helium",
         browser=Browser(url="https://www.hbomax.com/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -638,7 +645,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="Netflix's series and films, full screen in Helium",
         browser=Browser(url="https://www.netflix.com/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -647,7 +654,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="Disney+'s films and series, full screen in Helium",
         browser=Browser(url="https://www.disneyplus.com/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -656,7 +663,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="Player reports on how well games run with Proton, full screen in Helium",
         browser=Browser(url="https://www.protondb.com/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -665,7 +672,7 @@ APPS: Tuple[App, ...] = (
         client="Helium",
         summary="Proton's end-to-end encrypted calendar, full screen in Helium",
         browser=Browser(url="https://calendar.proton.me/", kiosk=True),
-        controller=WEB_BROWSER,
+        controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
 )

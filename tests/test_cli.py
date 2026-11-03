@@ -647,39 +647,29 @@ def steam_controller_config(root, account):
 
 
 class HeliumAppTests(CliTestCase):
-    def add_templates(self):
-        folder = self.root / "controller_base" / "templates"
-        folder.mkdir(parents=True)
-        (folder / "controller_neptune_webbrowser.vdf").write_text(
-            '"controller_mappings"\n{\n "controller_type" "controller_neptune"\n'
-            ' "localization" { "english" { "title" "Web Browser" } }\n}\n'
-        )
-        (folder / "controller_neptune_gamepad_joystick.vdf").write_text(
-            '\ufeff"controller_mappings"\n{\n "title" "#Title"\n "controller_type" "controller_neptune"\n'
-            ' "localization" { "english" { "title" "Gamepad" } }\n}\n',
-            encoding="utf-8",
-        )
-
     def configset(self, account=ALPHA):
         path = self.root / f"steamapps/common/Steam Controller Configs/{account}/config/configset_controller_neptune.vdf"
         return vdf.loads_text(path.read_text()).get("controller_config") if path.exists() else vdf.KeyValues()
 
-    def test_helium_apps_share_one_helium_and_get_the_web_browser_layout(self):
-        self.add_templates()
+    def test_helium_apps_share_one_helium_and_get_the_browser_layout(self):
+        _fakes.add_controller_templates(self.root)
         self.install("youtube", "element", "helium", "primevideo", "hbomax", "netflix", "disneyplus")
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
         for account in (ALPHA, BETA):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
             self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_gamepad_joystick.vdf")
-        self.assertIn("the Web Browser controller layout", self.errors)
+            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_webbrowser.vdf")
+            self.assertEqual(self.configset(account).get("netflix").get("template"), "controller_neptune_nonsteamapps_browser.vdf")
+        self.assertIn("Gave Element (Element Desktop) the Web Browser controller layout", self.errors)
+        self.assertIn("Gave Helium, Prime Video (Helium), HBO Max (Helium), Netflix (Helium) and Disney+ (Helium) the Browser (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave YouTube (VacuumTube) the Gamepad controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
         self.assertEqual(sorted(self.configset()), ["helium", "netflix", "prime video", "youtube"])
 
     def test_missing_layouts_are_reported_not_fatal(self):
         self.install("helium")
-        self.assertIn("Web Browser controller layout was not found", self.errors)
+        self.assertIn("The Browser (NonSteamApps) controller layout was not found", self.errors)
 
     def test_prime_video_starts_full_screen_in_its_own_profile_for_each_account(self):
         self.install("primevideo")

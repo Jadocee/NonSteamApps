@@ -5,9 +5,11 @@ and changes only what its app needs. It is written for every controller type Val
 for, keeping only the inputs that controller has, into ``controller_base/templates``, where Steam lists
 layouts, and then assigned like Valve's own (see :mod:`controllers`).
 
+- **Browser**, for the Helium apps, is Web Browser with one addition: holding Menu quits (Ctrl+Shift+W,
+  which closes the window with all its tabs), while a short press still closes the tab.
 - **Files** starts from Web Browser. A presses only Enter (Valve's also presses Space, which toggles
-  Dolphin's selection mode), Y only goes forward (Valve's also types S, which jumps to a file), and the
-  left stick moves the selection like the D-pad instead of scrolling.
+  Dolphin's selection mode), Y only goes forward (Valve's also types S, which jumps to a file), the
+  left stick moves the selection like the D-pad instead of scrolling, and holding Menu quits (Ctrl+Q).
 - **Minecraft** starts from Keyboard (WASD) and Mouse, whose buttons already match Minecraft's keys. X drops
   the held item (Q), Menu pauses (Escape) and View shows the players (Tab), the stick clicks sprint
   (Ctrl) and sneak (Shift), and the bumpers step left and right along the hotbar.
@@ -46,6 +48,33 @@ def _bind(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
                 pairs[:] = [("binding", binding) for binding in bindings]
 
 
+def _set(pairs: vdf.Pairs, key: str, value: str) -> None:
+    pairs[:] = [(name, current) for name, current in pairs if name != key] + [(key, value)]
+
+
+def _hold(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
+    """Give ``button`` a long press; its short press then waits for the release, so holding sends only ``bindings``."""
+    for name, value in _find(group, "inputs") or []:
+        activators = _find(value, "activators") if name == button else None
+        if not isinstance(activators, list):
+            continue
+        full = _find(activators, "Full_Press")
+        if isinstance(full, list):
+            settings = _find(full, "settings")
+            if not isinstance(settings, list):
+                settings = []
+                full.append(("settings", settings))
+            _set(settings, "interruptable", "1")
+        activators[:] = [(kind, activator) for kind, activator in activators if kind != "Long_Press"]
+        activators.append(("Long_Press", [("bindings", [("binding", binding) for binding in bindings])]))
+
+
+def _browser(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "switch":
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"])
+    return group
+
+
 def _files(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "joystick" and "dpad" in base:
         group = [(name, value) for name, value in group if name != "inputs"]
@@ -53,6 +82,8 @@ def _files(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
     elif source == "button_diamond":
         _bind(group, "button_a", ["key_press RETURN, Open"])
         _bind(group, "button_y", ["mouse_button FORWARD, ▶️"])
+    elif source == "switch":
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
     return group
 
 
@@ -97,12 +128,20 @@ class Layout:
         return f"{kind}_{PREFIX}{self.slug}.vdf"
 
 
+BROWSER = Layout(
+    slug="browser",
+    title="Browser (NonSteamApps)",
+    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_browser,
+)
 FILES = Layout(
     slug="files",
     title="Files (NonSteamApps)",
-    description="D-pad or left stick to move, A to open, B to go back, X for the keyboard, Start to close",
+    description="D-pad or left stick to move, A to open, B to go back, X for the keyboard, Start to close the tab, hold Start to quit",
     base="controller_neptune_webbrowser.vdf",
     change=_files,
+    revision="2",
 )
 MINECRAFT = Layout(
     slug="minecraft",
@@ -118,7 +157,7 @@ TOOLS = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_tools,
 )
-LAYOUTS = (FILES, MINECRAFT, TOOLS)
+LAYOUTS = (BROWSER, FILES, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

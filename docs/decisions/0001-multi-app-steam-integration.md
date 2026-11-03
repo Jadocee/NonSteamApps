@@ -297,6 +297,12 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Helium's browser window:** in Game Mode it gets `--window-size` and `--window-position=0,0` in place of `--start-maximized`. Chromium makes a window one pixel smaller than a screen-sized request, which gamescope would then scale slightly, softening text. A helper started with Helium therefore asks for each of its windows to be full screen, with an EWMH `_NET_WM_STATE` message sent through libX11 with ctypes, as a desktop's window list would. Chromium treats a full screen it did not ask for as a window filling the screen, and keeps its tabs and address bar, and gamescope keeps the window at the screen's size [52][54]. The helper polls for the windows of Helium's `WM_CLASS` and ends with Helium. The kiosk site apps already ask for full screen themselves.
     - **Aspect ratio:** a window can only fill a 16:9 TV when Steam runs the app at a 16:9 resolution, which **Native** gives; that remains the open item below.
 
+33. **Exiting LocalSend (owner request).** On Linux, LocalSend quits on Ctrl+Q and goes back a page on Escape, and Flutter moves the focus with the arrow keys and presses the focused control on Enter or Space [57]. LocalSend gets a layout of its own, Web Browser with LocalSend's keys:
+    - **Hold Menu to quit:** a long press on Menu sends Ctrl+Q, as Files' does (item 28). LocalSend then exits at once, as its own shortcut does, so a transfer still running is cut off.
+    - **A and B:** Valve's A presses Enter and Space together, which in LocalSend presses a button twice, and its B is the mouse's Back button, which LocalSend ignores. A now sends Enter and B sends Escape.
+    - **Y and the bumpers:** Y sends Ctrl+V, LocalSend's shortcut for sending what was copied, in place of Valve's forward button and S, which typed into text boxes. The bumpers send Shift+Tab and Tab, for controls the D-pad does not reach.
+    - **Existing installs:** the layout replaces Web Browser wherever NonSteamApps assigned it, at the next install or update; a layout the user picked stays.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -357,3 +363,4 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 54. [Chromium](https://github.com/chromium/chromium/tree/156.0.8078.79) 156: `chrome/browser/ui/window_sizer/`, `chrome/browser/ui/startup/browser_window_state.cc` and `ui/ozone/platform/x11/x11_window.cc`, for `--window-size`, the one-pixel shrink and full screen asked for by another program
 55. [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher) 11.1.1: `launcher/Application.cpp` (`showMainWindow`), `launcher/ui/MainWindow.cpp` and `launcher/ui/setupwizard/SetupWizard.cpp`
 56. [KDE Frameworks](https://github.com/KDE/kconfig): `src/gui/kwindowconfig.cpp`; [KXmlGui](https://github.com/KDE/kxmlgui): `src/kmainwindow.cpp`; [Dolphin](https://github.com/KDE/dolphin): `src/main.cpp`, for when window sizes are restored
+57. [LocalSend](https://github.com/localsend/localsend/tree/v1.18.2) 1.18.2: `app/lib/widget/watcher/shortcut_watcher.dart`, for Ctrl+Q, Escape and Ctrl+V, and `app/lib/main.dart`, which puts those shortcuts around the app; [Flutter](https://github.com/flutter/flutter/tree/3.41.9) 3.41.9, which LocalSend builds with: `packages/flutter/lib/src/widgets/app.dart`, whose default shortcuts on Linux move the focus with the arrow keys and press a control on Enter or Space

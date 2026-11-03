@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BROWSER, FILES, MINECRAFT, TOOLS
+from .layouts import BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -601,7 +601,7 @@ APPS: Tuple[App, ...] = (
         client="LocalSend",
         flatpak="org.localsend.localsend_app",
         summary="Send files to and from nearby phones and computers over your own network",
-        controller=WEB_BROWSER,
+        controller=LOCALSEND.title,
         logo_position="BottomLeft:44:56",
         ports=("53317/tcp", "53317/udp"),
         tv_scale=TvScale(variable="GDK_SCALE", whole=True),

@@ -13,6 +13,10 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
 - **Minecraft** starts from Keyboard (WASD) and Mouse, whose buttons already match Minecraft's keys. X drops
   the held item (Q), Menu pauses (Escape) and View shows the players (Tab), the stick clicks sprint
   (Ctrl) and sneak (Shift), and the bumpers step left and right along the hotbar.
+- **LocalSend** starts from Web Browser and uses LocalSend's own keys: the D-pad moves between controls as
+  before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
+  (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
+  bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
 - **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
@@ -102,6 +106,18 @@ def _minecraft(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     return group
 
 
+def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press LEFT_CONTROL, Paste", "key_press V"])
+    elif source == "switch":
+        _bind(group, "left_bumper", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
+        _bind(group, "right_bumper", ["key_press TAB, Next"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+    return group
+
+
 def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "dpad":
         _bind(group, "dpad_west", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
@@ -150,6 +166,13 @@ MINECRAFT = Layout(
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
 )
+LOCALSEND = Layout(
+    slug="localsend",
+    title="LocalSend (NonSteamApps)",
+    description="D-pad to move, A to select, B to go back, Y to paste, bumpers for the previous and next control, X for the keyboard, hold Start to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_localsend,
+)
 TOOLS = Layout(
     slug="tools",
     title="Tools (NonSteamApps)",
@@ -157,7 +180,7 @@ TOOLS = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_tools,
 )
-LAYOUTS = (BROWSER, FILES, MINECRAFT, TOOLS)
+LAYOUTS = (BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

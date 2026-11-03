@@ -58,7 +58,8 @@ class ArgumentTests(unittest.TestCase):
             app = apps.by_id(app_id)
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
             self.assertEqual(app.controller, "Browser (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal", "localsend"])
+        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal"])
+        self.assertEqual(apps.by_id("localsend").controller, "LocalSend (NonSteamApps)")
         self.assertEqual([app.id for app in apps.APPS if app.controller == apps.GAMEPAD], ["youtube"])
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 

@@ -28,8 +28,10 @@ VACUUMTUBE_DEFAULTS = {
     "features_enabled": True,
     "remaining_time_feature": True,
     "wayland_hdr": True,
+    "userstyles": True,
 }
 CHANGES_FILE = "nonsteamapps.json"
+USERSTYLES = "userstyles"
 
 
 def _json(value: object) -> object:
@@ -134,6 +136,27 @@ class IniSettings:
         return True
 
 
+def place_userstyles(source: Path, folder: Path, names: Sequence[str]) -> List[str]:
+    """Copy the style sheets ``names`` from ``source`` into ``folder``'s ``userstyles``; return those written.
+
+    A sheet is written only when it is missing or differs, so that VacuumTube, which watches the folder,
+    reloads only what changed. Which sheets VacuumTube applies is its own setting, which is left alone.
+    """
+    written = []
+    for name in names:
+        content = (Path(source) / name).read_bytes()
+        target = Path(folder) / USERSTYLES / name
+        try:
+            current = target.read_bytes()
+        except OSError:
+            current = None
+        if current != content:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_bytes(target, content)
+            written.append(name)
+    return written
+
+
 def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
     """The keys of ``[group]`` in an INI file that start with ``prefix``, with their values as they are written."""
     try:
@@ -159,6 +182,7 @@ VACUUMTUBE_TV = JsonSettings(
 )
 VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
 VACUUMTUBE_SEGMENTS = JsonSettings("config.json", tuple((f"sponsorblock_skip_{category}", True) for category in VACUUMTUBE_SKIPPED if category != "sponsor"))
+VACUUMTUBE_STYLES = JsonSettings("config.json", (("userstyles", True),))
 ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
 LOCALSEND_SETTINGS = JsonSettings(
     "data/org.localsend.localsend_app/shared_preferences.json",
@@ -618,7 +642,9 @@ class App:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
     :mod:`x11`), and a ``hide_menu_bar`` app runs with NonSteamApps standing in for the desktop's global
-    menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`).
+    menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`). ``userstyles`` are style
+    sheets from NonSteamApps' ``share/userstyles``, copied at every start into the ``userstyles`` folder of
+    the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`).
     """
 
     id: str
@@ -646,6 +672,7 @@ class App:
     qt_window: bool = False
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
+    userstyles: Tuple[str, ...] = ()
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -674,9 +701,10 @@ APPS: Tuple[App, ...] = (
             "--portable={folder}",
             shared="config/VacuumTube",
             settings=(VACUUMTUBE_SETTINGS,),
-            changes=(("2.11.0", VACUUMTUBE_TV), ("2.21.0", VACUUMTUBE_SEGMENTS)),
+            changes=(("2.11.0", VACUUMTUBE_TV), ("2.21.0", VACUUMTUBE_SEGMENTS), ("2.22.0", VACUUMTUBE_STYLES)),
         ),
         controller=YOUTUBE.title,
+        userstyles=("nonsteamapps-steamos.css",),
         legacy_exes=("~/.local/share/steamos-yt/bin/steamos-yt",),
         tv_scale=TvScale(
             argument="--force-device-scale-factor={factor}",

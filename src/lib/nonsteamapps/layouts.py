@@ -21,6 +21,9 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
   Space, which would tick a box and close its dialog at once.
+- **Bitwarden** is Tools with Bitwarden's shortcuts for what its menu bar holds, which Game Mode hides
+  (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L), L1 searches it
+  (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
 """
 
 from __future__ import annotations
@@ -129,6 +132,17 @@ def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
     return group
 
 
+def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    group = _tools(source, group, base)
+    if source == "switch":
+        _bind(group, "button_menu", ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, "button_escape", ["key_press LEFT_CONTROL, Lock", "key_press L"])
+        _bind(group, "left_bumper", ["key_press LEFT_CONTROL, Search", "key_press F"])
+        _bind(group, "right_bumper", ["key_press LEFT_CONTROL, Generator", "key_press G"])
+    return group
+
+
 @dataclass(frozen=True)
 class Layout:
     """A layout made from Valve's ``base`` layout for the Deck, with ``change`` applied to each group it keeps."""
@@ -180,7 +194,14 @@ TOOLS = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_tools,
 )
-LAYOUTS = (BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS)
+BITWARDEN = Layout(
+    slug="bitwarden",
+    title="Bitwarden (NonSteamApps)",
+    description="D-pad to move, A to select, Y for OK, B to cancel, X for the keyboard, Start for settings, View to lock, L1 to search, R1 for the generator, hold Start to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_bitwarden,
+)
+LAYOUTS = (BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

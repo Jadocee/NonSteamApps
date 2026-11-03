@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
+from .layouts import BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -142,7 +142,7 @@ LOCALSEND_SETTINGS = JsonSettings(
 )
 BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
-    (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False)),
+    (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
 )
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
@@ -477,7 +477,10 @@ class App:
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
     A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:
-    gamescope sizes only full-screen windows to the screen and ignores requests to maximise.
+    gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
+    the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
+    :mod:`x11`), and a ``hide_menu_bar`` app runs with NonSteamApps standing in for the desktop's global
+    menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`).
     """
 
     id: str
@@ -502,6 +505,8 @@ class App:
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
     qt_window: bool = False
+    fullscreen_class: str = ""
+    hide_menu_bar: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -588,11 +593,14 @@ APPS: Tuple[App, ...] = (
             shared="config/Bitwarden",
             settings=(BITWARDEN_SETTINGS,),
         ),
-        controller=TOOLS.title,
+        controller=BITWARDEN.title,
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
         env=(("ACCESS_TOKEN_LOCATION", "DISK"),),
+        game_mode_env=(("DISPLAY_MODE", "X11"),),
         callbacks=("bitwarden",),
+        fullscreen_class="bitwarden",
+        hide_menu_bar=True,
         notice="Bitwarden keeps its login tokens unencrypted on disk, so that it works without a keyring; see the README",
     ),
     App(

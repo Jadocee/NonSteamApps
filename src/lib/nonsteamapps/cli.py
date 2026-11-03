@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient, timer,
-    ui, x11,
+    __version__, appmenu, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient,
+    timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -568,10 +568,23 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
             del os.environ[variable]
         print(f"  keeping {app.client}'s sandbox on: hid {', '.join(hidden)} ({GAME_MODE_SANDBOX}=1)")
     print("  " + " ".join(command), flush=True)
+    if game_mode:
+        _tidy_window(app)
     if channel:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _tidy_window(app: App) -> None:
+    """In Game Mode, before the app starts: ask for its windows to be full screen, and hide an Electron app's menu bar."""
+    if app.fullscreen_class:
+        x11.watch(app.fullscreen_class, os.getpid())
+    if app.hide_menu_bar:
+        if appmenu.watch(os.getpid()):
+            print(f"  hiding {app.client}'s menu bar: NonSteamApps stands in for the desktop's global menu", flush=True)
+        else:
+            print(f"  {app.client} keeps its menu bar: the session bus is out of reach, or another program owns the global menu", flush=True)
 
 
 def _qt_window(app: App, game_mode: bool, factor: Optional[float]) -> List[str]:

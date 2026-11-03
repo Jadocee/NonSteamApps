@@ -44,6 +44,7 @@ class CliTestCase(unittest.TestCase):
             patches.append(mock.patch("nonsteamapps.cli._update_program"))
         self.watch = mock.patch("nonsteamapps.cli.x11.watch")
         patches.append(self.watch)
+        patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -280,6 +281,24 @@ class LaunchTests(CliTestCase):
             self.fake.command, "run", f"--env=BITWARDEN_APPDATA_DIR={folder}", "--env=ACCESS_TOKEN_LOCATION=DISK", "com.bitwarden.desktop",
         ])
         self.assertFalse(json.loads((folder / "data.json").read_text())["global_desktopSettings_runInBackground"])
+
+    def test_in_game_mode_bitwarden_fills_the_screen_without_its_menu_bar(self):
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080), \
+                mock.patch("nonsteamapps.cli.x11.watch") as watch, \
+                mock.patch("nonsteamapps.cli.appmenu.watch", return_value=True) as menu:
+            argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        watch.assert_called_once_with("bitwarden", os.getpid())
+        menu.assert_called_once_with(os.getpid())
+        self.assertIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertIn("--force-device-scale-factor=1.5", argv)
+        self.assertEqual(json.loads((folder / "data.json").read_text())["global_theming_selection"], "dark")
+        with mock.patch("nonsteamapps.cli.x11.watch") as watch, mock.patch("nonsteamapps.cli.appmenu.watch") as menu:
+            argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        watch.assert_not_called()
+        menu.assert_not_called()
+        self.assertNotIn("--env=DISPLAY_MODE=X11", argv)
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)

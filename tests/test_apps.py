@@ -125,7 +125,9 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(bitwarden.run_options(HOME, 111),
                          ["--env=BITWARDEN_APPDATA_DIR=/home/deck/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-111"])
         self.assertEqual(bitwarden.run_options(HOME, None), [])
-        self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Tools (NonSteamApps)"))
+        self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Bitwarden (NonSteamApps)"))
+        self.assertEqual((bitwarden.game_mode_env, bitwarden.fullscreen_class, bitwarden.hide_menu_bar), ((("DISPLAY_MODE", "X11"),), "bitwarden", True))
+        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar or app.fullscreen_class], ["bitwarden"])
         self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
 
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
@@ -304,17 +306,20 @@ class ProfileTests(unittest.TestCase):
                          {"flutter.ls_version": 3, "flutter.ls_theme": "dark", "flutter.ls_alias": "Deck", "flutter.ls_color": "oled"})
         self.assertFalse(current.parent.exists())
 
-    def test_each_bitwarden_folder_starts_quitting_when_closed(self):
+    def test_each_bitwarden_folder_starts_dark_and_quitting_when_closed(self):
         bitwarden = apps.by_id("bitwarden")
         app_home = bitwarden.home(self.home)
         bitwarden.profile.prepare(app_home, 111, lambda options: 0)
         data = app_home / "config/Bitwarden-steam-111/data.json"
-        self.assertEqual(json.loads(data.read_text()),
-                         {"global_desktopSettings_runInBackground": False, "global_desktopSettings_openAtLogin": False})
-        data.write_text(json.dumps({"stateVersion": 86, "global_desktopSettings_runInBackground": True, "user_x": {"key": 1}}))
+        self.assertEqual(json.loads(data.read_text()), {
+            "global_desktopSettings_runInBackground": False, "global_desktopSettings_openAtLogin": False, "global_theming_selection": "dark",
+        })
+        data.write_text(json.dumps({"stateVersion": 86, "global_desktopSettings_runInBackground": True, "global_theming_selection": "light",
+                                    "user_x": {"key": 1}}))
         self.assertEqual(bitwarden.profile.reset(app_home), [data.parent])
         self.assertEqual(json.loads(data.read_text()), {
-            "stateVersion": 86, "global_desktopSettings_runInBackground": False, "user_x": {"key": 1}, "global_desktopSettings_openAtLogin": False,
+            "stateVersion": 86, "global_desktopSettings_runInBackground": False, "global_theming_selection": "dark", "user_x": {"key": 1},
+            "global_desktopSettings_openAtLogin": False,
         })
 
     def make_jellyfin_profile(self, app_home, name, folder):

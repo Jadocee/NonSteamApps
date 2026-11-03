@@ -162,6 +162,19 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
         self.assertEqual(bindings(switch, "button_escape"), ["key_press ESCAPE"])
 
+    def test_bitwarden_keeps_the_tools_controls_and_reaches_what_its_hidden_menu_holds(self):
+        found = groups(layouts.build(layouts.BITWARDEN, self.read(layouts.BITWARDEN.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        tools = groups(layouts.build(layouts.TOOLS, self.read(layouts.TOOLS.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        self.assertEqual(found["button_diamond"], tools["button_diamond"])
+        self.assertEqual(found["dpad"], tools["dpad"])
+        switch = found["switch"]
+        self.assertEqual(
+            [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+            [["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Lock", "key_press L"],
+             ["key_press LEFT_CONTROL, Search", "key_press F"], ["key_press LEFT_CONTROL, Generator", "key_press G"]],
+        )
+        self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])
         self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])

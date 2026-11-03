@@ -145,6 +145,13 @@ class FlagTests(unittest.TestCase):
             self.assertIn(flag, arguments)
         self.assertEqual(arguments[-1], "https://www.primevideo.com/")
 
+    def test_a_browser_window_can_be_given_the_screens_size_instead_of_being_maximised(self):
+        arguments = browser.flags(Path("/p"), "https://example.org/", False, True, 1.5, "nonsteamapps-helium", (1280, 720))
+        self.assertEqual(arguments[-3:], ["--window-position=0,0", "--window-size=1280,720", "https://example.org/"])
+        self.assertNotIn("--start-maximized", arguments)
+        kiosk = browser.flags(Path("/p"), "https://example.org/", True, True, 1.5, "nonsteamapps-netflix", (1280, 720))
+        self.assertFalse(any(flag.startswith("--window-") for flag in kiosk))
+
     def test_the_browser_opens_maximised_with_its_own_interface(self):
         arguments = browser.flags(Path("/p"), "", False, False, None, "nonsteamapps-helium")
         self.assertIn("--start-maximized", arguments)

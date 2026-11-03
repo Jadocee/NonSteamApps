@@ -465,6 +465,8 @@ class App:
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
+    A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:
+    gamescope sizes only full-screen windows to the screen and ignores requests to maximise.
     """
 
     id: str
@@ -488,6 +490,7 @@ class App:
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
+    qt_window: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -620,6 +623,8 @@ APPS: Tuple[App, ...] = (
         controller=MINECRAFT.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        qt_window=True,
         notice="Prism Launcher asks for a language and the Microsoft account that owns Minecraft on its first start, once for each Steam account",
     ),
     App(
@@ -633,6 +638,7 @@ APPS: Tuple[App, ...] = (
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
         env=(("PUPGUI2_DISABLE_GAMEPAD", "1"),),
         game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        qt_window=True,
         settings=(IniSettings("config/pupgui/config.ini", (("pupgui2", "theme", "steam"),)),),
         libraries=True,
         notice="Steam lists the compatibility tools ProtonUp-Qt installs once Steam restarts; choose one in a game's Properties ▸ Compatibility",
@@ -673,6 +679,7 @@ APPS: Tuple[App, ...] = (
             game_mode=(("QT_QPA_PLATFORM", "xcb"), ("QT_QPA_PLATFORMTHEME", "kde")),
         ),
         args=("--new-window",),
+        qt_window=True,
         controller=FILES.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),

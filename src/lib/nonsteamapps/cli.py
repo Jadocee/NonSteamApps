@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
     __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient, timer,
-    ui,
+    ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -561,7 +561,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     channel = _link_channel(paths, app, game_mode)
     if channel:
         options += links.sandbox_options(paths.program / "share" / "sandbox", channel[0], app.callbacks)
-    command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *extra], options)
+    command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *_qt_window(app, game_mode, factor), *extra], options)
     hidden = [variable for variable in app.sandbox_off_when if variable in os.environ]
     if hidden and config.enabled(settings.get(GAME_MODE_SANDBOX)):
         for variable in hidden:
@@ -572,6 +572,12 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _qt_window(app: App, game_mode: bool, factor: Optional[float]) -> List[str]:
+    """Give a Qt app's first window the screen's size in Game Mode, where it would otherwise keep its own and get black bars."""
+    size = display.window_size(factor) if app.qt_window and game_mode else None
+    return ["-qwindowgeometry", f"{size[0]}x{size[1]}+0+0"] if size else []
 
 
 def _link_channel(paths: Paths, app: App, game_mode: bool) -> Optional[Tuple[Path, int]]:
@@ -603,8 +609,10 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
         browser.prepare(profile, services, False, runtime.widevine)
         signing_in = browser.allow_callbacks(profile, url, app.callbacks)
         print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
-        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, f"nonsteamapps-{app.id}")]
+        name = f"nonsteamapps-{app.id}"
+        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor))]
         browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
+        x11.watch(name, browsers[-1].pid)
 
     def deliver(url: str) -> None:
         print(f"  handing the sign-in back to {app.client}", flush=True)
@@ -643,12 +651,12 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     profile = paths.profile(app.id, account)
     browser.prepare(profile, config.enabled(settings.get(HELIUM_SERVICES), default=True), app.browser.kiosk, runtime.widevine)
     factor = display.scale(_scale_setting(settings), game_mode)
-    command = [
-        str(runtime.executable),
-        *browser.flags(profile, app.browser.url, app.browser.kiosk, game_mode, factor, f"nonsteamapps-{app.id}"),
-        *extra,
-    ]
+    name = f"nonsteamapps-{app.id}"
+    window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
+    command = [str(runtime.executable), *browser.flags(profile, app.browser.url, app.browser.kiosk, game_mode, factor, name, window), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
+    if window:
+        x11.watch(name, os.getpid())
     os.execv(command[0], command)
     return EXIT_ERROR
 
@@ -670,7 +678,7 @@ def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
     if factor:
         variables.update(app.tv_scale.variables(factor))
     os.environ.update(variables)
-    argv = [command, *app.args, *scale, *extra]
+    argv = [command, *app.args, *scale, *_qt_window(app, game_mode, factor), *extra]
     print("  " + " ".join([*(f"{name}={value}" for name, value in variables.items()), *argv]), flush=True)
     os.execv(command, argv)
     return EXIT_ERROR

@@ -31,6 +31,14 @@ def screen_height() -> Optional[int]:
     return size[1] if size else None
 
 
+def window_size(factor: Optional[float]) -> Optional[Tuple[int, int]]:
+    """The window size that fills the screen exactly, in the units of an app scaled by ``factor``."""
+    size = screen_size()
+    if not size:
+        return None
+    return round(size[0] / (factor or 1)), round(size[1] / (factor or 1))
+
+
 def scale(setting: str, game_mode: bool, height: Optional[int] = None, layout: int = TV_HEIGHT) -> Optional[float]:
     """The interface scale: a number from the settings, or in Game Mode one that fits a layout ``layout`` pixels tall to the screen."""
     value = (setting or "auto").strip().lower()

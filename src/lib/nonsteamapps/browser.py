@@ -20,7 +20,7 @@ import json
 import os
 import urllib.parse
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from .fsutil import atomic_write_bytes, atomic_write_json
 
@@ -190,7 +190,10 @@ def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:
     link_widevine(profile, widevine)
 
 
-def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str) -> List[str]:
+def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None) -> List[str]:
+    """Helium's arguments. ``window`` is the size, in device-independent pixels, that a browser window takes instead of
+    being maximised: gamescope ignores maximising.
+    """
     arguments = [
         f"--user-data-dir={profile}",
         f"--class={name}",
@@ -214,6 +217,8 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
             "--disable-pinch",
             "--overscroll-history-navigation=0",
         ]
+    elif window:
+        arguments += ["--window-position=0,0", f"--window-size={window[0]},{window[1]}"]
     else:
         arguments.append("--start-maximized")
     return arguments + ([url] if url else [])

@@ -42,6 +42,8 @@ class CliTestCase(unittest.TestCase):
         ]
         if not self.self_update:
             patches.append(mock.patch("nonsteamapps.cli._update_program"))
+        self.watch = mock.patch("nonsteamapps.cli.x11.watch")
+        patches.append(self.watch)
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -343,9 +345,12 @@ class LaunchTests(CliTestCase):
         self.assertTrue((folder / "prismlauncher.cfg").is_file())
         self.assertTrue((folder / "assets").is_symlink())
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
-                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+                mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
             argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
-        self.assertEqual(argv, [self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "org.prismlauncher.PrismLauncher", f"--dir={folder}"])
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb", "org.prismlauncher.PrismLauncher", f"--dir={folder}",
+            "-qwindowgeometry", "1280x720+0+0",
+        ])
 
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
@@ -621,6 +626,15 @@ class FilesTests(CliTestCase):
             )
             self.assertEqual(environ["XDG_CONFIG_HOME"], str(self.profile / "config"))
 
+    def test_in_game_mode_files_opens_as_large_as_the_screen(self):
+        self.install("files")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(1920, 1080)), mock.patch.dict(os.environ):
+            argv, _ = self.launch("files", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1:], ["--new-window", "-qwindowgeometry", "1280x720+0+0"])
+        argv, _ = self.launch_files()
+        self.assertEqual(argv[1:], ["--new-window"])
+
     def test_without_dolphin_files_says_what_is_missing(self):
         (self.bin / "dolphin").unlink()
         self.install("files")
@@ -730,6 +744,23 @@ class HeliumAppTests(CliTestCase):
             self.launch(app_id, "--steam-account", str(ALPHA))
             self.assertNotIn("LD_PRELOAD", os.environ, app_id)
             self.assertNotIn("LD_LIBRARY_PATH", os.environ, app_id)
+
+    def test_in_game_mode_the_browser_window_fills_the_screen_and_keeps_its_tabs(self):
+        self.install("helium", "netflix")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(1920, 1080)), \
+                mock.patch("nonsteamapps.cli.x11.watch") as watch:
+            argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
+            watch.assert_called_once_with("nonsteamapps-helium", os.getpid())
+            self.assertIn("--window-size=1280,720", argv)
+            self.assertIn("--window-position=0,0", argv)
+            self.assertNotIn("--start-maximized", argv)
+            watch.reset_mock()
+            argv, _ = self.launch("netflix", "--steam-account", str(ALPHA))
+            watch.assert_not_called()
+            self.assertIn("--kiosk", argv)
+        argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
+        self.assertIn("--start-maximized", argv)
 
     def test_game_mode_scales_the_pages_for_the_tv(self):
         self.install("hbomax")

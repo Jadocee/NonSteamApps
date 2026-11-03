@@ -900,16 +900,33 @@ class KytyTests(CliTestCase):
         watch.assert_called_once_with("nonsteamapps-kytyps5", os.getpid())
         self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "QT_SCALE_FACTOR")],
                          ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "1.5"])
-        (home / "Kyty.ini").write_text((home / "Kyty.ini").read_text() + "[Launcher]\ngame_dirs=/home/deck/Games/PS5\n")
+        games = self.home / "Games" / "PS5"
+        self.assertIn(f"[Launcher]\ngame_dirs={games}\n", (home / "Kyty.ini").read_text())
+        self.assertTrue(games.is_dir())
+        apps.IniSettings("Kyty.ini", (("Launcher", "game_dirs", "/run/media/deck/SD/PS5, /home/deck/PS5"),)).apply(home)
         self.launch_kyty(account=ALPHA)
         alpha = self.paths.profile("kytyps5", ALPHA)
-        self.assertIn("game_dirs=/home/deck/Games/PS5", (alpha / "Kyty.ini").read_text())
+        self.assertIn("game_dirs=/run/media/deck/SD/PS5, /home/deck/PS5\n", (alpha / "Kyty.ini").read_text())
+        self.assertNotIn(str(games), (alpha / "Kyty.ini").read_text())
         self.assertIn("check_updates_on_startup=false", (alpha / "Kyty.ini").read_text())
         self.assertEqual((alpha / "_DownloadData").resolve(), (home / "_DownloadData").resolve())
         self.assertEqual((alpha / "_DownloadData").resolve(), self.paths.profiles / "kytyps5" / "games" / "_DownloadData")
         (home / "Kyty.ini").write_text("[MainDialog]\ncheck_updates_on_startup=true\n[GameConfigurations]\nsize=1\n")
         self.install("kytyps5")
         self.assertEqual((home / "Kyty.ini").read_text(), "[MainDialog]\ncheck_updates_on_startup=false\n[GameConfigurations]\nsize=1\n")
+
+    def test_kytyps5_gets_a_games_folder_only_when_none_is_set(self):
+        self.install("kytyps5")
+        home = self.paths.profile("kytyps5", BETA)
+        home.mkdir(parents=True)
+        (home / "Kyty.ini").write_text("[Launcher]\ngame_dir=/home/deck/Old PS5\n")
+        self.launch_kyty()
+        self.assertEqual((home / "Kyty.ini").read_text().count("game_dir"), 1)
+        self.assertFalse((self.home / "Games").exists())
+        (home / "Kyty.ini").write_text("[Launcher]\ngame_dirs=\n")
+        self.launch_kyty()
+        self.assertIn(f"game_dirs={self.home / 'Games' / 'PS5'}\n", (home / "Kyty.ini").read_text())
+        self.assertTrue((self.home / "Games" / "PS5").is_dir())
 
     def test_kytyps5_updates_only_when_asked_and_rolls_back(self):
         self.install("kytyps5")

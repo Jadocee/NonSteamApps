@@ -42,6 +42,7 @@ SETTINGS_FILE = "Kyty.ini"
 BUILD_RECORD = ".nonsteamapps.json"
 LINK_RECORD = ".nonsteamapps-links.json"
 GAMES = "games"
+DEFAULT_GAMES = Path("Games") / "PS5"
 SHARED_DATA = ("_DownloadData", "_PipelineCache")
 _TAG = re.compile(r"KytyPS5-(\d{4}-\d{2}-\d{2})-([0-9a-f]{7,40})\Z")
 _DIGEST = re.compile(r"sha256:([0-9a-f]{64})\Z")
@@ -424,8 +425,11 @@ def share_game_data(home: Path, games: Path) -> List[str]:
     return kept
 
 
-def game_folders(settings_files: Sequence[Path]) -> Optional[str]:
-    """The game folders that the most recently saved of these ``Kyty.ini`` files lists, as KytyPS5 wrote them."""
+def game_folders(settings_files: Sequence[Path], keys: Sequence[str] = ("game_dirs",)) -> Optional[str]:
+    """The game folders that the most recently saved of these ``Kyty.ini`` files lists under ``keys``, as KytyPS5 wrote them.
+
+    ``game_dir`` is the single folder older launchers kept, which KytyPS5 still reads when ``game_dirs`` is empty.
+    """
     found = []
     for path in settings_files:
         try:
@@ -439,6 +443,6 @@ def game_folders(settings_files: Sequence[Path]) -> Optional[str]:
                 group = stripped[1:-1]
                 continue
             key, separator, value = stripped.partition("=")
-            if group == "Launcher" and separator and key.strip() == "game_dirs" and value.strip():
+            if group == "Launcher" and separator and key.strip() in keys and value.strip():
                 found.append((stamp, value.strip()))
     return max(found)[1] if found else None

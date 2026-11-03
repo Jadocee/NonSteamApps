@@ -63,7 +63,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(apps.by_id("protondb").browser.start_url(None), "https://www.protondb.com/")
         self.assertEqual(apps.by_id("netflix").browser.start_url(111), "https://www.netflix.com/")
         self.assertEqual(apps.by_id("localsend").controller, "LocalSend (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.GAMEPAD], ["youtube"])
+        self.assertEqual(apps.by_id("youtube").controller, "YouTube (NonSteamApps)")
         self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
@@ -182,6 +182,13 @@ class ProfileTests(unittest.TestCase):
             json.loads(settings.read_text()),
             {
                 "sponsorblock": True,
+                "sponsorblock_skip_sponsor": True,
+                "sponsorblock_skip_selfpromo": True,
+                "sponsorblock_skip_interaction": True,
+                "sponsorblock_skip_intro": True,
+                "sponsorblock_skip_outro": True,
+                "sponsorblock_skip_preview": True,
+                "sponsorblock_skip_hook": True,
                 "dearrow": True,
                 "dislikes": True,
                 "block_continue_watching": True,
@@ -211,12 +218,30 @@ class ProfileTests(unittest.TestCase):
         youtube.profile.prepare(app_home, 111, lambda options: 0)
         self.assertEqual(
             json.loads(settings.read_text()),
-            {"sponsorblock": False, "fullscreen": True, "no_window_decorations": True, "volume": 80, "disabled_tabs": ["shorts", "podcasts"]},
+            {"sponsorblock": False, "fullscreen": True, "no_window_decorations": True, "volume": 80, "disabled_tabs": ["shorts", "podcasts"],
+             **{f"sponsorblock_skip_{category}": True for category in ("selfpromo", "interaction", "intro", "outro", "preview", "hook")}},
         )
-        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0"]})
-        settings.write_text(json.dumps({"fullscreen": False, "disabled_tabs": []}))
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
+        settings.write_text(json.dumps({"fullscreen": False, "disabled_tabs": [], "sponsorblock_skip_outro": False}))
         youtube.profile.prepare(app_home, 111, lambda options: 0)
-        self.assertEqual(json.loads(settings.read_text()), {"fullscreen": False, "disabled_tabs": []})
+        self.assertEqual(json.loads(settings.read_text()), {"fullscreen": False, "disabled_tabs": [], "sponsorblock_skip_outro": False})
+
+    def test_folders_set_up_before_2_21_0_skip_the_new_segments_once_and_keep_the_rest(self):
+        youtube = apps.by_id("youtube")
+        app_home = youtube.home(self.home)
+        folder = app_home / "config/VacuumTube-steam-111"
+        folder.mkdir(parents=True)
+        (folder / "nonsteamapps.json").write_text(json.dumps({"changes": ["2.11.0"]}))
+        settings = folder / "config.json"
+        settings.write_text(json.dumps({"sponsorblock": False, "sponsorblock_skip_sponsor": False, "sponsorblock_skip_filler": True}))
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        data = json.loads(settings.read_text())
+        self.assertEqual(
+            [data[key] for key in ("sponsorblock", "sponsorblock_skip_sponsor", "sponsorblock_skip_filler", "sponsorblock_skip_outro", "sponsorblock_skip_selfpromo")],
+            [False, False, True, True, True],
+        )
+        self.assertNotIn("fullscreen", data)
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
 
     def test_a_damaged_vacuumtube_config_is_left_for_vacuumtube_and_changed_later(self):
         youtube = apps.by_id("youtube")
@@ -286,7 +311,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(youtube.profile.reset(app_home), [folder])
         data = json.loads((folder / "config.json").read_text())
         self.assertEqual((data["sponsorblock"], data["disabled_tabs"], data["fullscreen"], data["volume"]), (True, ["shorts", "podcasts"], True, 80))
-        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0"]})
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
         self.assertFalse(json.loads((shared / "config.json").read_text())["sponsorblock"])
         self.assertEqual(youtube.profile.reset(app_home, shared=True), [shared])
         self.assertEqual(youtube.profile.reset(app_home, shared=True), [])

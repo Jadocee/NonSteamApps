@@ -201,10 +201,23 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertNotIn("right_trackpad", xbox)
         self.assertEqual(bindings(xbox["button_diamond"], "button_y"), ["xinput_button Y"])
 
+    def test_youtube_stays_a_gamepad_and_holding_view_reloads_it(self):
+        for template in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
+            with self.subTest(template=template):
+                found = groups(layouts.build(layouts.YOUTUBE, self.read(layouts.YOUTUBE.base), self.read(template)))
+                switch = found["switch"]
+                self.assertEqual(bindings(switch, "button_escape"), ["xinput_button button_escape"])
+                self.assertEqual(bindings(switch, "button_escape", "Long_Press"), ["key_press LEFT_CONTROL, Reload", "key_press R"])
+                full = find(find(find(find(switch, "inputs"), "button_escape"), "activators"), "Full_Press")
+                self.assertEqual(find(full, "settings"), [("interruptable", "1")])
+                self.assertEqual(bindings(switch, "button_menu"), ["xinput_button button_menu"])
+                self.assertEqual(bindings(found["button_diamond"], "button_a"), ["xinput_button A"])
+
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])
         self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])
         self.assertEqual(layouts.used_by([layouts.LOCALSEND.title, layouts.BROWSER.title]), [layouts.BROWSER, layouts.LOCALSEND])
+        self.assertEqual(layouts.used_by([layouts.YOUTUBE.title, layouts.EMULATOR.title]), [layouts.EMULATOR, layouts.YOUTUBE])
         self.assertEqual(layouts.used_by(["Gamepad", ""]), [])
 
 

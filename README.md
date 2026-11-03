@@ -45,7 +45,7 @@ In Desktop Mode, open Konsole and run:
 curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash
 ```
 
-This installs all eleven apps. To choose, name them:
+This installs every app in the table above. To choose, name them:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- youtube jellyfin

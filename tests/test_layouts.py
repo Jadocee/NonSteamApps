@@ -136,7 +136,7 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(found["joystick"], "dpad_north"), ["mouse_wheel SCROLL_UP, ⏫"])
 
     def test_holding_menu_quits_helium_and_files_and_a_short_press_still_closes_the_tab(self):
-        for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"]),
+        for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]),
                                   (layouts.FILES, ["key_press LEFT_CONTROL, Quit", "key_press Q"])):
             built = layouts.build(layout, self.read(layout.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
             switch = groups(built)["switch"]
@@ -146,6 +146,10 @@ class FilesLayoutTests(unittest.TestCase):
             self.assertEqual(find(full, "settings"), [("interruptable", "1")])
         found = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(bindings(found["button_diamond"], "button_a"), ["key_press RETURN, ⏯️", "key_press SPACE"])
+        switch = found["switch"]
+        self.assertEqual([bindings(switch, bumper) for bumper in ("left_bumper", "right_bumper")], [["mouse_button BACK, ◀️"], ["mouse_button FORWARD, ▶️"]])
+        self.assertEqual([bindings(switch, bumper, "Long_Press") for bumper in ("left_bumper", "right_bumper")],
+                         [["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"], ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"]])
 
     def test_localsend_selects_once_goes_back_with_b_and_quits_when_menu_is_held(self):
         found = groups(layouts.build(layouts.LOCALSEND, self.read(layouts.LOCALSEND.base), self.read("controller_neptune_gamepad_joystick.vdf")))

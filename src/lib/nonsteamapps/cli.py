@@ -623,7 +623,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
         signing_in = browser.allow_callbacks(profile, url, app.callbacks)
         print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
         name = f"nonsteamapps-{app.id}"
-        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor))]
+        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), paths.focus_extension)]
         browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
         x11.watch(name, browsers[-1].pid)
 
@@ -667,7 +667,7 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
     url = app.browser.start_url(account)
-    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window), *extra]
+    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, paths.focus_extension), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
     if window:
         x11.watch(name, os.getpid())

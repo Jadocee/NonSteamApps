@@ -1,0 +1,4 @@
+:focus-visible:not(video):not(:has(video)) {
+  outline: 3px solid #1a9fff !important;
+  outline-offset: -3px !important;
+}

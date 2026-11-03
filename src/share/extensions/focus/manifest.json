@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "NonSteamApps TV focus",
+  "version": "1",
+  "description": "A clear outline around the link or button that the D-pad or arrow keys move to, so that it can be seen across the room.",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["focus.css"],
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}

@@ -5,8 +5,10 @@ and changes only what its app needs. It is written for every controller type Val
 for, keeping only the inputs that controller has, into ``controller_base/templates``, where Steam lists
 layouts, and then assigned like Valve's own (see :mod:`controllers`).
 
-- **Browser**, for the Helium apps, is Web Browser with one addition: holding Menu quits (Ctrl+Shift+W,
-  which closes the window with all its tabs), while a short press still closes the tab.
+- **Browser**, for the Helium apps, is Web Browser with long presses added. Holding Menu quits: it sends
+  Ctrl+Shift+W, which closes the window with all its tabs, together with Ctrl+Shift+Q, Helium's Exit, which
+  a full-screen page cannot intercept (see :mod:`browser`). Holding L1 or R1 goes to the previous or next tab
+  (Ctrl+Page Up and Ctrl+Page Down). Short presses still close the tab and go back and forward.
 - **Files** starts from Web Browser. A presses only Enter (Valve's also presses Space, which toggles
   Dolphin's selection mode), Y only goes forward (Valve's also types S, which jumps to a file), the
   left stick moves the selection like the D-pad instead of scrolling, and holding Menu quits (Ctrl+Q).
@@ -78,7 +80,9 @@ def _hold(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
 
 def _browser(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "switch":
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"])
+        _hold(group, "left_bumper", ["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"])
+        _hold(group, "right_bumper", ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"])
     return group
 
 
@@ -161,9 +165,10 @@ class Layout:
 BROWSER = Layout(
     slug="browser",
     title="Browser (NonSteamApps)",
-    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit",
+    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit, hold L1 or R1 to change tabs",
     base="controller_neptune_webbrowser.vdf",
     change=_browser,
+    revision="2",
 )
 FILES = Layout(
     slug="files",

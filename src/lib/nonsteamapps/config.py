@@ -10,7 +10,7 @@ import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional
 
 from .fsutil import atomic_write_json
 
@@ -56,6 +56,16 @@ class Paths:
     @property
     def record(self) -> Path:
         return self.state / "apps.json"
+
+    @property
+    def artwork_record(self) -> Path:
+        """What NonSteamApps last put in Steam's grid folders, so an update keeps artwork the user chose."""
+        return self.state / "artwork.json"
+
+    @property
+    def source(self) -> Path:
+        """Where the installer took NonSteamApps from, which updates fetch it from again."""
+        return self.state / "source.json"
 
     @property
     def helium(self) -> Path:
@@ -161,17 +171,11 @@ def set_setting(path: Path, key: str, value: str) -> None:
 
 
 class Record:
-    """Which apps NonSteamApps manages, whether it installed each app's Flatpak, and the ports it opened for each.
+    """Which apps NonSteamApps manages, whether it installed each app's Flatpak, and the ports it opened for each."""
 
-    ``offered`` lists the apps the installer has offered, installed or declined, so that a later install
-    offers only apps added to NonSteamApps since. A record written before the list was kept has ``None``,
-    and then every app it does not manage counts as not yet offered.
-    """
-
-    def __init__(self, path: Path, apps: Optional[Dict[str, dict]] = None, offered: Optional[List[str]] = None) -> None:
+    def __init__(self, path: Path, apps: Optional[Dict[str, dict]] = None) -> None:
         self.path = Path(path)
         self.apps: Dict[str, dict] = apps or {}
-        self.offered = offered
 
     @classmethod
     def load(cls, path: Path) -> "Record":
@@ -182,21 +186,10 @@ class Record:
         apps = data.get("apps") if isinstance(data, dict) else None
         if not isinstance(apps, dict):
             return cls(path)
-        offered = data.get("offered")
-        if not (isinstance(offered, list) and all(isinstance(app_id, str) for app_id in offered)):
-            offered = None
-        return cls(path, {key: value for key, value in apps.items() if isinstance(value, dict)}, offered)
+        return cls(path, {key: value for key, value in apps.items() if isinstance(value, dict)})
 
     def managed(self) -> List[str]:
         return list(self.apps)
-
-    def is_new(self, app_id: str) -> bool:
-        """Whether the installer has never offered the app, which then arrived in an update."""
-        return app_id not in self.apps and app_id not in (self.offered if self.offered is not None else self.apps)
-
-    def mark_offered(self, app_ids: Iterable[str]) -> None:
-        offered = list(self.offered if self.offered is not None else self.apps)
-        self.offered = offered + [app_id for app_id in app_ids if app_id not in offered]
 
     def owns_flatpak(self, app_id: str) -> bool:
         return bool(self.apps.get(app_id, {}).get("installed_flatpak"))
@@ -221,7 +214,4 @@ class Record:
         self.apps.pop(app_id, None)
 
     def save(self) -> None:
-        data: Dict[str, object] = {"version": 1, "apps": self.apps}
-        if self.offered is not None:
-            data["offered"] = self.offered
-        atomic_write_json(self.path, data)
+        atomic_write_json(self.path, {"version": 1, "apps": self.apps})

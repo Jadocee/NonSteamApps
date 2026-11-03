@@ -20,10 +20,11 @@ OVERLAY_LIBRARY = "gameoverlayrenderer.so"
 
 
 def leave_steam_environment(environ: MutableMapping[str, str]) -> bool:
-    """Remove what Steam adds when it starts a game: its overlay library and the Steam Runtime's paths.
+    """Remove what Steam adds when it starts a game: its overlay library, the Steam Runtime's paths and a Proton prefix.
 
     With the overlay library loaded, Chromium's sandboxed zygote crashes: Steam's loading screen stays up and
-    the app cannot be exited. Other preloaded libraries stay. Returns whether anything changed.
+    the app cannot be exited. Other preloaded libraries stay. A Proton prefix in ``STEAM_COMPAT_DATA_PATH``
+    would make Protontricks change that prefix whichever game is picked. Returns whether anything changed.
     """
     before = dict(environ)
     kept = [entry for entry in re.split(r"[:\s]+", environ.get("LD_PRELOAD", "")) if entry and os.path.basename(entry) != OVERLAY_LIBRARY]
@@ -36,6 +37,7 @@ def leave_steam_environment(environ: MutableMapping[str, str]) -> bool:
             environ[variable] = environ[original]
         elif original in environ and variable != "PATH":
             environ.pop(variable, None)
+    environ.pop("STEAM_COMPAT_DATA_PATH", None)
     return dict(environ) != before
 
 
@@ -114,7 +116,7 @@ def stop(retry: str) -> bool:
         return False
     if in_game_mode():
         raise ui.Abort(f"Steam is running in Game Mode and cannot be closed from here. Switch to Desktop Mode and run: {retry}")
-    if not ui.confirm("Steam must be closed to update its library. Close Steam now?", default=True):
+    if not ui.confirm("Steam must be closed to update its library. Close Steam now?", default=True, unattended=False):
         raise ui.Abort(f"Steam was left running; close it and run: {retry}")
     ui.log("Closing Steam")
     steam = command()

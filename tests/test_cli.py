@@ -10,7 +10,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import apps, cli, collection, compat, config, steam, vdf
+from nonsteamapps import __version__, apps, cli, collection, compat, config, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -22,6 +22,8 @@ def fake_exec(file, argv):
 
 
 class CliTestCase(unittest.TestCase):
+    self_update = False
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name) / "home"
@@ -38,6 +40,8 @@ class CliTestCase(unittest.TestCase):
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
         ]
+        if not self.self_update:
+            patches.append(mock.patch("nonsteamapps.cli._update_program"))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -63,6 +67,21 @@ class CliTestCase(unittest.TestCase):
         data = (steam.config_dir(self.root, account) / "shortcuts.vdf").read_bytes()
         return {entry.get("AppName"): entry for entry in vdf.loads_binary(data).get("shortcuts").values()}
 
+    def customise(self, account=ALPHA):
+        """Rename YouTube's shortcut, add a launch option, choose its hero and change its TV settings, as a user might."""
+        path = steam.config_dir(self.root, account) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        entry = shortcuts.find(str(self.paths.app_link("youtube")))[0]
+        entry.set("AppName", "My Tube")
+        entry.set("LaunchOptions", f"--steam-account {account} --debug-gpu")
+        shortcuts.save()
+        hero = steam.config_dir(self.root, account) / "grid" / f"{steam.to_unsigned32(entry.get('appid'))}_hero.jpg"
+        hero.write_bytes(b"chosen in Steam")
+        self.launch("youtube", "--steam-account", str(account))
+        settings = apps.by_id("youtube").home(self.home) / f"config/VacuumTube-steam-{account}/config.json"
+        settings.write_text(json.dumps({"disabled_tabs": [], "fullscreen": False, "volume": 80}))
+        return hero, settings
+
     def launch(self, *argv):
         with mock.patch("nonsteamapps.cli.os.execvp", side_effect=fake_exec), \
                 mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), \
@@ -79,12 +98,13 @@ class InstallTests(CliTestCase):
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
             ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "org.jellyfin.JellyfinDesktop", "org.localsend.localsend_app",
-             "org.prismlauncher.PrismLauncher"],
+             "org.prismlauncher.PrismLauncher", "net.davidotek.pupgui2", "com.github.Matoking.protontricks"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
-            [app.id for app in apps.APPS if record.owns_flatpak(app.id)], ["youtube", "element", "signal", "jellyfin", "localsend", "prism"]
+            [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
+            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -113,47 +133,33 @@ class InstallTests(CliTestCase):
         self.assertIn("    Sign-ins:  separate for each Steam account\n", self.errors)
         self.assertNotIn("Note:", self.errors)
 
-    def test_rerunning_without_names_repairs_only_the_apps_in_use(self):
+    def test_rerunning_without_names_installs_every_app_and_puts_back_their_set_up(self):
         self.install("youtube")
+        hero, settings = self.customise()
         self.install()
-        self.assertEqual([call[-1] for call in self.fake.calls("install")], ["rocks.shy.VacuumTube"])
-        self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
+        self.assertEqual([call[-1] for call in self.fake.calls("install")], [app.flatpak for app in apps.APPS if app.flatpak])
+        entries = self.entries(ALPHA)
+        self.assertEqual(sorted(entries), sorted(app.name for app in apps.APPS))
+        self.assertEqual(entries["YouTube"].get("LaunchOptions"), f"--steam-account {ALPHA}")
+        self.assertEqual(hero.read_bytes(), (self.paths.artwork("youtube") / "hero.jpg").read_bytes())
+        data = json.loads(settings.read_text())
+        self.assertEqual((data["disabled_tabs"], data["fullscreen"], data["volume"]), (["shorts", "podcasts"], True, 80))
+        self.assertIn("Put back YouTube's TV settings (1 data folder); sign-ins are kept", self.errors)
 
-    def write_record(self, managed, offered=None):
-        data = {"version": 1, "apps": {app_id: {"installed_flatpak": False} for app_id in managed}}
-        if offered is not None:
-            data["offered"] = offered
-        self.paths.record.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.record.write_text(json.dumps(data))
-
-    def test_rerunning_adds_the_apps_added_since_the_last_install_but_never_a_removed_one(self):
-        self.write_record(["youtube", "localsend"], [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")])
-        self.install()
-        self.assertIn("org.prismlauncher.PrismLauncher", [call[-1] for call in self.fake.calls("install")])
-        record = config.Record.load(self.paths.record)
-        self.assertEqual(record.managed(), ["youtube", "localsend", "prism", "protoncalendar"])
-        self.assertEqual(record.offered, [app_id for app_id in apps.ids() if app_id not in ("prism", "protoncalendar")] + ["prism", "protoncalendar"])
-        self.assertEqual(self.run_cli("remove", "localsend", "--yes"), 0, self.errors)
-        self.install()
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "prism", "protoncalendar"])
-
-    def test_new_apps_declined_once_are_not_offered_again(self):
-        self.write_record(["youtube"])
+    def test_a_full_install_asks_first_and_declining_changes_nothing(self):
+        self.install("youtube")
         asked = []
 
-        def confirm(question, default=False):
+        def confirm(question, default=False, unattended=None):
             asked.append(question)
-            return not question.startswith("New in NonSteamApps")
+            return False
 
-        options = ("--no-auto-update", "--helium-archive", str(self.helium_archive), "--skip-verify")
         with mock.patch("nonsteamapps.ui.confirm", side_effect=confirm):
-            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
-            others = [app_id for app_id in apps.ids() if app_id != "youtube"]
-            self.assertIn(f"To add them later, run: {self.paths.launcher} install {' '.join(others)}", self.errors)
-            self.assertEqual(self.run_cli("install", *options), 0, self.errors)
-        self.assertEqual(len([question for question in asked if question.startswith("New in NonSteamApps")]), 1)
-        self.assertTrue(asked[0].startswith("New in NonSteamApps since your last install: Element (Element Desktop), Signal (Signal Desktop)"))
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube"])
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
+        self.assertTrue(asked[0].startswith("Install YouTube (VacuumTube), Element (Element Desktop), "))
+        self.assertIn("The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept.", asked[0])
+        self.assertIn(f"or update the apps you have with: {self.paths.launcher} update", self.errors)
+        self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
 
     def test_unknown_app_is_rejected(self):
         self.assertEqual(self.run_cli("install", "kodi", "--yes"), 1)
@@ -172,12 +178,17 @@ class InstallTests(CliTestCase):
         calls = Path(self.tmp.name) / "systemctl.log"
         (bin_dir / "systemctl").write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
         (bin_dir / "systemctl").chmod(0o755)
+        service = self.paths.systemd / "nonsteamapps-update.service"
         with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
             self.assertEqual(self.run_cli("install", "youtube", "--yes"), 0, self.errors)
-            service = (self.paths.systemd / "nonsteamapps-update.service").read_text()
-            self.assertIn(f'ExecStart="{self.paths.launcher}" update --quiet', service)
+            self.assertIn(f'ExecStart="{self.paths.launcher}" update --quiet --apps-only\n', service.read_text())
             self.assertIn("--user enable --now nonsteamapps-update.timer", calls.read_text())
-            self.assertEqual(self.run_cli("install", "--yes", "--no-auto-update"), 0, self.errors)
+            service.write_text("from an older NonSteamApps")
+            reloads = calls.read_text().count("daemon-reload")
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            self.assertIn("update --quiet --apps-only", service.read_text())
+            self.assertEqual(calls.read_text().count("daemon-reload"), reloads + 1)
+            self.assertEqual(self.run_cli("install", "youtube", "--yes", "--no-auto-update"), 0, self.errors)
         self.assertFalse((self.paths.systemd / "nonsteamapps-update.timer").exists())
 
 
@@ -323,6 +334,36 @@ class LaunchTests(CliTestCase):
                 mock.patch("nonsteamapps.display.screen_height", return_value=2160):
             argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
         self.assertEqual(argv, [self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "org.prismlauncher.PrismLauncher", f"--dir={folder}"])
+
+    def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
+        library = Path(self.tmp.name) / "SD Card"
+        library.mkdir()
+        (self.root / "steamapps").mkdir()
+        (self.root / "steamapps/libraryfolders.vdf").write_text(
+            f'"libraryfolders" {{ "0" {{ "path" "{self.root}" }} "1" {{ "path" "{library}" }} "2" {{ "path" "/run/media/gone" }} }}\n'
+        )
+        argv, _ = self.launch("protonup", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--env=PUPGUI2_DISABLE_GAMEPAD=1", f"--filesystem={self.root}", f"--filesystem={library}", "net.davidotek.pupgui2",
+        ])
+        config_ini = self.home / ".var/app/net.davidotek.pupgui2/config/pupgui/config.ini"
+        self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n")
+        config_ini.write_text("[pupgui2]\ntheme = light\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080), \
+                mock.patch.dict(os.environ, {"STEAM_COMPAT_DATA_PATH": "/somewhere/compatdata/1245620"}):
+            argv, _ = self.launch("protonup", "--steam-account", str(ALPHA))
+            self.assertEqual(argv[2:5], ["--env=QT_SCALE_FACTOR=1.5", "--env=PUPGUI2_DISABLE_GAMEPAD=1", "--env=QT_QPA_PLATFORM=xcb"])
+            argv, _ = self.launch("protontricks", "--steam-account", str(ALPHA))
+            self.assertEqual(argv, [
+                self.fake.command, "run", "--env=GDK_DPI_SCALE=1.5", "--env=GDK_BACKEND=x11", f"--filesystem={self.root}", f"--filesystem={library}",
+                "com.github.Matoking.protontricks", "--no-term", "--gui",
+            ])
+            self.assertNotIn("STEAM_COMPAT_DATA_PATH", os.environ)
+        self.assertIn("theme = light", config_ini.read_text())
+        self.install("protonup")
+        self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
+        self.assertIn("Put back ProtonUp-Qt's TV settings (1 data folder)", self.errors)
 
     def test_prism_gets_the_minecraft_layout(self):
         folder = _fakes.add_controller_templates(self.root)
@@ -501,11 +542,6 @@ class InformationTests(CliTestCase):
         self.assertEqual(self.run_cli("doctor"), 0)
         self.assertIn("youtube", self.output)
         self.assertIn('in the library as "YouTube"', self.output)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
 
 
 
@@ -731,3 +767,107 @@ class HeliumAppTests(CliTestCase):
                                       "--helium-archive", str(_fakes.make_helium_archive(newer, "0.0.0.2")), "--skip-verify"), 0, self.errors)
         self.assertEqual(self.run_cli("rollback"), 0, self.errors)
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
+
+
+class UpdateTests(CliTestCase):
+    def test_update_keeps_the_apps_and_what_the_user_changed_and_renews_nonsteamapps_artwork(self):
+        self.install("youtube", "localsend")
+        hero, settings = self.customise()
+        before = settings.read_text()
+        (self.paths.artwork("localsend") / "capsule.png").write_bytes(b"newer capsule")
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertEqual([call[-1] for call in self.fake.calls("install")], ["rocks.shy.VacuumTube", "org.localsend.localsend_app"])
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "localsend"])
+        entries = self.entries(ALPHA)
+        self.assertEqual(sorted(entries), ["LocalSend", "My Tube"])
+        self.assertEqual(entries["My Tube"].get("LaunchOptions"), f"--steam-account {ALPHA} --debug-gpu")
+        self.assertEqual(hero.read_bytes(), b"chosen in Steam")
+        self.assertEqual(settings.read_text(), before)
+        for account in (ALPHA, BETA):
+            appid = steam.to_unsigned32(self.entries(account)["LocalSend"].get("appid"))
+            self.assertEqual((steam.config_dir(self.root, account) / "grid" / f"{appid}p.png").read_bytes(), b"newer capsule")
+        self.assertNotIn("Put back", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+    def test_update_closes_steam_only_when_a_shortcut_must_change(self):
+        self.install("localsend")
+        with mock.patch("nonsteamapps.steamclient.stop", return_value=False) as stop:
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            stop.assert_not_called()
+            path = steam.config_dir(self.root, BETA) / "shortcuts.vdf"
+            shortcuts = steam.ShortcutsFile.load(path)
+            shortcuts.find(str(self.paths.app_link("localsend")))[0].set("StartDir", '"/somewhere/else"')
+            shortcuts.save()
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            stop.assert_called_once()
+        self.assertEqual(self.entries(BETA)["LocalSend"].get("StartDir"), f'"{self.paths.program}"')
+        self.assertIn(f'Steam account P{BETA} ({BETA}): updated "LocalSend"', self.errors)
+        self.assertNotIn(f"P{ALPHA}", self.errors)
+
+    def test_update_adds_no_shortcut_to_an_account_without_one(self):
+        self.install("localsend", "--steam-user", str(ALPHA))
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertFalse((steam.config_dir(self.root, BETA) / "shortcuts.vdf").exists())
+
+    def test_a_steam_that_cannot_be_closed_leaves_the_library_as_it_was(self):
+        self.install("localsend")
+        path = steam.config_dir(self.root, ALPHA) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        shortcuts.find(str(self.paths.app_link("localsend")))[0].set("StartDir", '"/somewhere/else"')
+        shortcuts.save()
+        with mock.patch("nonsteamapps.steamclient.running", return_value=True), \
+                mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True):
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertIn("left the Steam library as it was: Steam is running in Game Mode", self.errors)
+        self.assertEqual(self.entries(ALPHA)["LocalSend"].get("StartDir"), '"/somewhere/else"')
+
+    def test_apps_only_leaves_nonsteamapps_and_the_steam_library_alone(self):
+        self.install("youtube")
+        with mock.patch("nonsteamapps.cli.steam_add") as add:
+            self.assertEqual(self.run_cli("update", "--quiet", "--apps-only"), 0, self.errors)
+        add.assert_not_called()
+        cli._update_program.assert_not_called()
+        self.assertEqual(self.fake.calls("update"), [["update", "--user", "--noninteractive", "-y", "rocks.shy.VacuumTube"]])
+
+
+class SelfUpdateTests(CliTestCase):
+    self_update = True
+
+    def make_source(self, script):
+        source = Path(self.tmp.name) / "source"
+        source.mkdir()
+        (source / "install.sh").write_text(script)
+        selfupdate.remember(self.paths, {selfupdate.SOURCE_VARIABLE: str(source)})
+        return source
+
+    def test_update_copies_nonsteamapps_from_its_source_and_hands_over_to_the_new_version(self):
+        self.install("localsend")
+        marker = Path(self.tmp.name) / "copied"
+        self.make_source(f'#!/bin/bash\necho "$NONSTEAMAPPS_COPY_ONLY $NONSTEAMAPPS_HOME" > "{marker}"\n')
+        with mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), mock.patch.dict(os.environ):
+            with self.assertRaises(Exec) as raised:
+                self.run_cli("update", "--yes", "--no-restart-steam")
+            handed_over = os.environ.get(selfupdate.UPDATED_FROM_VARIABLE)
+        self.assertEqual(raised.exception.args[0], [str(self.paths.launcher), "update", "--yes", "--no-restart-steam"])
+        self.assertEqual(handed_over, __version__)
+        self.assertEqual(marker.read_text(), f"1 {self.paths.program}\n")
+        self.assertEqual(self.fake.calls("update"), [])
+
+    def test_the_new_version_says_what_it_replaced_and_updates_the_apps(self):
+        self.install("localsend")
+        with mock.patch.dict(os.environ, {selfupdate.UPDATED_FROM_VARIABLE: "2.0.0"}):
+            self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+            self.assertNotIn(selfupdate.UPDATED_FROM_VARIABLE, os.environ)
+        self.assertIn(f"Updated NonSteamApps from 2.0.0 to {__version__}", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+    def test_when_nonsteamapps_cannot_be_copied_the_apps_are_still_updated(self):
+        self.install("localsend")
+        self.make_source("#!/bin/bash\necho 'error: run the installer as your normal user' >&2\nexit 1\n")
+        self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
+        self.assertIn("could not update NonSteamApps (error: run the installer as your normal user)", self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+
+
+if __name__ == "__main__":
+    unittest.main()

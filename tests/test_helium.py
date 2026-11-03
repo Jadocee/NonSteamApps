@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import _fakes
-from nonsteamapps import helium
+from nonsteamapps import helium, net
 from nonsteamapps.helium import HeliumError, Runtime
 
 
@@ -103,13 +103,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.versions(), [])
 
     def test_finds_the_latest_release_through_the_api_or_the_redirect(self):
-        with mock.patch.object(helium, "_fetch_text", return_value='{"tag_name": "0.20.3.1"}'):
+        with mock.patch.object(net, "fetch_text", return_value='{"tag_name": "0.20.3.1"}'):
             self.assertEqual(self.runtime.latest(), "0.20.3.1")
-        with mock.patch.object(helium, "_fetch_text", side_effect=OSError("403")), \
-                mock.patch.object(helium, "_final_url", return_value="https://github.com/x/y/releases/tag/0.20.4.1"):
+        with mock.patch.object(net, "fetch_text", side_effect=OSError("403")), \
+                mock.patch.object(net, "final_url", return_value="https://github.com/x/y/releases/tag/0.20.4.1"):
             self.assertEqual(self.runtime.latest(), "0.20.4.1")
-        with mock.patch.object(helium, "_fetch_text", side_effect=OSError), \
-                mock.patch.object(helium, "_final_url", side_effect=OSError):
+        with mock.patch.object(net, "fetch_text", side_effect=OSError), \
+                mock.patch.object(net, "final_url", side_effect=OSError):
             with self.assertRaises(HeliumError):
                 self.runtime.latest()
 

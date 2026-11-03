@@ -55,6 +55,27 @@ class PreferencesTests(unittest.TestCase):
         self.assertFalse(data["helium"]["services"]["enabled"])
         self.assertEqual(data["helium"]["services"]["schema_version"], 3)
 
+    def test_an_install_puts_the_new_profile_settings_back_and_keeps_the_rest(self):
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        browser.write_local_state(self.profile)
+        data = self.read()
+        data["translate"]["enabled"] = True
+        data["profile"]["default_content_setting_values"]["notifications"] = 1
+        data["homepage"] = "https://example.com/"
+        self.preferences.write_text(json.dumps(data))
+        (self.profile / "Local State").write_text(json.dumps({"helium": {"crash_reporting": {"mode": 1}}, "browser": {"x": 1}}))
+        self.assertTrue(browser.reset(self.profile, kiosk=True))
+        data = self.read()
+        self.assertFalse(data["translate"]["enabled"])
+        self.assertEqual(data["profile"]["default_content_setting_values"]["notifications"], 2)
+        self.assertEqual(data["homepage"], "https://example.com/")
+        self.assertEqual(json.loads((self.profile / "Local State").read_text()), {"helium": {"crash_reporting": {"mode": -1}}, "browser": {"x": 1}})
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        self.preferences.write_text("{")
+        self.assertFalse(browser.reset(self.profile, kiosk=True))
+        self.assertEqual(self.preferences.read_text(), "{")
+
     def test_a_corrupt_file_is_kept_aside(self):
         self.preferences.parent.mkdir(parents=True)
         self.preferences.write_text("{broken")

@@ -14,16 +14,14 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from . import ui
+from . import net, ui
 
 REPO = "imputnet/helium-linux"
 FINGERPRINT = "BE677C1989D35EAB2C5F26C9351601AD01D6378E"
 KEEP = 2
-TIMEOUT = 30
 WRAPPER = "helium-wrapper"
 _VERSION = re.compile(r"\d+(?:\.\d+){1,4}\Z")
 _ARCHIVE = re.compile(r"helium-(\d+(?:\.\d+){1,4})-")
@@ -52,34 +50,6 @@ def architecture() -> str:
 
 def asset_name(version: str, arch: str) -> str:
     return f"helium-{version}-{arch}_linux.tar.xz"
-
-
-def _request(url: str, accept: str = "") -> urllib.request.Request:
-    headers = {"User-Agent": "nonsteamapps"}
-    if accept:
-        headers["Accept"] = accept
-    return urllib.request.Request(url, headers=headers)
-
-
-def _fetch_text(url: str, accept: str = "") -> str:
-    with urllib.request.urlopen(_request(url, accept), timeout=TIMEOUT) as response:
-        return response.read().decode("utf-8")
-
-
-def _final_url(url: str) -> str:
-    with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response:
-        return response.geturl()
-
-
-def _download(url: str, target: Path) -> None:
-    partial = target.with_name(target.name + ".part")
-    try:
-        with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as response, open(partial, "wb") as output:
-            shutil.copyfileobj(response, output, 1 << 20)
-        os.replace(partial, target)
-    except BaseException:
-        partial.unlink(missing_ok=True)
-        raise
 
 
 class Runtime:
@@ -124,14 +94,14 @@ class Runtime:
     def latest(self) -> str:
         """The newest release, from GitHub's API or, failing that, its latest-release redirect."""
         try:
-            tag = str(json.loads(_fetch_text(f"https://api.github.com/repos/{self.repo}/releases/latest",
+            tag = str(json.loads(net.fetch_text(f"https://api.github.com/repos/{self.repo}/releases/latest",
                                              "application/vnd.github+json")).get("tag_name", ""))
             if valid_version(tag):
                 return tag
         except (OSError, ValueError, AttributeError):
             pass
         try:
-            tag = _final_url(f"https://github.com/{self.repo}/releases/latest").rstrip("/").rsplit("/", 1)[-1]
+            tag = net.final_url(f"https://github.com/{self.repo}/releases/latest").rstrip("/").rsplit("/", 1)[-1]
             if valid_version(tag):
                 return tag
         except OSError:
@@ -144,8 +114,8 @@ class Runtime:
         archive = self.downloads / name
         self.downloads.mkdir(parents=True, exist_ok=True)
         ui.info(f"Downloading {name}")
-        _download(f"{base}/{name}.asc", archive.with_name(name + ".asc"))
-        _download(f"{base}/{name}", archive)
+        net.download(f"{base}/{name}.asc", archive.with_name(name + ".asc"))
+        net.download(f"{base}/{name}", archive)
         return archive
 
     def verify(self, archive: Path) -> bool:

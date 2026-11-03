@@ -10,6 +10,8 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 | **Jellyfin** | [Jellyfin Desktop](https://github.com/jellyfin/jellyfin-desktop) | `org.jellyfin.JellyfinDesktop` | Your Jellyfin server in its TV layout, with controller support. It plays more formats without the server converting them. |
 | **LocalSend** | [LocalSend](https://localsend.org) | `org.localsend.localsend_app` | Send files to and from nearby phones and computers over your own network, with no account and no internet needed. Received files go to `~/Downloads`. |
 | **Prism Launcher** | [Prism Launcher](https://prismlauncher.org) | `org.prismlauncher.PrismLauncher` | Minecraft: Java Edition, with instances, mods and modpacks. Scaled for the TV and dark, it steps aside while you play and quits when you leave Minecraft, and a Minecraft controller layout plays the game. |
+| **ProtonUp-Qt** | [ProtonUp-Qt](https://github.com/DavidoTek/ProtonUp-Qt) | `net.davidotek.pupgui2` | Installs and updates GE-Proton and other compatibility tools for your Steam games. It starts in its dark Steam Deck theme, scaled for the TV, with a controller layout of NonSteamApps' own, and reaches every Steam library, an SD card's included. |
+| **Protontricks** | [Protontricks](https://github.com/Matoking/protontricks) | `com.github.Matoking.protontricks` | Winetricks for Proton games: installs Windows components, runtimes and fonts into a game's prefix. It starts at its game picker, scaled for the TV, with the same controller layout as ProtonUp-Qt and every Steam library within reach. |
 | **Files** | [Dolphin](https://apps.kde.org/dolphin/) | Part of SteamOS | Your files, SD card and USB drives in SteamOS's own file manager, started with a TV profile: scaled for the TV, one press to open, no menu bar, a fresh start at your home folder, and a controller layout of its own. |
 | **Helium** | [Helium](https://helium.computer) | Signed Helium release | A private web browser with uBlock Origin built in, set up for a TV and a controller. |
 | **Prime Video** | Prime Video in Helium | Helium, full screen | Amazon's streaming service, full screen with no browser interface. |
@@ -23,12 +25,12 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 
 - **No root, nothing lost on updates.** Apps install into your user Flatpak installation, which SteamOS updates leave alone. An app you already installed, for example through Discover, is used as it is and never uninstalled. The one step that needs your password is opening LocalSend's port when SteamOS's firewall is on, and NonSteamApps asks first.
 - **Every Steam account.** Each account on the device gets a shortcut, with artwork for the library, the capsule, the hero banner, the logo and the icon. The Steam overlay is off. The apps sit together in a **NonSteamApps** collection in the library.
-- **Native, never Proton.** Every app is a native Linux app, so the best Steam Play setting for each is none. Proton is for Windows programs, and the Steam Linux Runtime's container hides Flatpak and SteamOS's own apps, so either would stop an app starting. Installing or repairing removes a compatibility tool forced on an app under **Properties → Compatibility**.
-- **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
+- **Native, never Proton.** Every app is a native Linux app, so the best Steam Play setting for each is none. Proton is for Windows programs, and the Steam Linux Runtime's container hides Flatpak and SteamOS's own apps, so either would stop an app starting. Installing removes a compatibility tool forced on an app under **Properties → Compatibility**.
+- **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend, ProtonUp-Qt, Protontricks and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
 - **Console-ready browser apps.** Helium, the streaming apps, ProtonDB and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
 - **Private by default.** Helium blocks ads and trackers with its built-in uBlock Origin. NonSteamApps' Helium profiles also send Global Privacy Control and keep no crash reports (see [Privacy, security and ad blocking](#privacy-security-and-ad-blocking)).
-- **Controller layouts.** YouTube gets Steam's Gamepad controller layout, and the Helium apps, Element, Signal and LocalSend get its Web Browser layout. Files and Prism Launcher get layouts of NonSteamApps' own, Files and Minecraft. Each app keeps a layout you have picked yourself.
-- **Updates.** A weekly timer updates the apps NonSteamApps installed, Helium included.
+- **Controller layouts.** YouTube gets Steam's Gamepad controller layout, and the Helium apps, Element, Signal and LocalSend get its Web Browser layout. Files, Prism Launcher, ProtonUp-Qt and Protontricks get layouts of NonSteamApps' own: Files, Minecraft and Tools. A layout you pick yourself stays until you run the installer again.
+- **Install, or update.** Running the installer installs every app and sets each up afresh; `nonsteamapps update` brings NonSteamApps and your apps up to date and keeps everything as you set it (see [Install again, or update](#install-again-or-update)). A weekly timer updates the apps NonSteamApps installed, Helium included.
 - **Replaces SteamOS YT.** On a device with this project's earlier YouTube kiosk, its YouTube shortcut moves to VacuumTube and keeps its place in the library (see [Moving from SteamOS YT](#moving-from-steamos-yt)).
 
 ## Requirements
@@ -51,7 +53,7 @@ This installs every app in the table above. To choose, name them:
 curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- youtube jellyfin
 ```
 
-From a clone, run `./install.sh [APP...]`. Run it again at any time to update NonSteamApps or repair the apps you use. Without names, it handles the apps already installed, and offers to add any app NonSteamApps has gained since your last install; an app you removed is not offered again. Steam must be closed while its library is changed, so the installer offers to close Steam and starts it again afterwards. It cannot do that from Game Mode.
+From a clone, run `./install.sh [APP...]`. Steam must be closed while its library is changed, so the installer offers to close Steam and starts it again afterwards. It cannot do that from Game Mode.
 
 | Option | Effect |
 | --- | --- |
@@ -62,6 +64,23 @@ From a clone, run `./install.sh [APP...]`. Run it again at any time to update No
 | `--helium-archive FILE` | Install Helium from a downloaded release archive, with its `.asc` signature beside it |
 | `--skip-verify` | Install Helium without checking its signature (not recommended) |
 | `-y`, `--yes` / `-q`, `--quiet` | Answer yes to questions / print only warnings and errors |
+
+### Install again, or update
+
+Run the installer again to install every app afresh, or `nonsteamapps update` to bring what you have up to date as it is:
+
+| | Installer (`nonsteamapps install`) | `nonsteamapps update` |
+| --- | --- | --- |
+| Apps | Every app, or the ones you name; an app you removed comes back | Only the apps you have |
+| NonSteamApps itself | The installer's version | The latest, from where you installed it: GitHub, or your clone |
+| Steam shortcuts | Name, launch options and icon set back to NonSteamApps' | Kept as you changed them; only shortcuts already there are refreshed |
+| Artwork | NonSteamApps' | NonSteamApps' own is renewed; artwork you chose stays |
+| Controller layouts | NonSteamApps' layout, over one you picked | Yours stays; NonSteamApps' is given where none is set |
+| Each app's TV settings | Put back, for example VacuumTube's hidden tabs, Prism Launcher's dark theme and Files' profile | Kept as you changed them |
+| Steam Play tool, collection | A forced tool is removed; the apps join the collection | Left as they are |
+| Sign-ins, app data and `nonsteamapps.conf` | Kept | Kept |
+
+Without app names, the installer asks first. Steam is closed only while its library changes; `update` leaves it running when no shortcut needs to change.
 
 ## Using the apps
 
@@ -81,6 +100,13 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
   - **On a TV:** the launcher is dark and, in Game Mode, scaled for the TV (`TV_SCALE`). Minecraft's own **GUI Scale** setting (Options → Video Settings) sizes the game's menus; **Auto** picks the largest that fits.
   - **Controls (Minecraft layout):** the left stick moves and its click sprints, the right stick looks and its click sneaks, **A** jumps, **B** opens and closes the inventory, **X** drops the held item, **Y** swaps hands, **R2** attacks or breaks, **L2** uses or places, the bumpers move along the hotbar, **Menu** pauses and **View** shows the players. In menus, the right stick or right trackpad moves the pointer and **R2** clicks. Minecraft's sneak can hold or toggle: choose **Toggle** under Options → Controls if holding a stick click is awkward.
   - **Native controller menus:** a mod such as Controlify gives Minecraft its own controller support. Add it to an instance in Prism Launcher, then pick Steam's **Gamepad** layout for Prism Launcher in Steam.
+- **ProtonUp-Qt:** choose **Add version**, pick a tool such as GE-Proton and a version, and install it for Steam. Steam lists a new tool once it restarts: then choose it for a game under **⚙ → Properties → Compatibility**. Choose tools there rather than in ProtonUp-Qt's game list, whose changes Steam overwrites while it runs, as it always does in Game Mode.
+  - **On a TV:** it starts in its dark Steam Deck theme and, in Game Mode, is scaled for the TV (`TV_SCALE`): its window is small, so 1.5× at 1080p and 3× at 4K.
+  - **Controls (Tools layout):** the D-pad moves up and down a list and left and right between controls, **A** selects, **Y** is OK, **B** cancels, **X** shows the on-screen keyboard, and **R2** clicks where the right stick or right trackpad points. ProtonUp-Qt's own gamepad support is off when Steam starts it, so a press does not count twice.
+  - **Libraries:** it reaches every Steam library, an SD card's included, so its game list shows all your games.
+- **Protontricks:** pick a game, then what to do with its Proton prefix, such as installing a Windows component or font, or running `winecfg`. A game appears once it has been started at least once. Like ProtonUp-Qt, it reaches every Steam library and has the Tools layout: in Winetricks' lists, **A** ticks an item and **Y** confirms.
+  - **On a TV:** in Game Mode, its windows' text is 1.5× at 1080p, and the whole window 3× at 4K, as GTK scales windows by whole numbers only.
+  - **If Wine hangs:** add `--no-bwrap` to its **Launch Options** after `--steam-account <ID>`. Running the installer again removes it.
 - **Files:** SteamOS's Dolphin, started with a TV profile that is kept apart from Desktop Mode's Dolphin. A single press opens a file or folder, the menu bar is hidden (the ☰ button holds the menu), and Files starts at your home folder each time. In Game Mode it is scaled for the TV (`TV_SCALE`) and drawn in KDE's own style. Desktop Mode's settings, bookmarks, file associations and trash still apply. What you change in Files stays in its profile, as do the settings of apps you open from it.
   - **Controls (Files layout):** the D-pad or left stick moves the selection, **A** opens, **B** or **L1** goes back, **Y** or **R1** goes forward, **X** shows the on-screen keyboard to rename or search, **R2** clicks and **L2** opens the menu for the item under the pointer, which the right stick or right trackpad moves. **View** cancels, and **Menu** closes the tab; closing the last one quits Files.
   - **The layout:** NonSteamApps makes it from Steam's Web Browser layout, for each controller type Steam has a Gamepad layout for, and saves it in Steam's `controller_base/templates` folder. If a Steam update removes it, the weekly update or `nonsteamapps steam add files` puts it back.
@@ -102,6 +128,8 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | Jellyfin | A Jellyfin Desktop profile named `steam-<ID>`, created on first launch |
 | LocalSend | Shared by every account: it has no sign-in, and received files go to `~/Downloads` |
 | Prism Launcher | `~/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher-steam-<ID>`, with Minecraft's assets, libraries and Java linked from Prism Launcher's own `data/PrismLauncher` |
+| ProtonUp-Qt | Shared by every account: it installs compatibility tools for the whole Steam installation |
+| Protontricks | Shared by every account: it changes each game's own Proton prefix |
 | Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
 | Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Calendar | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
 
@@ -191,22 +219,23 @@ Signal started from the applications menu keeps Flathub's own defaults, includin
 | `PROFILE_PER_STEAM_ACCOUNT` | `1` | Separate data for each Steam account (see [Several Steam accounts](#several-steam-accounts)) |
 | `STEAM_COLLECTION` | `NonSteamApps` | Name of the Steam collection that holds the apps in each account; leave empty for no collection |
 | `HELIUM_SERVICES` | `1` | Let Helium use its services, which deliver Widevine for the streaming apps and keep the ad blocker's filter lists current |
-| `TV_SCALE` | `auto` | Scale of the Helium apps, YouTube, Element, Signal, Jellyfin, LocalSend, Prism Launcher and Files: `auto` sizes them for a TV in Game Mode, a number such as `1.5` sets the scale, and `1` turns it off. Replaces `HELIUM_SCALE`, which is still read |
+| `TV_SCALE` | `auto` | Scale of the Helium apps, YouTube, Element, Signal, Jellyfin, LocalSend, Prism Launcher, ProtonUp-Qt, Protontricks and Files: `auto` sizes them for a TV in Game Mode, a number such as `1.5` sets the scale, and `1` turns it off. Replaces `HELIUM_SCALE`, which is still read |
 | `GAME_MODE_SANDBOX` | `0` | `1` keeps Chromium's sandbox on for YouTube in Game Mode. Not yet confirmed on a Steam Deck: if YouTube then does not start, set it back to `0` |
 
-Anything you add to a shortcut's **Launch Options** in Steam after `--steam-account <ID>` is passed to the app, for example `--debug-gpu` for VacuumTube.
+Anything you add to a shortcut's **Launch Options** in Steam after `--steam-account <ID>` is passed to the app, for example `--debug-gpu` for VacuumTube. `nonsteamapps update` keeps it; running the installer again sets the options back.
 
 ## Commands
 
 The installer places the `nonsteamapps` command in `~/.local/share/nonsteamapps/bin/`:
 
 ```text
-nonsteamapps install [APP...]        install or repair apps and add them to Steam
+nonsteamapps install [APP...]        install every app, or those named, and set them up afresh
 nonsteamapps remove APP... [--purge] [--keep-app]
                                      remove apps from Steam and uninstall those NonSteamApps installed;
                                      --purge also deletes their data for every Steam account
 nonsteamapps list                    every app, and whether it is installed
-nonsteamapps update                  update the apps NonSteamApps installed, Helium included
+nonsteamapps update [--apps-only]    update NonSteamApps and your apps, keeping them as they are;
+                                     --apps-only updates only the apps and Helium, as the weekly timer does
 nonsteamapps rollback                switch Helium back to the version installed before
 nonsteamapps steam add|remove|status [APP...] [--user all|auto|ID]
 nonsteamapps doctor                  diagnostics, including each app's last launch log
@@ -228,17 +257,18 @@ Installing NonSteamApps on a device with SteamOS YT, the Helium-based YouTube ki
 
 ## How it works
 
-1. `install.sh` copies the program to `~/.local/share/nonsteamapps` and runs `nonsteamapps install`.
+1. `install.sh` copies the program to `~/.local/share/nonsteamapps`, notes where it came from and runs `nonsteamapps install`. Without app names, that installs every app and puts back NonSteamApps' set-up in the data each already has.
 2. Each Flathub app is installed with `flatpak install --user`, unless it is already installed. The Helium apps share one signed Helium release, unpacked in `~/.local/share/nonsteamapps/helium`. Files uses the Dolphin SteamOS includes, which NonSteamApps never installs or removes.
 3. Each app gets a link in `~/.local/share/nonsteamapps/apps/`, for example `apps/youtube`, pointing at the launcher. Steam's shortcut runs that link with `--steam-account <ID>`. Steam derives the shortcut's app ID from the link and the name, and NonSteamApps writes the shortcut to each account's `shortcuts.vdf`, with the artwork in the account's `grid` folder. It also adds the app to its collection in the account's collections file (`config/cloudstorage`), which Steam syncs through Steam Cloud. It writes that file the way Steam ROM Manager does, and leaves your other collections alone. Steam is closed while these files change, then started again in a systemd unit of its own, named as Plasma names the apps it starts (`app-steam-<random>.scope`). KDE's screen-sharing prompts then identify it as Steam, not Konsole.
 4. When an app starts, the launcher works out the Steam account: the shortcut's, otherwise the most recent sign-in. It then:
-   - removes what Steam adds to a game's environment: its overlay library, which stops Helium starting in Game Mode, and the Steam Runtime's library paths;
+   - removes what Steam adds to a game's environment: its overlay library, which stops Helium starting in Game Mode, the Steam Runtime's library paths, and any Proton prefix (`STEAM_COMPAT_DATA_PATH`), which Protontricks would otherwise change whatever game is picked;
    - prepares that account's data (for a Helium app, its profile: preferences, a clean last exit and the shared Widevine folder);
    - logs to `~/.local/state/nonsteamapps/<app>.log`;
-   - replaces itself with `flatpak run <app> …` (for Signal, `flatpak run --command=env …`, so that Signal's own launch script sees the account's folder), with Helium and its console flags, or with Dolphin and its TV profile: its own `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, with Desktop Mode's settings underneath through `XDG_CONFIG_DIRS`.
-5. For apps with a controller layout, NonSteamApps finds the layout in Steam's `controller_base/templates` and records it for the shortcut in `steamapps/common/Steam Controller Configs/<ID>/config`, where Steam keeps the layout a user picks. It never replaces a layout you chose. It also removes any Steam Play tool forced on its shortcuts from `config/config.vdf` (`CompatToolMapping`), as Steam ROM Manager does, and keeps a backup. The Files and Minecraft layouts are NonSteamApps' own: each is made from one of Valve's layouts on the device, written into that folder first, one file per controller type, and removed with the last app that uses it.
+   - replaces itself with `flatpak run <app> …` (for Signal, `flatpak run --command=env …`, so that Signal's own launch script sees the account's folder; for ProtonUp-Qt and Protontricks, with `--filesystem` for each folder in Steam's `libraryfolders.vdf`, for that run only), with Helium and its console flags, or with Dolphin and its TV profile: its own `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, with Desktop Mode's settings underneath through `XDG_CONFIG_DIRS`.
+5. For apps with a controller layout, NonSteamApps finds the layout in Steam's `controller_base/templates` and records it for the shortcut in `steamapps/common/Steam Controller Configs/<ID>/config`, where Steam keeps the layout a user picks. An install puts NonSteamApps' layout back over one you chose, and an update keeps yours. An install also removes any Steam Play tool forced on its shortcuts from `config/config.vdf` (`CompatToolMapping`), as Steam ROM Manager does, and keeps a backup. The Files, Minecraft and Tools layouts are NonSteamApps' own: each is made from one of Valve's layouts on the device, written into that folder first, one file per controller type, and removed with the last app that uses it.
 6. If firewalld is running, LocalSend's port is opened with `sudo firewall-cmd`, and NonSteamApps records what it opened so that it can close it again.
-7. A weekly systemd user timer runs `nonsteamapps update`. Discover updates any other Flatpaks.
+7. `nonsteamapps update` fetches NonSteamApps again from where the installer came from, runs that version's `install.sh` to copy only the program, and hands over to the new version. That version updates the apps and Helium, then refreshes the shortcuts already there. NonSteamApps notes a fingerprint of each artwork file it puts in Steam's `grid` folders (`~/.local/state/nonsteamapps/artwork.json`), so it renews its own artwork and leaves artwork you chose. Steam is closed only if a shortcut must change.
+8. A weekly systemd user timer runs `nonsteamapps update --apps-only`, which updates the apps and Helium but neither NonSteamApps itself nor the Steam library. Discover updates any other Flatpaks.
 
 ## Troubleshooting
 
@@ -248,7 +278,9 @@ Installing NonSteamApps on a device with SteamOS YT, the Helium-based YouTube ki
 - **A Helium app stays on Steam's loading screen in Game Mode and cannot be exited** (versions 2.2.0 to 2.8.0): run the installer again to update. Those versions let Steam's overlay library into Helium, which then never starts.
 - **After installing, a window asks to share the screen with Konsole** (before version 2.10.1): decline it, then restart Steam from the application menu or run the installer again to update. The installer started Steam again from Konsole, and KDE treats a program started from Konsole as part of Konsole, so Steam's request to capture the screen was shown as Konsole's.
 - **A new Steam account has no shortcuts:** run `nonsteamapps steam add`.
-- **Files or Prism Launcher has Steam's default controls:** run `nonsteamapps steam add files prism`. It writes NonSteamApps' layouts again, for example after a Steam update removed them.
+- **Files, Prism Launcher, ProtonUp-Qt or Protontricks has Steam's default controls:** run `nonsteamapps steam add files prism protonup protontricks`. It writes NonSteamApps' layouts again, for example after a Steam update removed them.
+- **A tool installed with ProtonUp-Qt is missing from a game's Compatibility list:** restart Steam, which reads its tools when it starts.
+- **Protontricks does not list a game:** start the game once from Steam, then open Protontricks again.
 - **An account has no NonSteamApps collection:** Steam creates an account's collections file the first time it opens the library. Open Steam with that account once, close it, then run `nonsteamapps steam add`.
 - **A Helium update misbehaves:** `nonsteamapps rollback` switches back to the previous version.
 - **A streaming app shows a playback error the first time:** close the app and open it again, once Widevine has downloaded. `nonsteamapps doctor` shows whether it has.
@@ -271,7 +303,7 @@ node tools/render-artwork.js [APP...]          # render assets/src/<app> into as
 | --- | --- |
 | `install.sh`, `uninstall.sh` | Entry points (work from a clone or through `curl … \| bash`) |
 | `src/bin/nonsteamapps` | Launcher: runs the command-line interface, or starts an app when called through its link |
-| `src/lib/nonsteamapps/` | Python standard-library package: `apps.py` (the apps), `flatpak.py`, `helium.py` (the signed Helium release), `browser.py` (console profiles and flags), `display.py` (TV scale), `controllers.py` (Steam layouts), `collection.py` (the Steam collection), `steam.py` and `vdf.py` (shortcuts and artwork), `steamclient.py`, `firewall.py` (LocalSend's port), `legacy.py` (SteamOS YT), `cli.py` |
+| `src/lib/nonsteamapps/` | Python standard-library package: `apps.py` (the apps), `flatpak.py`, `helium.py` (the signed Helium release), `browser.py` (console profiles and flags), `display.py` (TV scale), `controllers.py` (Steam layouts), `layouts.py` (NonSteamApps' own layouts), `collection.py` (the Steam collection), `compat.py` (Steam Play tools), `steam.py` and `vdf.py` (shortcuts and artwork), `steamclient.py`, `firewall.py` (LocalSend's port), `legacy.py` (SteamOS YT), `selfupdate.py` and `net.py` (updating NonSteamApps itself), `cli.py` |
 | `src/share/` | Default settings, the update timer and Helium's public signing key (fingerprint `BE67 7C19 89D3 5EAB 2C5F 26C9 3516 01AD 01D6 378E`) |
 | `assets/src/<app>`, `assets/artwork/<app>` | SVG sources and rendered Steam artwork |
 | `tests/fakes/` | Stand-ins for `flatpak`, `firewall-cmd` and `sudo`, used by the tests; `tests/_fakes.py` also builds a stand-in Helium release |
@@ -298,7 +330,9 @@ To add an app:
 - [Helium](https://github.com/imputnet/helium) by imput, built on ungoogled-chromium.
 - [ProtonDB](https://www.protondb.com), where players report how well games run with Proton.
 - [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher) by its contributors, and the maintainers of its [Flathub package](https://github.com/flathub/org.prismlauncher.PrismLauncher).
+- [ProtonUp-Qt](https://github.com/DavidoTek/ProtonUp-Qt) by DavidoTek and contributors.
+- [Protontricks](https://github.com/Matoking/protontricks) by Matoking and contributors, built on [Winetricks](https://github.com/Winetricks/winetricks).
 - [Dolphin](https://apps.kde.org/dolphin/) by KDE, as SteamOS ships it.
 - [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): reference for Steam's shortcut, artwork and controller conventions.
 
-NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, the Jellyfin project, LocalSend, imput, ProtonDB, Proton AG, KDE, the Prism Launcher project, Mojang Studios, Microsoft, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; Minecraft is a trademark of Mojang Synergies AB; other names belong to their owners. The artwork in this repository is original.
+NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, the Jellyfin project, LocalSend, imput, ProtonDB, Proton AG, KDE, the Prism Launcher project, the ProtonUp-Qt project, the Protontricks project, the Winetricks project, Mojang Studios, Microsoft, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; Minecraft is a trademark of Mojang Synergies AB; other names belong to their owners. The artwork in this repository is original.

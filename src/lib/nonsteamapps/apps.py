@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .display import TV_HEIGHT
-from .fsutil import atomic_write_json
-from .layouts import FILES, MINECRAFT
+from .fsutil import atomic_write_bytes, atomic_write_json
+from .layouts import FILES, MINECRAFT, TOOLS
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -25,15 +25,6 @@ VACUUMTUBE_DEFAULTS = {
     "remaining_time_feature": True,
     "wayland_hdr": True,
 }
-ELEMENT_DEFAULTS = {"minimizeToTray": False}
-PRISM_SETTINGS = (
-    "[General]\n"
-    "ApplicationTheme=dark\n"
-    "IconTheme=flat_white\n"
-    "CloseAfterLaunch=true\n"
-    "QuitAfterGameStop=true\n"
-    "LaunchMaximized=true\n"
-)
 CHANGES_FILE = "nonsteamapps.json"
 
 
@@ -66,22 +57,92 @@ class JsonSettings:
         return True
 
 
+def _set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
+    """Set ``key`` in ``[group]`` of an INI file's lines; return whether they changed."""
+    header, wanted = f"[{group}]", f"{key}={value}"
+    start = next((index for index, line in enumerate(lines) if line.strip() == header), None)
+    if start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([header, wanted])
+        return True
+    end = next((index for index in range(start + 1, len(lines)) if lines[index].lstrip().startswith("[")), len(lines))
+    for index in range(start + 1, end):
+        name, separator, current = lines[index].partition("=")
+        if separator and name.strip() == key:
+            if current.strip() == value:
+                return False
+            lines[index] = wanted
+            return True
+    lines.insert(max(index for index in range(start, end) if lines[index].strip()) + 1, wanted)
+    return True
+
+
+@dataclass(frozen=True)
+class IniSettings:
+    """Values for one of an app's INI settings files, as Qt's QSettings and KDE's KConfig write them, at ``file`` in a folder.
+
+    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are.
+    """
+
+    file: str
+    values: Tuple[Tuple[str, str, str], ...]
+
+    def apply(self, folder: Path) -> Optional[bool]:
+        """Write the values into the file, keeping the rest of it; return whether it changed.
+
+        Returns ``None``, and leaves the file alone, when it cannot be read as text.
+        """
+        path = Path(folder) / self.file
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = []
+        except (OSError, UnicodeDecodeError):
+            return None
+        if not any([_set_ini(lines, group, key, value) for group, key, value in self.values]):
+            return False
+        atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
+        return True
+
+
+Settings = Union[JsonSettings, IniSettings]
+VACUUMTUBE_TV = JsonSettings(
+    "config.json",
+    (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
+)
+VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
+ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
+PRISM_SETTINGS = IniSettings(
+    "prismlauncher.cfg",
+    tuple(("General", key, value) for key, value in (
+        ("ApplicationTheme", "dark"),
+        ("IconTheme", "flat_white"),
+        ("CloseAfterLaunch", "true"),
+        ("QuitAfterGameStop", "true"),
+        ("LaunchMaximized", "true"),
+    )),
+)
+
+
 @dataclass(frozen=True)
 class FolderProfile:
     """Per-account data in a folder chosen with one command-line argument.
 
-    ``defaults`` are files written into a data folder that does not have them yet,
-    including the app's own ``shared`` folder used when accounts share data. ``changes``
-    are settings changed once in every data folder, new or existing, each under its own
-    name. The names done are kept in the folder's ``nonsteamapps.json``, so a setting the
-    user changes afterwards stays as they set it. ``links`` are folders each account's
-    folder links to in the ``shared`` one, so that large downloads are kept once.
+    ``defaults`` are files written into a data folder that does not have them yet, and ``settings`` are
+    NonSteamApps' TV set-up, written into a folder without their files and put back by :meth:`reset`, which
+    every install runs. Both reach the app's own ``shared`` folder too, used when accounts share data.
+    ``changes`` are settings changed once in every data folder, new or existing, each under its own name.
+    The names done are kept in the folder's ``nonsteamapps.json``, so a setting the user changes afterwards
+    stays as they set it until the next install. ``links`` are folders each account's folder links to in the
+    ``shared`` one, so that large downloads are kept once.
     """
 
     folder: str
     argument: str
     shared: str = ""
     defaults: Tuple[Tuple[str, str], ...] = ()
+    settings: Tuple[Settings, ...] = ()
     changes: Tuple[Tuple[str, JsonSettings], ...] = ()
     links: Tuple[str, ...] = ()
 
@@ -110,6 +171,9 @@ class FolderProfile:
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
+        for settings in self.settings:
+            if not (folder / settings.file).exists():
+                settings.apply(folder)
         self._change(folder)
 
     def _change(self, folder: Path) -> None:
@@ -140,8 +204,21 @@ class FolderProfile:
         return True
 
     def prepare_shared(self, app_home: Path) -> None:
-        if self.shared and (self.defaults or self.changes):
+        if self.shared and (self.defaults or self.settings or self.changes):
             self._seed(Path(app_home) / self.shared)
+
+    def reset(self, app_home: Path, shared: bool = False) -> List[Path]:
+        """Put the ``settings`` back in each account's data folder, and in the shared one while accounts share it; return the folders changed."""
+        folders = self.existing(app_home)
+        common = Path(app_home) / self.shared if self.shared else None
+        if shared and common and common.is_dir():
+            folders.append(common)
+        changed = []
+        for folder in folders:
+            if any([settings.apply(folder) for settings in self.settings]):
+                changed.append(folder)
+            self._change(folder)
+        return changed
 
     def existing(self, app_home: Path) -> List[Path]:
         pattern = re.compile(re.escape(Path(self.folder).name).replace(r"\{account\}", r"\d+") + r"\Z")
@@ -195,6 +272,10 @@ class JellyfinProfile:
     def prepare_shared(self, app_home: Path) -> None:
         return None
 
+    def reset(self, app_home: Path, shared: bool = False) -> List[Path]:
+        """Jellyfin Desktop takes its TV layout from its arguments, so there is nothing to put back."""
+        return []
+
     def profiles(self, app_home: Path) -> Dict[str, Path]:
         """Map profile names to their folders, as Jellyfin Desktop records them."""
         found: Dict[str, Path] = {}
@@ -239,29 +320,32 @@ class SystemApp:
 
     The profile gives the app its own ``XDG_CONFIG_HOME`` and ``XDG_STATE_HOME``. The desktop's settings stay
     readable underneath, through ``XDG_CONFIG_DIRS``, so the app keeps its look and file associations, but
-    what it saves stays in the profile, as it does for the apps it opens. ``defaults`` are written into the
-    profile's config folder when missing, ``shared`` files there are links to the desktop's own, and
-    ``game_mode`` variables are set only in Game Mode.
+    what it saves stays in the profile, as it does for the apps it opens. ``settings`` are written into the
+    profile's config folder when their files are missing and put back by :meth:`reset`, ``shared`` files there
+    are links to the desktop's own, and ``game_mode`` variables are set only in Game Mode.
     """
 
     command: str
-    defaults: Tuple[Tuple[str, str], ...] = ()
+    settings: Tuple[IniSettings, ...] = ()
     shared: Tuple[str, ...] = ()
     game_mode: Tuple[Tuple[str, str], ...] = ()
 
     def prepare(self, profile: Path, desktop_config: Path) -> None:
         config = Path(profile) / "config"
-        for name, content in self.defaults:
-            target = config / name
-            if not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
+        for settings in self.settings:
+            if not (config / settings.file).exists():
+                settings.apply(config)
         for name in self.shared:
             link, source = config / name, Path(desktop_config) / name
             if source.is_file() and not link.exists() and not link.is_symlink():
                 link.parent.mkdir(parents=True, exist_ok=True)
                 link.symlink_to(source)
         (Path(profile) / "state").mkdir(parents=True, exist_ok=True)
+
+    def reset(self, profile: Path) -> bool:
+        """Put the ``settings`` back in the profile once it exists; return whether it changed."""
+        config = Path(profile) / "config"
+        return config.is_dir() and any([settings.apply(config) for settings in self.settings])
 
     def environment(self, profile: Path, desktop_config: Path, environ: Mapping[str, str], game_mode: bool) -> Dict[str, str]:
         """The variables that start the app with its profile, layered over the desktop's settings."""
@@ -287,14 +371,16 @@ class Browser:
 class TvScale:
     """How an app takes its TV scale: a command-line ``argument`` with ``{factor}`` in it, or an environment ``variable``.
 
-    A ``whole`` scale is rounded down, and dropped below 2, for toolkits that only scale by whole numbers.
-    ``layout`` is the screen height the app's layout is made for, which the automatic scale fits a TV to.
-    ``requires`` are settings the app needs while it is scaled, set before each scaled start.
+    A ``whole`` scale is rounded down, and dropped below 2, for toolkits that only scale by whole numbers; a
+    ``text`` variable then scales the text by what is left over, as ``GDK_DPI_SCALE`` does for GTK. ``layout``
+    is the screen height the app's layout is made for, which the automatic scale fits a TV to. ``requires``
+    are settings the app needs while it is scaled, set before each scaled start.
     """
 
     argument: str = ""
     variable: str = ""
     whole: bool = False
+    text: str = ""
     layout: int = TV_HEIGHT
     requires: Optional[JsonSettings] = None
 
@@ -305,22 +391,20 @@ class TvScale:
     def apply(self, factor: float) -> Tuple[List[str], List[str]]:
         """Return the app's arguments and ``flatpak run`` options for this scale."""
         text = self._text(factor)
-        if text is None:
-            return [], []
-        arguments = [self.argument.format(factor=text)] if self.argument else []
+        arguments = [self.argument.format(factor=text)] if self.argument and text else []
         return arguments, [f"--env={name}={value}" for name, value in self.variables(factor).items()]
 
     def variables(self, factor: float) -> Dict[str, str]:
-        """The environment variable this scale sets, for an app started without Flatpak."""
+        """The environment variables this scale sets, which ``apply`` passes to Flatpak."""
         text = self._text(factor)
-        return {self.variable: text} if self.variable and text else {}
+        found = {self.variable: text} if self.variable and text else {}
+        rest = factor / (int(factor) if text and self.whole else 1)
+        if self.text and rest > 1:
+            found[self.text] = f"{round(rest, 2):g}"
+        return found
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
-VACUUMTUBE_TV = JsonSettings(
-    "config.json",
-    (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
-)
 
 
 @dataclass(frozen=True)
@@ -333,6 +417,11 @@ class App:
     environment variables that make the app turn Chromium's sandbox off; the launcher hides them when
     the user chooses to keep the sandbox. ``notice`` is shown after installing. ``ports`` are opened in
     the firewall, when one is running, so other devices can reach the app.
+
+    For a Flathub app, ``env`` is set for every start from Steam and ``game_mode_env`` for starts in Game
+    Mode. ``settings`` are NonSteamApps' TV set-up in the app's own folder, for an app without data per
+    account: written when missing and put back by every install. ``libraries`` gives the app's sandbox
+    every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     """
 
     id: str
@@ -351,6 +440,10 @@ class App:
     sandbox_off_when: Tuple[str, ...] = ()
     notice: str = ""
     ports: Tuple[str, ...] = ()
+    env: Tuple[Tuple[str, str], ...] = ()
+    game_mode_env: Tuple[Tuple[str, str], ...] = ()
+    settings: Tuple[Settings, ...] = ()
+    libraries: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -378,7 +471,7 @@ APPS: Tuple[App, ...] = (
             "config/VacuumTube-steam-{account}",
             "--portable={folder}",
             shared="config/VacuumTube",
-            defaults=(("config.json", json.dumps(VACUUMTUBE_DEFAULTS, indent=4) + "\n"),),
+            settings=(VACUUMTUBE_SETTINGS,),
             changes=(("2.11.0", VACUUMTUBE_TV),),
         ),
         controller=GAMEPAD,
@@ -401,7 +494,7 @@ APPS: Tuple[App, ...] = (
         profile=FolderProfile(
             "config/Element-steam-{account}",
             "--profile=steam-{account}",
-            defaults=(("electron-config.json", json.dumps(ELEMENT_DEFAULTS, indent=4) + "\n"),),
+            settings=(ELEMENT_SETTINGS,),
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
@@ -456,7 +549,7 @@ APPS: Tuple[App, ...] = (
             "data/PrismLauncher-steam-{account}",
             "--dir={folder}",
             shared="data/PrismLauncher",
-            defaults=(("prismlauncher.cfg", PRISM_SETTINGS),),
+            settings=(PRISM_SETTINGS,),
             links=("assets", "libraries", "java"),
         ),
         controller=MINECRAFT.title,
@@ -465,15 +558,44 @@ APPS: Tuple[App, ...] = (
         notice="Prism Launcher asks for a language and the Microsoft account that owns Minecraft on its first start, once for each Steam account",
     ),
     App(
+        id="protonup",
+        name="ProtonUp-Qt",
+        client="ProtonUp-Qt",
+        flatpak="net.davidotek.pupgui2",
+        summary="Install and update GE-Proton and other compatibility tools for Steam, set up for a TV and a controller",
+        controller=TOOLS.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        env=(("PUPGUI2_DISABLE_GAMEPAD", "1"),),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        settings=(IniSettings("config/pupgui/config.ini", (("pupgui2", "theme", "steam"),)),),
+        libraries=True,
+        notice="Steam lists the compatibility tools ProtonUp-Qt installs once Steam restarts; choose one in a game's Properties ▸ Compatibility",
+    ),
+    App(
+        id="protontricks",
+        name="Protontricks",
+        client="Protontricks",
+        flatpak="com.github.Matoking.protontricks",
+        summary="Install Windows components and fixes into a Proton game's prefix, set up for a TV and a controller",
+        args=("--no-term", "--gui"),
+        controller=TOOLS.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="GDK_SCALE", whole=True, text="GDK_DPI_SCALE"),
+        game_mode_env=(("GDK_BACKEND", "x11"),),
+        libraries=True,
+        notice="Protontricks lists the Proton games started at least once; pick a game, then what to install into its prefix",
+    ),
+    App(
         id="files",
         name="Files",
         client="Dolphin",
         summary="Browse and open your files with SteamOS's file manager, set up for a TV and a controller",
         system=SystemApp(
             command="dolphin",
-            defaults=(
-                ("dolphinrc", "[General]\nRememberOpenedTabs=false\n\n[MainWindow]\nMenuBar=Disabled\n"),
-                ("kdeglobals", "[KDE]\nSingleClick=true\n"),
+            settings=(
+                IniSettings("dolphinrc", (("General", "RememberOpenedTabs", "false"), ("MainWindow", "MenuBar", "Disabled"))),
+                IniSettings("kdeglobals", (("KDE", "SingleClick", "true"),)),
             ),
             shared=("user-dirs.dirs", "user-dirs.locale"),
             game_mode=(("QT_QPA_PLATFORM", "xcb"), ("QT_QPA_PLATFORMTHEME", "kde")),

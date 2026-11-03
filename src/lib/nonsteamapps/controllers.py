@@ -4,7 +4,8 @@ Steam keeps a non-Steam shortcut's layout per Steam account and controller type 
 ``steamapps/common/Steam Controller Configs/<account>/config/configset_<type>.vdf``,
 under the shortcut's lower-cased name; this is the format Steam ROM Manager writes.
 Valve's layouts live in ``controller_base/templates``. An entry is only written
-where the user has not picked a layout, and only removed where it is still ours.
+where the user has not picked a layout, unless an install puts NonSteamApps'
+layouts back, and only removed where it is still ours.
 """
 
 from __future__ import annotations
@@ -77,8 +78,34 @@ def _section(root: vdf.KeyValues) -> vdf.KeyValues:
     return section
 
 
-def assign(root: Path, account: int, title: str, layouts: Dict[str, str]) -> List[str]:
-    """Give the shortcut ``title`` these layouts; return the controller types that got one."""
+def _state(entry, template: str) -> str:
+    """``missing``, ``user`` (a layout the user picked), ``current`` (ours, this template) or ``ours`` (another of ours)."""
+    if not isinstance(entry, vdf.KeyValues) or not len(entry):
+        return "missing"
+    if entry.get(MARKER) is None:
+        return "user"
+    return "current" if entry.get("template") == template else "ours"
+
+
+def pending(root: Path, account: int, title: str, layouts: Dict[str, str]) -> bool:
+    """Whether :func:`assign`, keeping the user's layouts, would change anything for the shortcut ``title``."""
+    name = entry_name(title)
+    for kind, template in layouts.items():
+        try:
+            section = _load(config_dir(root, account) / f"configset_{kind}.vdf").get("controller_config")
+        except (OSError, vdf.VdfError):
+            continue
+        entry = section.get(name) if isinstance(section, vdf.KeyValues) else None
+        if _state(entry, template) in ("missing", "ours"):
+            return True
+    return False
+
+
+def assign(root: Path, account: int, title: str, layouts: Dict[str, str], force: bool = False) -> List[str]:
+    """Give the shortcut ``title`` these layouts; return the controller types that have one.
+
+    A layout the user picked stays, unless ``force``.
+    """
     assigned = []
     name = entry_name(title)
     for kind, template in sorted(layouts.items()):
@@ -88,10 +115,10 @@ def assign(root: Path, account: int, title: str, layouts: Dict[str, str]) -> Lis
         except (OSError, vdf.VdfError):
             continue
         section = _section(data)
-        entry = section.get(name)
-        if isinstance(entry, vdf.KeyValues) and entry.get(MARKER) is None and len(entry):
+        state = _state(section.get(name), template)
+        if state == "user" and not force:
             continue
-        if isinstance(entry, vdf.KeyValues) and entry.get("template") == template and entry.get(MARKER) is not None:
+        if state == "current":
             assigned.append(kind)
             continue
         fresh = vdf.KeyValues()

@@ -11,6 +11,10 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
 - **Minecraft** starts from Keyboard (WASD) and Mouse, whose buttons already match Minecraft's keys. X drops
   the held item (Q), Menu pauses (Escape) and View shows the players (Tab), the stick clicks sprint
   (Ctrl) and sneak (Shift), and the bumpers step left and right along the hotbar.
+- **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
+  and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
+  A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
+  Space, which would tick a box and close its dialog at once.
 """
 
 from __future__ import annotations
@@ -67,6 +71,17 @@ def _minecraft(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     return group
 
 
+def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "dpad":
+        _bind(group, "dpad_west", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
+        _bind(group, "dpad_east", ["key_press TAB, Next"])
+    elif source == "button_diamond":
+        _bind(group, "button_a", ["key_press SPACE, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Cancel"])
+        _bind(group, "button_y", ["key_press RETURN, OK"])
+    return group
+
+
 @dataclass(frozen=True)
 class Layout:
     """A layout made from Valve's ``base`` layout for the Deck, with ``change`` applied to each group it keeps."""
@@ -96,7 +111,14 @@ MINECRAFT = Layout(
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
 )
-LAYOUTS = (FILES, MINECRAFT)
+TOOLS = Layout(
+    slug="tools",
+    title="Tools (NonSteamApps)",
+    description="D-pad up and down to move in a list, left and right to go between controls, A to select, Y for OK, B to cancel, X for the keyboard",
+    base="controller_neptune_webbrowser.vdf",
+    change=_tools,
+)
+LAYOUTS = (FILES, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

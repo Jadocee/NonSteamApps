@@ -71,6 +71,21 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(controllers.release(self.root, ACCOUNT, "Helium"), ["controller_xboxone"])
         self.assertEqual(self.configset("controller_neptune").get("helium").get("workshop"), "12345")
 
+    def test_an_install_puts_its_layout_back_over_the_users_and_pending_says_when_a_refresh_would_write(self):
+        layouts = controllers.find_templates(self.root, "Web Browser")
+        self.assertTrue(controllers.pending(self.root, ACCOUNT, "Helium", layouts))
+        controllers.assign(self.root, ACCOUNT, "Helium", layouts)
+        self.assertFalse(controllers.pending(self.root, ACCOUNT, "Helium", layouts))
+        path = controllers.config_dir(self.root, ACCOUNT) / "configset_controller_neptune.vdf"
+        path.write_text(path.read_text().replace('"nonsteamapps"\t\t"1"', '"workshop"\t\t"12345"'))
+        self.assertFalse(controllers.pending(self.root, ACCOUNT, "Helium", layouts))
+        self.assertEqual(controllers.assign(self.root, ACCOUNT, "Helium", layouts), ["controller_xboxone"])
+        self.assertEqual(self.configset("controller_neptune").get("helium").get("workshop"), "12345")
+        self.assertEqual(controllers.assign(self.root, ACCOUNT, "Helium", layouts, force=True), ["controller_neptune", "controller_xboxone"])
+        entry = self.configset("controller_neptune").get("helium")
+        self.assertEqual((entry.get("template"), entry.get("workshop")), ("controller_neptune_webbrowser.vdf", None))
+        self.assertTrue(controllers.pending(self.root, ACCOUNT, "Helium", controllers.find_templates(self.root, "Gamepad")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -141,6 +141,15 @@ class AccountTests(unittest.TestCase):
         )
         self.assertEqual(steam.account_names(self.root), {ACCOUNT: "Deck Owner", OTHER: "guest"})
 
+    def test_library_folders_come_from_steams_list(self):
+        self.assertEqual(steam.library_folders(self.root), [])
+        (self.root / "steamapps").mkdir()
+        (self.root / "steamapps" / "libraryfolders.vdf").write_text(
+            '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"/home/deck/.local/share/Steam"\n\t\t"apps"\n\t\t{\n\t\t}\n\t}\n'
+            '\t"1"\n\t{\n\t\t"path"\t\t"/run/media/deck/SD Card"\n\t}\n\t"contentstatsid"\t\t"123"\n}\n'
+        )
+        self.assertEqual(steam.library_folders(self.root), [Path("/home/deck/.local/share/Steam"), Path("/run/media/deck/SD Card")])
+
     def test_merge_launch_options_keeps_user_options(self):
         merge = steam.merge_launch_options
         self.assertEqual(merge("", "--steam-account 5"), "--steam-account 5")
@@ -219,11 +228,11 @@ class ShortcutTests(unittest.TestCase):
         shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
         shortcuts.find(EXE)[0].set("AppName", "My Tube")
         shortcuts.save()
-        [second] = self.add(spec=spec("YouTube"), rename=False)
+        [second] = self.add(spec=spec("YouTube"), overwrite=False)
         self.assertFalse(second.created)
         self.assertEqual(second.appid, first.appid)
         self.assertEqual(second.name, "My Tube")
-        [third] = self.add(spec=spec("YouTube TV"), rename=True)
+        [third] = self.add(spec=spec("YouTube TV"), overwrite=True)
         self.assertEqual(third.name, "YouTube TV")
         self.assertEqual(third.appid, first.appid)
         self.assertEqual(len(self.load_entries()), 1)
@@ -245,7 +254,7 @@ class ShortcutTests(unittest.TestCase):
         root.set("shortcuts", shortcuts, vdf.MAP)
         (self.config / "shortcuts.vdf").write_bytes(vdf.dumps_binary(root))
 
-        [result] = self.add(rename=False)
+        [result] = self.add(overwrite=False)
         self.assertEqual(result.appid, 0x80000123)
         entries = self.load_entries()
         self.assertEqual(list(entries), ["0", "1"])
@@ -298,23 +307,94 @@ class ShortcutTests(unittest.TestCase):
         shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
         shortcuts.find(EXE)[0].set("LaunchOptions", f"LANG=de %command% --steam-account {OTHER}")
         shortcuts.save()
-        steam.add_shortcut(self.root, [ACCOUNT], options)
+        steam.add_shortcut(self.root, [ACCOUNT], options, overwrite=False)
         self.assertEqual(self.load_entries().get("0").get("LaunchOptions"), f"LANG=de %command% --steam-account {ACCOUNT}")
+        steam.add_shortcut(self.root, [ACCOUNT], options)
+        self.assertEqual(self.load_entries().get("0").get("LaunchOptions"), f"--steam-account {ACCOUNT}")
 
     def test_takes_over_a_legacy_shortcut_and_keeps_its_app_id(self):
         old = "/home/deck/.local/share/steamos-yt/bin/steamos-yt"
         [before] = self.add(spec=dataclasses.replace(spec("My Tube"), exe=old, launch_options="--steam-account 1 --x"))
         moved = dataclasses.replace(spec(), launch_options=f"--steam-account {ACCOUNT}", legacy_exes=(old,))
-        [after] = self.add(spec=moved, rename=False)
+        [after] = self.add(spec=moved, overwrite=False)
         self.assertFalse(after.created)
         self.assertEqual((after.appid, after.name), (before.appid, "My Tube"))
         entry = self.load_entries().get("0")
         self.assertEqual(len(self.load_entries()), 1)
         self.assertEqual(entry.get("Exe"), f'"{EXE}"')
         self.assertEqual(entry.get("LaunchOptions"), f"--steam-account {ACCOUNT} --x")
-        [again] = self.add(spec=moved, rename=False)
+        [again] = self.add(spec=moved, overwrite=False)
         self.assertEqual(again.appid, before.appid)
         self.assertEqual(len(self.load_entries()), 1)
+
+    def test_a_refresh_keeps_artwork_the_user_chose_and_renews_its_own(self):
+        record = steam.ArtworkRecord(self.home / "artwork.json")
+        [result] = self.add(record=record)
+        record.save()
+        grid = self.config / "grid"
+        (grid / f"{result.appid}_hero.png").write_bytes(b"chosen in Steam")
+        (grid / f"{result.appid}p.png").unlink()
+        (grid / f"{result.appid}p.jpg").write_bytes(b"from SteamGridDB")
+        (self.artwork / "logo.png").write_bytes(b"a newer logo")
+        (grid / f"{result.appid}.json").write_text('{"nVersion":1,"logoPosition":{"pinnedPosition":"UpperLeft"}}')
+        record = steam.ArtworkRecord(self.home / "artwork.json")
+        [again] = self.add(record=record, overwrite=False)
+        self.assertEqual((grid / f"{result.appid}_hero.png").read_bytes(), b"chosen in Steam")
+        self.assertEqual((grid / f"{result.appid}p.jpg").read_bytes(), b"from SteamGridDB")
+        self.assertFalse((grid / f"{result.appid}p.png").exists())
+        self.assertEqual((grid / f"{result.appid}_logo.png").read_bytes(), b"a newer logo")
+        self.assertIn("UpperLeft", (grid / f"{result.appid}.json").read_text())
+        self.assertEqual(sorted(path.name for path in again.artwork), sorted([f"{result.appid}_logo.png", f"{result.appid}_icon.png", f"{result.appid}.png"]))
+        self.add(record=record)
+        self.assertEqual((grid / f"{result.appid}_hero.png").read_bytes(), (self.artwork / "hero.png").read_bytes())
+        self.assertEqual((grid / f"{result.appid}p.png").read_bytes(), (self.artwork / "capsule.png").read_bytes())
+        self.assertFalse((grid / f"{result.appid}p.jpg").exists())
+        self.assertIn("BottomLeft", (grid / f"{result.appid}.json").read_text())
+
+    def test_a_refresh_keeps_the_users_name_icon_options_and_overlay(self):
+        [first] = self.add()
+        shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
+        entry = shortcuts.find(EXE)[0]
+        for key, value in (("AppName", "My Tube"), ("icon", "/home/deck/icons/tube.png"), ("LaunchOptions", "--steam-account 1 --debug-gpu")):
+            entry.set(key, value)
+        entry.set("AllowOverlay", 1, vdf.INT32)
+        shortcuts.save()
+        [kept] = self.add(overwrite=False)
+        entry = self.load_entries().get("0")
+        self.assertEqual(kept.name, "My Tube")
+        self.assertEqual(
+            (entry.get("icon"), entry.get("LaunchOptions"), entry.get("AllowOverlay")),
+            ("/home/deck/icons/tube.png", "--debug-gpu", 1),
+        )
+        self.add()
+        entry = self.load_entries().get("0")
+        self.assertEqual(
+            (entry.get("AppName"), entry.get("icon"), entry.get("LaunchOptions"), entry.get("AllowOverlay")),
+            ("YouTube", str(self.config / "grid" / f"{first.appid}_icon.png"), "", 0),
+        )
+
+    def test_a_dry_run_writes_nothing_and_says_whether_the_shortcut_would_change(self):
+        [planned] = self.add(dry_run=True)
+        self.assertTrue(planned.changed)
+        self.assertFalse((self.config / "shortcuts.vdf").exists())
+        self.assertFalse((self.config / "grid").exists())
+        self.add()
+        shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
+        shortcuts.find(EXE)[0].set("AppName", "My Tube")
+        shortcuts.save()
+        stamp = (self.config / "shortcuts.vdf").stat().st_mtime_ns
+        [refresh] = self.add(overwrite=False, dry_run=True)
+        [install] = self.add(dry_run=True)
+        self.assertEqual((refresh.changed, install.changed), (False, True))
+        [artwork_only] = self.add(overwrite=False, save=False)
+        self.assertFalse(artwork_only.changed)
+        self.assertEqual((self.config / "shortcuts.vdf").stat().st_mtime_ns, stamp)
+
+    def test_without_create_an_account_lacking_the_shortcut_is_left_alone(self):
+        self.add()
+        results = steam.add_shortcut(self.root, [ACCOUNT, OTHER], spec(), create=False)
+        self.assertEqual([result.account for result in results], [ACCOUNT])
+        self.assertFalse((steam.config_dir(self.root, OTHER) / "shortcuts.vdf").exists())
 
     def test_corrupt_file_is_reported(self):
         (self.config / "shortcuts.vdf").write_bytes(b"\x00shortcuts\x00\x01broken")

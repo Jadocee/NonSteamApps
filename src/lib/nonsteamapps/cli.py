@@ -7,10 +7,13 @@ import os
 import platform
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from . import __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, steam, steamclient, timer, ui
+from . import (
+    __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, selfupdate, steam, steamclient, timer, ui,
+)
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
@@ -187,7 +190,26 @@ def _collection_name(paths: Paths) -> str:
     return config.read_settings(paths.settings).get(COLLECTION, DEFAULT_COLLECTION).strip()
 
 
-def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True) -> None:
+Work = Tuple[App, steam.ShortcutSpec, Dict[str, Path], steam.LogoPosition]
+
+
+def _library_changes(root: Path, accounts: Sequence[int], work: Sequence[Work], found: Dict[str, Dict[str, str]], record: steam.ArtworkRecord) -> bool:
+    """Whether refreshing the shortcuts already there, keeping what the user changed, would change Steam's own files."""
+    for app, spec, artwork, logo in work:
+        for result in steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=False, record=record, create=False, dry_run=True):
+            if result.changed or (app.controller and controllers.pending(root, result.account, result.name, found[app.controller])):
+                return True
+    return False
+
+
+def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True, overwrite: bool = True) -> None:
+    """Add the apps to the Steam library of each account ``user`` selects.
+
+    With ``overwrite``, as install and ``steam add`` do, each shortcut, its artwork and its controller layout
+    become NonSteamApps' again, the apps join the collection and no Steam Play tool stays forced. Without it, as
+    update does, only shortcuts already there are refreshed and what the user changed stays; Steam is closed only
+    when its own files must change.
+    """
     root = _steam_root()
     if root is None:
         ui.warn(f"Steam was not found; sign in to Steam once, then run: {paths.launcher} steam add")
@@ -196,36 +218,48 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
     if not accounts:
         ui.warn(f"no Steam account was found; sign in to Steam once, then run: {paths.launcher} steam add")
         return
-    ui.log(f"Adding {_listing(chosen)} to your Steam library")
     names = steam.account_names(root)
-    found_layouts: Dict[str, Dict[str, str]] = {}
+    record = steam.ArtworkRecord(paths.artwork_record)
+    for layout in layouts.used_by(app.controller for app in chosen):
+        layouts.install(root, layout)
+    found_layouts = {title: controllers.find_templates(root, title) for title in dict.fromkeys(app.controller for app in chosen if app.controller)}
+    work: List[Work] = [
+        (app, _spec(paths, app), steam.collect_artwork(paths.artwork(app.id)), steam.LogoPosition.parse(app.logo_position)) for app in chosen
+    ]
+    if not overwrite and not _library_changes(root, accounts, work, found_layouts, record):
+        for app, spec, artwork, logo in work:
+            steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=False, record=record, create=False, save=False)
+        record.save()
+        ui.ok("The Steam library is up to date")
+        return
+    ui.log(f"Adding {_listing(chosen)} to your Steam library" if overwrite else f"Refreshing {_listing(chosen)} in your Steam library")
     added: Dict[int, List[int]] = {}
     owners: Dict[int, App] = {}
+    native: Dict[int, str] = {}
+    waiting: List[str] = []
     name = _collection_name(paths)
-    with steamclient.closed(f"{paths.launcher} steam add", restart):
-        for layout in layouts.used_by(app.controller for app in chosen):
-            layouts.install(root, layout)
-        for app in chosen:
-            artwork = steam.collect_artwork(paths.artwork(app.id))
-            logo = steam.LogoPosition.parse(app.logo_position)
-            for result in steam.add_shortcut(root, accounts, _spec(paths, app), artwork, logo, rename=False):
-                ui.ok(_report(result, "added" if result.created else "updated", names))
+    with steamclient.closed(f"{paths.launcher} {'steam add' if overwrite else 'update'}", restart):
+        for app, spec, artwork, logo in work:
+            for result in steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=overwrite, record=record, create=overwrite):
+                if overwrite or result.changed:
+                    ui.ok(_report(result, "added" if result.created else "updated", names))
                 added.setdefault(result.account, []).append(result.appid)
                 owners[result.appid] = app
                 if app.controller:
-                    if app.controller not in found_layouts:
-                        found_layouts[app.controller] = controllers.find_templates(root, app.controller)
-                    controllers.assign(root, result.account, result.name, found_layouts[app.controller])
-        waiting = []
-        for account, appids in added.items():
-            path = collection.storage_file(root, account)
-            if path is None:
-                waiting.append(names.get(account, str(account)))
-            elif name:
-                collection.update(path, name, add=appids)
-            else:
-                collection.delete(path)
-        native = compat.clear(root, owners)
+                    controllers.assign(root, result.account, result.name, found_layouts[app.controller], force=overwrite)
+        if overwrite:
+            for account, appids in added.items():
+                path = collection.storage_file(root, account)
+                if path is None:
+                    waiting.append(names.get(account, str(account)))
+                elif name:
+                    collection.update(path, name, add=appids)
+                else:
+                    collection.delete(path)
+            native = compat.clear(root, owners)
+    record.save()
+    if not overwrite:
+        return
     for appid, tool in sorted(native.items()):
         ui.ok(f"{owners[appid].name} no longer forces the Steam Play tool {tool}: like every NonSteamApps app, it runs natively")
     if name and len(waiting) < len(added):
@@ -301,6 +335,19 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
     _link(paths, app)
 
 
+def _reset(paths: Paths, app: App, separate: bool) -> int:
+    """Put NonSteamApps' TV settings back in the app's existing data, keeping sign-ins; return the data folders changed."""
+    if app.browser:
+        return sum(browser.reset(folder, app.browser.kiosk) for folder in sorted((paths.profiles / app.id).glob("*")) if folder.is_dir())
+    if app.system:
+        return int(app.system.reset(paths.profile(app.id, None)))
+    home = app.home(paths.home)
+    count = len(app.profile.reset(home, shared=not separate)) if app.profile else 0
+    if app.settings and home.is_dir() and any([wanted.apply(home) for wanted in app.settings]):
+        count += 1
+    return count
+
+
 def _purge(paths: Paths, app: App) -> None:
     if app.browser or app.system:
         folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
@@ -349,19 +396,14 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         ui.warn("this does not look like SteamOS; continuing anyway")
     record = Record.load(paths.record)
     old = legacy.Legacy.detect()
-    named = _choose(args.apps)
-    chosen = named or _managed(record)
+    chosen = _choose(args.apps)
     if not chosen:
         chosen = list(apps.APPS)
-        if not ui.confirm(f"Install {_listing(chosen)}?", default=True):
-            raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install {' '.join(apps.ids())}")
-    elif not named:
-        new = [app for app in apps.APPS if record.is_new(app.id)]
-        if new and ui.confirm(f"New in NonSteamApps since your last install: {_listing(new)}. Add {'them' if len(new) > 1 else 'it'}?", default=True):
-            chosen = [app for app in apps.APPS if app in chosen or app in new]
-        elif new:
-            ui.info(f"To add {'them' if len(new) > 1 else 'it'} later, run: {paths.launcher} install {' '.join(app.id for app in new)}")
-    record.mark_offered(apps.ids())
+        question = f"Install {_listing(chosen)}?"
+        if record.managed():
+            question += " The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept."
+        if not ui.confirm(question, default=True):
+            raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install APP..., or update the apps you have with: {paths.launcher} update")
     youtube = apps.by_id("youtube")
     if old.present() and youtube not in chosen:
         chosen.insert(0, youtube)
@@ -371,6 +413,7 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
 
     ui.log(f"Installing NonSteamApps {__version__} into {paths.program}")
     paths.state.mkdir(parents=True, exist_ok=True)
+    selfupdate.remember(paths, os.environ)
     fresh = not paths.settings.exists()
     message = config.install_defaults(paths.program / "share" / "config" / config.SETTINGS_FILE, paths.settings)
     if message:
@@ -378,6 +421,7 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     if fresh and old.separate_profiles() is False:
         config.set_setting(paths.settings, PER_ACCOUNT, "0")
         ui.info("Kept SteamOS YT's choice of one sign-in shared by all Steam accounts")
+    separate = config.enabled(config.read_settings(paths.settings).get(PER_ACCOUNT), default=True)
 
     if any(app.browser for app in chosen):
         _install_helium(paths, args.helium_archive, not args.skip_verify)
@@ -385,6 +429,9 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     for app in chosen:
         _install_app(paths, flatpak, record, app, installed.get(app.flatpak))
         record.save()
+        reset = _reset(paths, app, separate)
+        if reset:
+            ui.ok(f"Put back {app.name}'s TV settings ({reset} data folder{'s' if reset > 1 else ''}); sign-ins are kept")
     _open_ports(record, chosen)
     record.save()
 
@@ -394,16 +441,15 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         timer.remove(paths)
     managed = _managed(record)
     if args.steam:
-        steam_add(paths, managed, args.steam_user, args.restart_steam)
+        steam_add(paths, chosen, args.steam_user, args.restart_steam)
         if old.present():
             if ui.confirm("Remove SteamOS YT, including its Helium browser and its YouTube sign-ins?", default=True):
                 for path in old.remove():
                     ui.ok(f"Removed {path}")
             else:
-                ui.info(f"Kept SteamOS YT's files; Steam now starts VacuumTube for YouTube. Remove them later with: {paths.launcher} install")
+                ui.info(f"Kept SteamOS YT's files; Steam now starts VacuumTube for YouTube. Remove them later with: {paths.launcher} install youtube")
     elif old.present():
         ui.info("Kept SteamOS YT, because its Steam shortcut was not moved to VacuumTube (--no-steam)")
-    separate = config.enabled(config.read_settings(paths.settings).get(PER_ACCOUNT), default=True)
     _summary(paths, managed, separate)
     return 0
 
@@ -495,15 +541,18 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
             account = None
     if not account and app.profile:
         app.profile.prepare_shared(app.home(paths.home))
-    factor = display.scale(_scale_setting(settings), steamclient.in_game_mode(), layout=app.tv_scale.layout) if app.tv_scale else None
+    for wanted in app.settings:
+        if not (app.home(paths.home) / wanted.file).exists():
+            wanted.apply(app.home(paths.home))
+    game_mode = steamclient.in_game_mode()
+    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
     required = app.tv_scale.requires if app.tv_scale and factor else None
     folder = app.profile.data_folder(app.home(paths.home), account) if required and app.profile else None
     if folder and required.apply(folder):
         print(f"  set {', '.join(key for key, _ in required.values)} in {required.file}, which the TV scale needs")
-    command = flatpak.run_args(
-        app.flatpak, [*app.arguments(paths.home, account), *scale, *extra], [*app.run_options(account), *scale_options]
-    )
+    options = [*app.run_options(account), *scale_options, *_environment(app, game_mode), *_libraries(app)]
+    command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *extra], options)
     hidden = [variable for variable in app.sandbox_off_when if variable in os.environ]
     if hidden and config.enabled(settings.get(GAME_MODE_SANDBOX)):
         for variable in hidden:
@@ -512,6 +561,18 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     print("  " + " ".join(command), flush=True)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _environment(app: App, game_mode: bool) -> List[str]:
+    """``flatpak run`` options for the variables the app is started with from Steam."""
+    return [f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ()))]
+
+
+def _libraries(app: App) -> List[str]:
+    """``flatpak run`` options that let the app's sandbox reach every Steam library folder."""
+    root = _steam_root() if app.libraries else None
+    folders = steam.library_folders(root) if root else []
+    return [f"--filesystem={folder}" for folder in folders if folder.is_dir() and ":" not in str(folder)]
 
 
 def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequence[str]) -> int:
@@ -556,9 +617,33 @@ def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
     return EXIT_ERROR
 
 
-def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
-    record = Record.load(paths.record)
-    managed = _managed(record)
+def _update_program(args, paths: Paths) -> None:
+    """Replace NonSteamApps with the latest version from where it was installed, which then updates the apps.
+
+    Returns only in the version that has just replaced the one before, or when no new version can be had.
+    """
+    previous = os.environ.pop(selfupdate.UPDATED_FROM_VARIABLE, None)
+    if previous is not None:
+        ui.ok(f"Updated NonSteamApps from {previous} to {__version__}" if previous != __version__ else f"NonSteamApps {__version__} is up to date")
+        return
+    source = selfupdate.source(paths)
+    ui.log(f"Updating NonSteamApps from {source}")
+    try:
+        with tempfile.TemporaryDirectory(prefix="nonsteamapps-update.") as work:
+            selfupdate.copy(selfupdate.fetch(source, Path(work)), paths.program, os.environ)
+    except (selfupdate.UpdateError, OSError) as exc:
+        ui.warn(f"could not update NonSteamApps ({exc}); the apps are updated by NonSteamApps {__version__}")
+        return
+    os.environ[selfupdate.UPDATED_FROM_VARIABLE] = __version__
+    argv = [str(paths.launcher), "update", *(["--yes"] if args.yes else []), *(["--quiet"] if args.quiet else [])]
+    if not args.restart_steam:
+        argv.append("--no-restart-steam")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(str(paths.launcher), argv)
+
+
+def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequence[App]) -> None:
     own_layouts = layouts.used_by(app.controller for app in managed)
     root = _steam_root() if own_layouts else None
     for layout in own_layouts if root else []:
@@ -576,13 +661,33 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
         app for app in managed
         if app.flatpak and record.owns_flatpak(app.id) and getattr(installed.get(app.flatpak), "installation", "") == "user"
     ]
-    if not ours:
-        if not any(app.browser for app in managed):
-            ui.info("NonSteamApps installed no apps to update; Discover updates the rest")
+    if ours:
+        ui.log(f"Updating {_listing(ours)}")
+        flatpak.update([app.flatpak for app in ours], quiet=ui.quiet)
+        ui.ok("Apps are up to date")
+    elif not any(app.browser for app in managed):
+        ui.info("NonSteamApps installed no apps to update; Discover updates the rest")
+
+
+def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
+    """Update NonSteamApps, unless ``--apps-only``, then the apps, keeping which apps are installed and how they are set up."""
+    if not args.apps_only:
+        _update_program(args, paths)
+    record = Record.load(paths.record)
+    managed = _managed(record)
+    _update_apps(paths, flatpak, record, managed)
+    if args.apps_only or not managed:
         return 0
-    ui.log(f"Updating {_listing(ours)}")
-    flatpak.update([app.flatpak for app in ours], quiet=ui.quiet)
-    ui.ok("Apps are up to date")
+    message = config.install_defaults(paths.program / "share" / "config" / config.SETTINGS_FILE, paths.settings)
+    if message:
+        ui.info(message)
+    timer.refresh(paths)
+    for app in managed:
+        _link(paths, app)
+    try:
+        steam_add(paths, managed, "all", args.restart_steam, overwrite=False)
+    except ui.Abort as exc:
+        ui.warn(f"left the Steam library as it was: {exc}")
     return 0
 
 
@@ -779,7 +884,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--no-restart-steam", dest="restart_steam", action="store_false",
                          help="leave Steam closed after changing its library")
 
-    sub = commands.add_parser("install", help="install or repair apps and add them to Steam (default: the apps in use, else all)")
+    sub = commands.add_parser("install", help="install apps, or set them up again, and add them to Steam (default: every app)")
     sub.add_argument("apps", nargs="*", metavar="APP")
     sub.add_argument("--steam-user", default="all", help="Steam accounts that get shortcuts: all (default), auto or an account ID")
     sub.add_argument("--no-steam", dest="steam", action="store_false", help="do not change the Steam library")
@@ -801,7 +906,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = commands.add_parser("list", help="show every app and whether it is installed")
     sub.set_defaults(func=cmd_list)
 
-    sub = commands.add_parser("update", help="update the apps NonSteamApps installed, including Helium")
+    sub = commands.add_parser("update", help="update NonSteamApps and the apps it installed, keeping your apps and their settings")
+    sub.add_argument("--apps-only", action="store_true", help="update only the apps and Helium, as the weekly timer does")
+    restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_update)
 

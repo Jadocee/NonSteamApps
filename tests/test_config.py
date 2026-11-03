@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,18 +78,14 @@ class RecordTests(unittest.TestCase):
             loaded.discard("youtube")
             self.assertEqual(loaded.managed(), ["element"])
 
-    def test_apps_never_offered_are_new_and_old_records_count_what_they_do_not_manage(self):
+    def test_a_record_from_2_15_drops_its_list_of_offered_apps(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "apps.json"
-            path.write_text('{"version": 1, "apps": {"youtube": {}}}')
+            path.write_text('{"version": 1, "apps": {"youtube": {}}, "offered": ["youtube", "prism"]}')
             record = config.Record.load(path)
-            self.assertIsNone(record.offered)
-            self.assertEqual((record.is_new("youtube"), record.is_new("prism")), (False, True))
-            record.mark_offered(["youtube", "prism", "files"])
+            self.assertEqual(record.managed(), ["youtube"])
             record.save()
-            loaded = config.Record.load(path)
-            self.assertEqual(loaded.offered, ["youtube", "prism", "files"])
-            self.assertEqual((loaded.is_new("prism"), loaded.is_new("protoncalendar")), (False, True))
+            self.assertEqual(json.loads(path.read_text()), {"version": 1, "apps": {"youtube": {}}})
 
     def test_corrupt_record_starts_empty(self):
         with tempfile.TemporaryDirectory() as tmp:

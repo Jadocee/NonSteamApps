@@ -7,7 +7,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- [APP...]
 #
 # When piped, the rest of the project is fetched from GitHub (NONSTEAMAPPS_REPO,
-# NONSTEAMAPPS_REF) or from the archive URL in NONSTEAMAPPS_SOURCE_URL.
+# NONSTEAMAPPS_REF) or from the archive URL in NONSTEAMAPPS_SOURCE_URL. The install
+# remembers that source, which 'nonsteamapps update' fetches again; it runs the new
+# install.sh with NONSTEAMAPPS_COPY_ONLY=1, which copies the program and stops there.
 #
 # Run './install.sh --help' for the available options.
 set -Eeuo pipefail
@@ -30,12 +32,16 @@ local_source() {
     printf '%s\n' "$directory"
 }
 
+source_url() {
+    printf '%s\n' "${NONSTEAMAPPS_SOURCE_URL:-https://github.com/$REPO/archive/$REF.tar.gz}"
+}
+
 download_source() {
     local destination url
     if ! command -v curl >/dev/null || ! command -v tar >/dev/null; then
         die "curl and tar are needed to download NonSteamApps"
     fi
-    url=${NONSTEAMAPPS_SOURCE_URL:-https://github.com/$REPO/archive/$REF.tar.gz}
+    url=$(source_url)
     destination=$(mktemp -d)
     printf '==> Downloading NonSteamApps from %s\n' "$url" >&2
     if ! curl -fsSL --retry 3 --connect-timeout 20 "$url" | tar -xz -C "$destination" --strip-components=1; then
@@ -65,10 +71,13 @@ install_payload() {
 }
 
 main() {
-    local source_dir cleanup="" argument version
-    if ! source_dir=$(local_source); then
+    local source_dir cleanup="" argument version source
+    if source_dir=$(local_source); then
+        source=$source_dir
+    else
         source_dir=$(download_source)
         cleanup=$source_dir
+        source=$(source_url)
     fi
     for argument in "$@"; do
         if [[ $argument == -h || $argument == --help ]]; then
@@ -86,7 +95,10 @@ main() {
     printf '==> Copying NonSteamApps %s to %s\n' "$version" "$APP_HOME" >&2
     install_payload "$source_dir"
     [[ -z $cleanup ]] || rm -rf "$cleanup"
-    exec "$APP_HOME/bin/nonsteamapps" install "$@"
+    if [[ ${NONSTEAMAPPS_COPY_ONLY:-0} == 1 ]]; then
+        return 0
+    fi
+    NONSTEAMAPPS_SOURCE=$source exec "$APP_HOME/bin/nonsteamapps" install "$@"
 }
 
 main "$@"

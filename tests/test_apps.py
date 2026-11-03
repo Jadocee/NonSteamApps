@@ -14,8 +14,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "files", "helium", "primevideo", "hbomax",
-             "netflix", "disneyplus", "protondb", "protoncalendar"],
+            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files", "helium",
+             "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -67,7 +67,8 @@ class ArgumentTests(unittest.TestCase):
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
-            [app.id for app in apps.APPS if app.tv_scale], ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "files"]
+            [app.id for app in apps.APPS if app.tv_scale],
+            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -98,6 +99,24 @@ class ArgumentTests(unittest.TestCase):
         localsend = apps.by_id("localsend").tv_scale
         self.assertEqual([localsend.apply(factor) for factor in (1.5, 2.0, 2.75, 3.0)],
                          [([], []), ([], ["--env=GDK_SCALE=2"]), ([], ["--env=GDK_SCALE=2"]), ([], ["--env=GDK_SCALE=3"])])
+        protontricks = apps.by_id("protontricks").tv_scale
+        self.assertEqual([protontricks.apply(factor) for factor in (1.5, 2.0, 2.5, 3.0)], [
+            ([], ["--env=GDK_DPI_SCALE=1.5"]),
+            ([], ["--env=GDK_SCALE=2"]),
+            ([], ["--env=GDK_SCALE=2", "--env=GDK_DPI_SCALE=1.25"]),
+            ([], ["--env=GDK_SCALE=3"]),
+        ])
+        self.assertEqual(apps.by_id("protonup").tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
+
+    def test_the_proton_tools_run_in_their_own_sandbox_with_a_tv_set_up_and_the_steam_libraries(self):
+        protonup, protontricks = apps.by_id("protonup"), apps.by_id("protontricks")
+        self.assertEqual((protonup.flatpak, protontricks.flatpak), ("net.davidotek.pupgui2", "com.github.Matoking.protontricks"))
+        self.assertEqual((protonup.args, protontricks.args), ((), ("--no-term", "--gui")))
+        self.assertEqual(protonup.env, (("PUPGUI2_DISABLE_GAMEPAD", "1"),))
+        self.assertEqual((protonup.game_mode_env, protontricks.game_mode_env), ((("QT_QPA_PLATFORM", "xcb"),), (("GDK_BACKEND", "x11"),)))
+        self.assertTrue(protonup.libraries and protontricks.libraries)
+        self.assertEqual({protonup.controller, protontricks.controller}, {"Tools (NonSteamApps)"})
+        self.assertEqual([app.id for app in apps.APPS if app.libraries], ["protonup", "protontricks"])
 
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
         self.assertEqual(apps.by_id("jellyfin").arguments(HOME, 333), ["--tv", "--fullscreen", "--profile=steam-333"])
@@ -225,6 +244,37 @@ class ProfileTests(unittest.TestCase):
         self.assertFalse((app_home / "config/Signal").exists())
         self.assertEqual([path.name for path in signal.profile.existing(app_home)], ["Signal-steam-111"])
 
+    def test_an_install_puts_each_accounts_tv_settings_back_and_the_shared_ones_only_when_used(self):
+        youtube = apps.by_id("youtube")
+        app_home = youtube.home(self.home)
+        youtube.profile.prepare(app_home, 111, lambda options: 0)
+        youtube.profile.prepare_shared(app_home)
+        folder, shared = app_home / "config/VacuumTube-steam-111", app_home / "config/VacuumTube"
+        for path in (folder, shared):
+            (path / "config.json").write_text(json.dumps({"sponsorblock": False, "disabled_tabs": [], "volume": 80}))
+        (folder / "nonsteamapps.json").unlink()
+        self.assertEqual(youtube.profile.reset(app_home), [folder])
+        data = json.loads((folder / "config.json").read_text())
+        self.assertEqual((data["sponsorblock"], data["disabled_tabs"], data["fullscreen"], data["volume"]), (True, ["shorts", "podcasts"], True, 80))
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0"]})
+        self.assertFalse(json.loads((shared / "config.json").read_text())["sponsorblock"])
+        self.assertEqual(youtube.profile.reset(app_home, shared=True), [shared])
+        self.assertEqual(youtube.profile.reset(app_home, shared=True), [])
+        self.assertEqual(apps.by_id("signal").profile.reset(apps.by_id("signal").home(self.home)), [])
+        self.assertEqual(apps.by_id("jellyfin").profile.reset(apps.by_id("jellyfin").home(self.home)), [])
+
+    def test_an_install_puts_prisms_tv_settings_back_and_keeps_its_other_settings(self):
+        prism = apps.by_id("prism")
+        app_home = prism.home(self.home)
+        prism.profile.prepare(app_home, 111, lambda options: 0)
+        settings = app_home / "data/PrismLauncher-steam-111/prismlauncher.cfg"
+        settings.write_text("[General]\nApplicationTheme=bright\nJavaPath=/usr/bin/java\nLanguage=en_AU\n")
+        self.assertEqual(len(prism.profile.reset(app_home)), 1)
+        self.assertEqual(settings.read_text(), (
+            "[General]\nApplicationTheme=dark\nJavaPath=/usr/bin/java\nLanguage=en_AU\n"
+            "IconTheme=flat_white\nCloseAfterLaunch=true\nQuitAfterGameStop=true\nLaunchMaximized=true\n"
+        ))
+
     def make_jellyfin_profile(self, app_home, name, folder):
         directory = app_home / "data/jellyfin-desktop/profiles" / folder
         directory.mkdir(parents=True)
@@ -261,6 +311,31 @@ class ProfileTests(unittest.TestCase):
 
 
 
+class IniSettingsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_values_go_into_their_groups_and_everything_else_stays(self):
+        settings = apps.IniSettings("app.ini", (("General", "Theme", "dark"), ("Window", "Bar", "off"), ("General", "Scale", "2")))
+        path = self.folder / "app.ini"
+        path.write_text("; comment\n[General]\nTheme = light\nOther=x=y\n\n[Other]\nTheme=red\n")
+        self.assertTrue(settings.apply(self.folder))
+        self.assertEqual(path.read_text(), "; comment\n[General]\nTheme=dark\nOther=x=y\nScale=2\n\n[Other]\nTheme=red\n\n[Window]\nBar=off\n")
+        self.assertFalse(settings.apply(self.folder))
+
+    def test_a_new_file_holds_only_the_values_and_an_unreadable_one_is_left_alone(self):
+        settings = apps.IniSettings("sub/app.ini", (("General", "Theme", "dark"),))
+        self.assertTrue(settings.apply(self.folder))
+        self.assertEqual((self.folder / "sub/app.ini").read_text(), "[General]\nTheme=dark\n")
+        (self.folder / "sub/app.ini").write_bytes(b"\xff\xfe[General]")
+        self.assertIsNone(settings.apply(self.folder))
+        self.assertEqual((self.folder / "sub/app.ini").read_bytes(), b"\xff\xfe[General]")
+
+
 class SystemAppTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -284,6 +359,19 @@ class SystemAppTests(unittest.TestCase):
         (config / "dolphinrc").write_text("[General]\nRememberOpenedTabs=true\n")
         files.prepare(self.profile, self.desktop)
         self.assertEqual((config / "dolphinrc").read_text(), "[General]\nRememberOpenedTabs=true\n")
+
+    def test_an_install_puts_the_files_tv_settings_back_once_the_profile_exists(self):
+        files = apps.by_id("files").system
+        self.assertFalse(files.reset(self.profile))
+        self.assertFalse(self.profile.exists())
+        files.prepare(self.profile, self.desktop)
+        config = self.profile / "config"
+        (config / "dolphinrc").write_text("# mine\n[General]\nRememberOpenedTabs=true\nShowFullPath=true\n\n[MainWindow]\nMenuBar=Enabled\n")
+        (config / "kdeglobals").unlink()
+        self.assertTrue(files.reset(self.profile))
+        self.assertEqual((config / "dolphinrc").read_text(), "# mine\n[General]\nRememberOpenedTabs=false\nShowFullPath=true\n\n[MainWindow]\nMenuBar=Disabled\n")
+        self.assertEqual((config / "kdeglobals").read_text(), "[KDE]\nSingleClick=true\n")
+        self.assertFalse(files.reset(self.profile))
 
     def test_the_profile_is_layered_over_the_desktops_settings(self):
         files = apps.by_id("files").system

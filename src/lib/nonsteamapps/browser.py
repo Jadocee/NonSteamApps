@@ -15,6 +15,7 @@ and do not keep crash reports to offer for upload.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ from .fsutil import atomic_write_bytes, atomic_write_json
 BLOCK = 2
 SCHEMA_VERSION = 1
 CRASH_REPORTS_OFF = -1
+LOCAL_STATE = {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}
 FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
 BROWSER_BINARIES = ("helium", "chrome", "chromium")
 
@@ -100,8 +102,25 @@ def write_local_state(profile: Path) -> Path:
     """Start a new profile with crash reports off, so no upload question follows a crash; later starts keep the user's choice."""
     path = Path(profile) / "Local State"
     if not path.exists():
-        atomic_write_json(path, {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}, compact=True)
+        atomic_write_json(path, LOCAL_STATE, compact=True)
     return path
+
+
+def reset(profile: Path, kiosk: bool) -> bool:
+    """Put a new profile's settings back into an existing one, as an install does; return whether it changed.
+
+    A missing or damaged file is left for Helium, which writes a new one.
+    """
+    changed = False
+    for path, wanted in ((Path(profile) / "Default" / "Preferences", first_run_preferences(kiosk)), (Path(profile) / "Local State", LOCAL_STATE)):
+        data = _load(path) if path.is_file() else None
+        if not data:
+            continue
+        merged = deep_merge(copy.deepcopy(data), wanted)
+        if merged != data:
+            atomic_write_json(path, merged, compact=True)
+            changed = True
+    return changed
 
 
 def clear_stale_lock(profile: Path) -> bool:

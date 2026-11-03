@@ -18,8 +18,9 @@ from __future__ import annotations
 import copy
 import json
 import os
+import urllib.parse
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from .fsutil import atomic_write_bytes, atomic_write_json
 
@@ -121,6 +122,32 @@ def reset(profile: Path, kiosk: bool) -> bool:
             atomic_write_json(path, merged, compact=True)
             changed = True
     return changed
+
+
+def allow_callbacks(profile: Path, url: str, schemes: Sequence[str]) -> List[str]:
+    """Let the sign-in page at ``url`` open the app's callback without asking, when it names one of ``schemes`` as its return address.
+
+    Chromium asks before a page opens a link that only another app handles, unless the page's origin may open
+    that kind of link, as ticking "Always allow" records. Returns the schemes allowed.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        return []
+    returns = [
+        value
+        for query in (parts.query, parts.fragment.partition("?")[2])
+        for key, value in urllib.parse.parse_qsl(query)
+        if key.lower() in ("redirect_uri", "redirecturi", "redirecturl")
+    ]
+    allowed = [scheme for scheme in schemes if any(value.lower().startswith(f"{scheme.lower()}:") for value in returns)]
+    path = Path(profile) / "Default" / "Preferences"
+    data = _load(path) if allowed else None
+    if data is None:
+        return []
+    origin = f"https://{parts.netloc}"
+    deep_merge(data, {"protocol_handler": {"allowed_origin_protocol_pairs": {origin: {scheme: True for scheme in allowed}}}})
+    atomic_write_json(path, data, compact=True)
+    return allowed
 
 
 def clear_stale_lock(profile: Path) -> bool:

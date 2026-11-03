@@ -253,7 +253,11 @@ def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "F
 
 
 def make_helium_archive(directory: Path, version: str = "0.0.0.1") -> Path:
-    """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG and its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG."""
+    """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG and its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG.
+
+    With $FAKE_HELIUM_OPEN, the wrapper then opens that link with xdg-open from its PATH, as a page sending a
+    sign-in back to an app would, and stays open until it is ended.
+    """
     staging = directory / f"build-{version}"
     inner = staging / f"helium-{version}-x86_64_linux"
     inner.mkdir(parents=True)
@@ -264,6 +268,10 @@ def make_helium_archive(directory: Path, version: str = "0.0.0.1") -> Path:
         'if log:\n    open(log, "a").write(json.dumps(sys.argv[1:]) + "\\n")\n'
         'env_log = os.environ.get("FAKE_HELIUM_ENV_LOG")\n'
         'if env_log:\n    open(env_log, "a").write(os.environ.get("LD_PRELOAD", "<unset>") + "\\n")\n'
+        'if os.environ.get("FAKE_HELIUM_OPEN"):\n'
+        '    import subprocess, time\n'
+        '    subprocess.run(["xdg-open", os.environ["FAKE_HELIUM_OPEN"]], check=True)\n'
+        '    time.sleep(15)\n'
     )
     for name in ("helium", "helium-wrapper"):
         (inner / name).chmod(0o755)

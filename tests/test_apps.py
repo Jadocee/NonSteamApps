@@ -14,8 +14,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files", "helium",
-             "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files",
+             "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -65,7 +65,7 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -86,9 +86,9 @@ class ArgumentTests(unittest.TestCase):
                 "signal-desktop",
             ],
         )
-        self.assertEqual(signal.run_options(111), ["--command=env"])
-        self.assertEqual((signal.arguments(HOME, None), signal.run_options(None)), ([], []))
-        self.assertEqual(apps.by_id("element").run_options(111), [])
+        self.assertEqual(signal.run_options(HOME, 111), ["--command=env"])
+        self.assertEqual((signal.arguments(HOME, None), signal.run_options(HOME, None)), ([], []))
+        self.assertEqual(apps.by_id("element").run_options(HOME, 111), [])
 
     def test_each_toolkit_takes_the_tv_scale_its_own_way(self):
         self.assertEqual(apps.by_id("element").tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
@@ -114,6 +114,15 @@ class ArgumentTests(unittest.TestCase):
         self.assertTrue(protonup.libraries and protontricks.libraries)
         self.assertEqual({protonup.controller, protontricks.controller}, {"Tools (NonSteamApps)"})
         self.assertEqual([app.id for app in apps.APPS if app.libraries], ["protonup", "protontricks"])
+
+    def test_bitwarden_gets_each_accounts_folder_in_a_variable_and_keeps_its_tokens_on_disk(self):
+        bitwarden = apps.by_id("bitwarden")
+        self.assertEqual(bitwarden.arguments(HOME, 111), [])
+        self.assertEqual(bitwarden.run_options(HOME, 111),
+                         ["--env=BITWARDEN_APPDATA_DIR=/home/deck/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-111"])
+        self.assertEqual(bitwarden.run_options(HOME, None), [])
+        self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Tools (NonSteamApps)"))
+        self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
 
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
         self.assertEqual(apps.by_id("jellyfin").arguments(HOME, 333), ["--tv", "--fullscreen", "--profile=steam-333"])
@@ -271,6 +280,38 @@ class ProfileTests(unittest.TestCase):
             "[General]\nApplicationTheme=dark\nJavaPath=/usr/bin/java\nLanguage=en_AU\n"
             "IconTheme=flat_white\nCloseAfterLaunch=true\nQuitAfterGameStop=true\nLaunchMaximized=true\n"
         ))
+
+    def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
+        localsend = apps.by_id("localsend")
+        home = localsend.home(self.home)
+        [settings] = localsend.settings
+        current = home / "data/org.localsend.localsend_app/shared_preferences.json"
+        self.assertEqual(settings.target(home), current)
+        self.assertTrue(settings.apply(home))
+        self.assertEqual(json.loads(current.read_text()), {"flutter.ls_whats_new": "1.18.2", "flutter.ls_theme": "dark", "flutter.ls_color": "oled"})
+        current.unlink()
+        current.parent.rmdir()
+        legacy = home / "data/localsend_app/shared_preferences.json"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text(json.dumps({"flutter.ls_version": 3, "flutter.ls_theme": "light", "flutter.ls_alias": "Deck"}))
+        self.assertEqual(settings.target(home), legacy)
+        self.assertTrue(settings.apply(home))
+        self.assertEqual(json.loads(legacy.read_text()),
+                         {"flutter.ls_version": 3, "flutter.ls_theme": "dark", "flutter.ls_alias": "Deck", "flutter.ls_color": "oled"})
+        self.assertFalse(current.parent.exists())
+
+    def test_each_bitwarden_folder_starts_quitting_when_closed(self):
+        bitwarden = apps.by_id("bitwarden")
+        app_home = bitwarden.home(self.home)
+        bitwarden.profile.prepare(app_home, 111, lambda options: 0)
+        data = app_home / "config/Bitwarden-steam-111/data.json"
+        self.assertEqual(json.loads(data.read_text()),
+                         {"global_desktopSettings_runInBackground": False, "global_desktopSettings_openAtLogin": False})
+        data.write_text(json.dumps({"stateVersion": 86, "global_desktopSettings_runInBackground": True, "user_x": {"key": 1}}))
+        self.assertEqual(bitwarden.profile.reset(app_home), [data.parent])
+        self.assertEqual(json.loads(data.read_text()), {
+            "stateVersion": 86, "global_desktopSettings_runInBackground": False, "user_x": {"key": 1}, "global_desktopSettings_openAtLogin": False,
+        })
 
     def make_jellyfin_profile(self, app_home, name, folder):
         directory = app_home / "data/jellyfin-desktop/profiles" / folder

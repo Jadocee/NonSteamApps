@@ -76,6 +76,20 @@ class PreferencesTests(unittest.TestCase):
         self.assertFalse(browser.reset(self.profile, kiosk=True))
         self.assertEqual(self.preferences.read_text(), "{")
 
+    def test_a_sign_in_page_may_hand_its_callback_to_the_app_without_asking(self):
+        browser.write_preferences(self.profile, services=True, kiosk=False)
+        authorize = "https://account.matrix.org/authorize?response_type=code&redirect_uri=io.element.desktop%3A%2Fvector%2Fwebapp%2F&state=x"
+        self.assertEqual(browser.allow_callbacks(self.profile, authorize, ("io.element.desktop", "element")), ["io.element.desktop"])
+        sso = "https://vault.bitwarden.com/#/sso?clientId=desktop&redirectUri=bitwarden%3A%2F%2Fsso-callback&state=y"
+        self.assertEqual(browser.allow_callbacks(self.profile, sso, ("bitwarden",)), ["bitwarden"])
+        for url in ("https://example.org/news?redirect_uri=https://example.org/", "http://account.matrix.org/authorize?redirect_uri=io.element.desktop:x",
+                    "https://example.org/"):
+            self.assertEqual(browser.allow_callbacks(self.profile, url, ("io.element.desktop", "bitwarden")), [])
+        self.assertEqual(self.read()["protocol_handler"]["allowed_origin_protocol_pairs"], {
+            "https://account.matrix.org": {"io.element.desktop": True},
+            "https://vault.bitwarden.com": {"bitwarden": True},
+        })
+
     def test_a_corrupt_file_is_kept_aside(self):
         self.preferences.parent.mkdir(parents=True)
         self.preferences.write_text("{broken")

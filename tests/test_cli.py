@@ -97,14 +97,14 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
-            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "org.jellyfin.JellyfinDesktop", "org.localsend.localsend_app",
-             "org.prismlauncher.PrismLauncher", "net.davidotek.pupgui2", "com.github.Matoking.protontricks"],
+            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
+             "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "net.davidotek.pupgui2", "com.github.Matoking.protontricks"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "jellyfin", "localsend", "prism", "protonup", "protontricks"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -261,11 +261,23 @@ class LaunchTests(CliTestCase):
             argv, _ = self.launch("jellyfin", "--steam-account", str(ALPHA))
         self.assertEqual(argv[3:], ["--tv", "--fullscreen"])
 
-    def test_localsend_starts_with_its_own_settings_for_every_account(self):
+    def test_localsend_starts_dark_in_its_oled_colours_with_one_set_of_settings_for_every_account(self):
         argv, redirect = self.launch("localsend", "--steam-account", str(BETA))
         self.assertEqual(argv, [self.fake.command, "run", "org.localsend.localsend_app"])
-        self.assertFalse((self.home / ".var").exists())
+        settings = self.home / ".var/app/org.localsend.localsend_app/data/org.localsend.localsend_app/shared_preferences.json"
+        self.assertEqual(json.loads(settings.read_text())["flutter.ls_color"], "oled")
+        settings.write_text(json.dumps({"flutter.ls_theme": "light", "flutter.ls_color": "localsend"}))
+        self.launch("localsend", "--steam-account", str(ALPHA))
+        self.assertEqual(json.loads(settings.read_text()), {"flutter.ls_theme": "light", "flutter.ls_color": "localsend"})
         redirect.assert_called_once_with(self.paths.log("localsend"))
+
+    def test_bitwarden_starts_with_each_accounts_folder_and_its_tokens_on_disk(self):
+        argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        self.assertEqual(argv, [
+            self.fake.command, "run", f"--env=BITWARDEN_APPDATA_DIR={folder}", "--env=ACCESS_TOKEN_LOCATION=DISK", "com.bitwarden.desktop",
+        ])
+        self.assertFalse(json.loads((folder / "data.json").read_text())["global_desktopSettings_runInBackground"])
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)
@@ -857,6 +869,69 @@ class SelfUpdateTests(CliTestCase):
         self.assertEqual(self.run_cli("update", "--yes"), 0, self.errors)
         self.assertIn("could not update NonSteamApps (error: run the installer as your normal user)", self.errors)
         self.assertIn("The Steam library is up to date", self.errors)
+
+
+
+class SignInTests(CliTestCase):
+    def sign_in(self, app_id, authorize, callback):
+        runtime = Path(self.tmp.name) / "run"
+        runtime.mkdir(exist_ok=True)
+        variables = {
+            "XDG_CURRENT_DESKTOP": "gamescope",
+            "XDG_RUNTIME_DIR": str(runtime),
+            "FAKE_FLATPAK_OPEN": authorize,
+            "FAKE_FLATPAK_DONE": str(Path(self.tmp.name) / "signed-in"),
+            "FAKE_HELIUM_OPEN": callback,
+            "FAKE_HELIUM_LOG": str(Path(self.tmp.name) / "helium.log"),
+        }
+        with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            status = cli.main(["launch", app_id, "--steam-account", str(ALPHA)], self.paths, self.flatpak)
+        return status, output.getvalue(), runtime
+
+    def test_in_game_mode_element_signs_in_in_helium_and_the_callback_returns_to_it(self):
+        self.install("element", "helium")
+        authorize = "https://account.example.org/authorize?redirect_uri=io.element.desktop%3A%2Fvector%2Fwebapp%2F&state=s"
+        callback = "io.element.desktop:/vector/webapp/?no_universal_links=true#code=c&state=s"
+        status, output, runtime = self.sign_in("element", authorize, callback)
+        self.assertEqual(status, 0, output)
+        app, relay = self.fake.calls("run")
+        scripts = self.paths.program / "share" / "sandbox"
+        for option in (f"--filesystem={scripts}:ro", f"--env=PATH={scripts}:/app/bin:/usr/bin", "--env=NONSTEAMAPPS_SCHEMES=io.element.desktop element",
+                       f"--profile=steam-{ALPHA}"):
+            self.assertIn(option, app)
+        self.assertEqual(relay, [*app, callback])
+        profile = self.paths.profile("element", ALPHA)
+        [helium] = [json.loads(line) for line in (Path(self.tmp.name) / "helium.log").read_text().splitlines()]
+        self.assertEqual((helium[0], helium[-1]), (f"--user-data-dir={profile}", authorize))
+        self.assertIn("--ozone-platform=x11", helium)
+        preferences = json.loads((profile / "Default" / "Preferences").read_text())
+        self.assertTrue(preferences["protocol_handler"]["allowed_origin_protocol_pairs"]["https://account.example.org"]["io.element.desktop"])
+        self.assertIn("opening the sign-in page at account.example.org in Helium", output)
+        self.assertIn("handing the sign-in back to Element Desktop", output)
+        self.assertNotIn("code=c", output)
+        self.assertEqual(list((runtime / "app" / "im.riot.Riot" / "nonsteamapps").iterdir()), [])
+        self.assertEqual(self.run_cli("remove", "element", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse(profile.exists())
+
+    def test_a_bitwarden_sso_callback_reaches_the_accounts_own_bitwarden(self):
+        self.install("bitwarden", "helium")
+        sso = "https://vault.bitwarden.com/#/sso?clientId=desktop&redirectUri=bitwarden%3A%2F%2Fsso-callback&state=s"
+        status, output, _ = self.sign_in("bitwarden", sso, "bitwarden://sso-callback?code=c&state=s")
+        self.assertEqual(status, 0, output)
+        app, relay = self.fake.calls("run")
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        self.assertIn(f"--env=BITWARDEN_APPDATA_DIR={folder}", relay)
+        self.assertEqual(relay, [*app, "bitwarden://sso-callback?code=c&state=s"])
+        self.assertIn("opening the sign-in page at vault.bitwarden.com in Helium", output)
+
+    def test_outside_game_mode_or_without_helium_element_starts_as_before(self):
+        self.install("element")
+        argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
+            argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
 
 
 if __name__ == "__main__":

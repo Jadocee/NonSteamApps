@@ -28,28 +28,45 @@ VACUUMTUBE_DEFAULTS = {
 CHANGES_FILE = "nonsteamapps.json"
 
 
+def _json(value: object) -> object:
+    return list(value) if isinstance(value, tuple) else value
+
+
 @dataclass(frozen=True)
 class JsonSettings:
-    """Values for one of an app's JSON settings files, at ``file`` in its data folder."""
+    """Values for one of an app's JSON settings files, at ``file`` in its data folder.
+
+    ``new`` are further values a file NonSteamApps creates starts with. ``legacy`` is an older location of the
+    file, used instead while ``file``'s folder does not exist and the older one's does, as the app itself does.
+    """
 
     file: str
     values: Tuple[Tuple[str, object], ...]
+    new: Tuple[Tuple[str, object], ...] = ()
+    legacy: str = ""
+
+    def target(self, folder: Path) -> Path:
+        """The file the app reads its settings from in ``folder``."""
+        current = Path(folder) / self.file
+        if self.legacy and not current.parent.exists() and (Path(folder) / self.legacy).parent.exists():
+            return Path(folder) / self.legacy
+        return current
 
     def apply(self, folder: Path) -> Optional[bool]:
         """Write the values into the file, keeping its other settings; return whether it changed.
 
         Returns ``None``, and leaves the file alone, when it does not hold a JSON object: the app replaces such a file itself.
         """
-        path = Path(folder) / self.file
+        path = self.target(folder)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            data = {}
+            data = {key: _json(value) for key, value in self.new}
         except (OSError, ValueError):
             return None
         if not isinstance(data, dict):
             return None
-        wanted = {key: list(value) if isinstance(value, tuple) else value for key, value in self.values}
+        wanted = {key: _json(value) for key, value in self.values}
         if all(key in data and data[key] == value for key, value in wanted.items()):
             return False
         data.update(wanted)
@@ -88,12 +105,15 @@ class IniSettings:
     file: str
     values: Tuple[Tuple[str, str, str], ...]
 
+    def target(self, folder: Path) -> Path:
+        return Path(folder) / self.file
+
     def apply(self, folder: Path) -> Optional[bool]:
         """Write the values into the file, keeping the rest of it; return whether it changed.
 
         Returns ``None``, and leaves the file alone, when it cannot be read as text.
         """
-        path = Path(folder) / self.file
+        path = self.target(folder)
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except FileNotFoundError:
@@ -113,6 +133,16 @@ VACUUMTUBE_TV = JsonSettings(
 )
 VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
 ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
+LOCALSEND_SETTINGS = JsonSettings(
+    "data/org.localsend.localsend_app/shared_preferences.json",
+    (("flutter.ls_theme", "dark"), ("flutter.ls_color", "oled")),
+    new=(("flutter.ls_whats_new", "1.18.2"),),
+    legacy="data/localsend_app/shared_preferences.json",
+)
+BITWARDEN_SETTINGS = JsonSettings(
+    "data.json",
+    (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False)),
+)
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
     tuple(("General", key, value) for key, value in (
@@ -161,7 +191,7 @@ class FolderProfile:
     def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
         return [*args, *self.arguments(app_home, account)]
 
-    def run_options(self) -> List[str]:
+    def run_options(self, app_home: Path, account: int) -> List[str]:
         return []
 
     def _seed(self, folder: Path) -> None:
@@ -172,7 +202,7 @@ class FolderProfile:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
         for settings in self.settings:
-            if not (folder / settings.file).exists():
+            if not settings.target(folder).exists():
                 settings.apply(folder)
         self._change(folder)
 
@@ -242,8 +272,19 @@ class ScriptProfile(FolderProfile):
     def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
         return [*self.arguments(app_home, account), *self.fixed, self.command, *args]
 
-    def run_options(self) -> List[str]:
+    def run_options(self, app_home: Path, account: int) -> List[str]:
         return ["--command=env"]
+
+
+@dataclass(frozen=True)
+class EnvProfile(FolderProfile):
+    """A folder handed to the app in an environment variable that Flatpak passes on as it is (``argument`` is ``VAR={folder}``)."""
+
+    def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
+        return list(args)
+
+    def run_options(self, app_home: Path, account: int) -> List[str]:
+        return [f"--env={assignment}" for assignment in self.arguments(app_home, account)]
 
 
 @dataclass(frozen=True)
@@ -266,7 +307,7 @@ class JellyfinProfile:
     def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
         return [*args, *self.arguments(app_home, account)]
 
-    def run_options(self) -> List[str]:
+    def run_options(self, app_home: Path, account: int) -> List[str]:
         return []
 
     def prepare_shared(self, app_home: Path) -> None:
@@ -309,7 +350,7 @@ class JellyfinProfile:
         return folders
 
 
-Profile = Union[FolderProfile, ScriptProfile, JellyfinProfile]
+Profile = Union[FolderProfile, ScriptProfile, EnvProfile, JellyfinProfile]
 WEB_BROWSER = "Web Browser"
 GAMEPAD = "Gamepad"
 
@@ -333,7 +374,7 @@ class SystemApp:
     def prepare(self, profile: Path, desktop_config: Path) -> None:
         config = Path(profile) / "config"
         for settings in self.settings:
-            if not (config / settings.file).exists():
+            if not settings.target(config).exists():
                 settings.apply(config)
         for name in self.shared:
             link, source = config / name, Path(desktop_config) / name
@@ -422,6 +463,8 @@ class App:
     Mode. ``settings`` are NonSteamApps' TV set-up in the app's own folder, for an app without data per
     account: written when missing and put back by every install. ``libraries`` gives the app's sandbox
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
+    ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
+    such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
     """
 
     id: str
@@ -444,6 +487,7 @@ class App:
     game_mode_env: Tuple[Tuple[str, str], ...] = ()
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
+    callbacks: Tuple[str, ...] = ()
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -454,9 +498,9 @@ class App:
             return self.profile.wrap(self.home(user_home), account, self.args)
         return list(self.args)
 
-    def run_options(self, account: Optional[int]) -> List[str]:
+    def run_options(self, user_home: Path, account: Optional[int]) -> List[str]:
         """Options for ``flatpak run`` itself, before the app ID."""
-        return self.profile.run_options() if self.profile and account else []
+        return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
 
 
 APPS: Tuple[App, ...] = (
@@ -498,6 +542,7 @@ APPS: Tuple[App, ...] = (
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
+        callbacks=("io.element.desktop", "element"),
     ),
     App(
         id="signal",
@@ -516,6 +561,25 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
         notice="Signal keeps its database key unencrypted on disk, as Flathub's Signal does by default; see the README",
+    ),
+    App(
+        id="bitwarden",
+        name="Bitwarden",
+        client="Bitwarden",
+        flatpak="com.bitwarden.desktop",
+        summary="Your Bitwarden password vault, set up for a TV and a controller",
+        profile=EnvProfile(
+            "config/Bitwarden-steam-{account}",
+            "BITWARDEN_APPDATA_DIR={folder}",
+            shared="config/Bitwarden",
+            settings=(BITWARDEN_SETTINGS,),
+        ),
+        controller=TOOLS.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=CHROMIUM_SCALE,
+        env=(("ACCESS_TOKEN_LOCATION", "DISK"),),
+        callbacks=("bitwarden",),
+        notice="Bitwarden keeps its login tokens unencrypted on disk, so that it works without a keyring; see the README",
     ),
     App(
         id="jellyfin",
@@ -538,6 +602,7 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
         ports=("53317/tcp", "53317/udp"),
         tv_scale=TvScale(variable="GDK_SCALE", whole=True),
+        settings=(LOCALSEND_SETTINGS,),
     ),
     App(
         id="prism",

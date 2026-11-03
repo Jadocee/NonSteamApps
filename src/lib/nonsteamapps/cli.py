@@ -6,13 +6,17 @@ import argparse
 import os
 import platform
 import shutil
+import signal
+import subprocess
 import sys
 import tempfile
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, selfupdate, steam, steamclient, timer, ui,
+    __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient, timer,
+    ui,
 )
 from .apps import App
 from .config import Paths, Record
@@ -353,6 +357,8 @@ def _purge(paths: Paths, app: App) -> None:
         folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
     else:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
+        if app.callbacks and (paths.profiles / app.id).is_dir():
+            folders.append(paths.profiles / app.id)
     for folder in folders:
         shutil.rmtree(folder)
     if folders:
@@ -542,7 +548,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     if not account and app.profile:
         app.profile.prepare_shared(app.home(paths.home))
     for wanted in app.settings:
-        if not (app.home(paths.home) / wanted.file).exists():
+        if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
@@ -551,7 +557,10 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     folder = app.profile.data_folder(app.home(paths.home), account) if required and app.profile else None
     if folder and required.apply(folder):
         print(f"  set {', '.join(key for key, _ in required.values)} in {required.file}, which the TV scale needs")
-    options = [*app.run_options(account), *scale_options, *_environment(app, game_mode), *_libraries(app)]
+    options = [*app.run_options(paths.home, account), *scale_options, *_environment(app, game_mode), *_libraries(app)]
+    channel = _link_channel(paths, app, game_mode)
+    if channel:
+        options += links.sandbox_options(paths.program / "share" / "sandbox", channel[0], app.callbacks)
     command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *extra], options)
     hidden = [variable for variable in app.sandbox_off_when if variable in os.environ]
     if hidden and config.enabled(settings.get(GAME_MODE_SANDBOX)):
@@ -559,8 +568,58 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
             del os.environ[variable]
         print(f"  keeping {app.client}'s sandbox on: hid {', '.join(hidden)} ({GAME_MODE_SANDBOX}=1)")
     print("  " + " ".join(command), flush=True)
+    if channel:
+        return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _link_channel(paths: Paths, app: App, game_mode: bool) -> Optional[Tuple[Path, int]]:
+    """In Game Mode, the pipe through which an app with sign-in callbacks passes its links to Helium."""
+    if not (app.callbacks and game_mode):
+        return None
+    if not _runtime(paths).current():
+        print(f"  Helium is not installed, so {app.client}'s links open in Steam's browser, from which a sign-in cannot return")
+        return None
+    try:
+        return links.open_channel(links.channel_dir(app.flatpak, os.environ))
+    except OSError as exc:
+        print(f"  {app.client}'s links open in Steam's browser: {exc}")
+        return None
+
+
+def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[str], settings: Dict[str, str], game_mode: bool,
+                 channel: Tuple[Path, int]) -> int:
+    """Run the app as a child, open its links in Helium in front of it, and hand its sign-ins back to it (see :mod:`links`)."""
+    pipe, fd = channel
+    runtime = _runtime(paths)
+    profile = paths.profile(app.id, account)
+    services = config.enabled(settings.get(HELIUM_SERVICES), default=True)
+    factor = display.scale(_scale_setting(settings), game_mode)
+    environment = links.browser_environment(os.environ, paths.program / "share" / "sandbox", pipe, app.callbacks)
+    browsers: List[subprocess.Popen] = []
+
+    def open_web(url: str) -> None:
+        browser.prepare(profile, services, False, runtime.widevine)
+        signing_in = browser.allow_callbacks(profile, url, app.callbacks)
+        print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
+        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, f"nonsteamapps-{app.id}")]
+        browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
+
+    def deliver(url: str) -> None:
+        print(f"  handing the sign-in back to {app.client}", flush=True)
+        subprocess.Popen([*command, url])
+        links.stop(browsers)
+
+    child = subprocess.Popen(command)
+    previous = signal.signal(signal.SIGTERM, lambda *_: child.terminate())
+    try:
+        return links.serve(child, fd, app.callbacks, open_web, deliver)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        links.stop(browsers)
+        os.close(fd)
+        pipe.unlink(missing_ok=True)
 
 
 def _environment(app: App, game_mode: bool) -> List[str]:

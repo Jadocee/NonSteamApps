@@ -136,7 +136,7 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(found["joystick"], "dpad_north"), ["mouse_wheel SCROLL_UP, ⏫"])
 
     def test_holding_menu_quits_helium_and_files_and_a_short_press_still_closes_the_tab(self):
-        for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"]),
+        for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]),
                                   (layouts.FILES, ["key_press LEFT_CONTROL, Quit", "key_press Q"])):
             built = layouts.build(layout, self.read(layout.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
             switch = groups(built)["switch"]
@@ -146,10 +146,43 @@ class FilesLayoutTests(unittest.TestCase):
             self.assertEqual(find(full, "settings"), [("interruptable", "1")])
         found = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(bindings(found["button_diamond"], "button_a"), ["key_press RETURN, ⏯️", "key_press SPACE"])
+        switch = found["switch"]
+        self.assertEqual([bindings(switch, bumper) for bumper in ("left_bumper", "right_bumper")], [["mouse_button BACK, ◀️"], ["mouse_button FORWARD, ▶️"]])
+        self.assertEqual([bindings(switch, bumper, "Long_Press") for bumper in ("left_bumper", "right_bumper")],
+                         [["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"], ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"]])
+
+    def test_localsend_selects_once_goes_back_with_b_and_quits_when_menu_is_held(self):
+        found = groups(layouts.build(layouts.LOCALSEND, self.read(layouts.LOCALSEND.base), self.read("controller_neptune_gamepad_joystick.vdf")))
+        self.assertEqual(
+            [bindings(found["button_diamond"], button) for button in ("button_a", "button_b", "button_x", "button_y")],
+            [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"], ["key_press LEFT_CONTROL, Paste", "key_press V"]],
+        )
+        self.assertEqual(bindings(found["dpad"], "dpad_west"), ["key_press LEFT_ARROW, ⏪"])
+        switch = found["switch"]
+        self.assertEqual(
+            [bindings(switch, button) for button in ("left_bumper", "right_bumper", "button_menu")],
+            [["key_press LEFT_SHIFT", "key_press TAB, Previous"], ["key_press TAB, Next"], ["key_press LEFT_CONTROL, ⛔", "key_press W"]],
+        )
+        self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        self.assertEqual(bindings(switch, "button_escape"), ["key_press ESCAPE"])
+
+    def test_bitwarden_keeps_the_tools_controls_and_reaches_what_its_hidden_menu_holds(self):
+        found = groups(layouts.build(layouts.BITWARDEN, self.read(layouts.BITWARDEN.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        tools = groups(layouts.build(layouts.TOOLS, self.read(layouts.TOOLS.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        self.assertEqual(found["button_diamond"], tools["button_diamond"])
+        self.assertEqual(found["dpad"], tools["dpad"])
+        switch = found["switch"]
+        self.assertEqual(
+            [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+            [["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Lock", "key_press L"],
+             ["key_press LEFT_CONTROL, Search", "key_press F"], ["key_press LEFT_CONTROL, Generator", "key_press G"]],
+        )
+        self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
 
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])
         self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])
+        self.assertEqual(layouts.used_by([layouts.LOCALSEND.title, layouts.BROWSER.title]), [layouts.BROWSER, layouts.LOCALSEND])
         self.assertEqual(layouts.used_by(["Gamepad", ""]), [])
 
 

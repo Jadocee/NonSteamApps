@@ -55,6 +55,31 @@ class PreferencesTests(unittest.TestCase):
         self.assertFalse(data["helium"]["services"]["enabled"])
         self.assertEqual(data["helium"]["services"]["schema_version"], 3)
 
+    def test_every_start_binds_ctrl_shift_q_to_exit_and_keeps_the_users_other_shortcuts(self):
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        self.assertEqual(self.read()["helium"]["browser"]["custom_accelerators"], {"34031": {"added": ["Control+Shift+KeyQ"]}})
+        data = self.read()
+        data["helium"]["browser"]["custom_accelerators"] = {
+            "34031": {"added": ["F9"], "removed": ["Control+Shift+KeyQ", 7]},
+            "34014": {"added": ["Control+KeyN"]},
+        }
+        self.preferences.write_text(json.dumps(data))
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        self.assertEqual(self.read()["helium"]["browser"]["custom_accelerators"], {
+            "34031": {"added": ["F9", "Control+Shift+KeyQ"]},
+            "34014": {"added": ["Control+KeyN"]},
+        })
+        data = self.read()
+        data["helium"]["browser"]["custom_accelerators"]["34031"] = {"added": "F9"}
+        self.preferences.write_text(json.dumps(data))
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        self.assertEqual(self.read()["helium"]["browser"]["custom_accelerators"]["34031"], {"added": ["Control+Shift+KeyQ"]})
+        data = self.read()
+        data["helium"]["browser"] = "damaged"
+        self.preferences.write_text(json.dumps(data))
+        browser.write_preferences(self.profile, services=True, kiosk=True)
+        self.assertEqual(self.read()["helium"]["browser"], {"custom_accelerators": {"34031": {"added": ["Control+Shift+KeyQ"]}}})
+
     def test_an_install_puts_the_new_profile_settings_back_and_keeps_the_rest(self):
         self.assertFalse(browser.reset(self.profile, kiosk=True))
         browser.write_preferences(self.profile, services=True, kiosk=True)
@@ -151,6 +176,29 @@ class FlagTests(unittest.TestCase):
         self.assertNotIn("--start-maximized", arguments)
         kiosk = browser.flags(Path("/p"), "https://example.org/", True, True, 1.5, "nonsteamapps-netflix", (1280, 720))
         self.assertFalse(any(flag.startswith("--window-") for flag in kiosk))
+
+    def test_the_focus_outline_loads_when_it_is_installed_and_full_screen_hints_stay_hidden(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            extension = Path(tmp) / "focus"
+            missing = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extension=extension)
+            self.assertFalse(any(flag.startswith("--load-extension") for flag in missing))
+            extension.mkdir()
+            (extension / "manifest.json").write_text("{}")
+            arguments = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extension=extension)
+            self.assertIn(f"--load-extension={extension}", arguments)
+            self.assertIn("--hide-fullscreen-exit-ui", arguments)
+            self.assertEqual(arguments[-1], "https://example.org/")
+
+    def test_the_shipped_focus_outline_is_an_extension_that_styles_only_keyboard_focus(self):
+        folder = _paths.ROOT / "src" / "share" / "extensions" / "focus"
+        manifest = json.loads((folder / "manifest.json").read_text())
+        self.assertEqual(manifest["manifest_version"], 3)
+        [scripts] = manifest["content_scripts"]
+        self.assertEqual((scripts["matches"], scripts["css"], scripts.get("js")), (["<all_urls>"], ["focus.css"], None))
+        self.assertNotIn("permissions", manifest)
+        css = (folder / "focus.css").read_text()
+        self.assertTrue(css.startswith(":focus-visible:not(video):not(:has(video)) {"))
+        self.assertIn("outline: 3px solid", css)
 
     def test_the_browser_opens_maximised_with_its_own_interface(self):
         arguments = browser.flags(Path("/p"), "", False, False, None, "nonsteamapps-helium")

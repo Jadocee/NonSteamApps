@@ -44,6 +44,7 @@ class CliTestCase(unittest.TestCase):
             patches.append(mock.patch("nonsteamapps.cli._update_program"))
         self.watch = mock.patch("nonsteamapps.cli.x11.watch")
         patches.append(self.watch)
+        patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -280,6 +281,24 @@ class LaunchTests(CliTestCase):
             self.fake.command, "run", f"--env=BITWARDEN_APPDATA_DIR={folder}", "--env=ACCESS_TOKEN_LOCATION=DISK", "com.bitwarden.desktop",
         ])
         self.assertFalse(json.loads((folder / "data.json").read_text())["global_desktopSettings_runInBackground"])
+
+    def test_in_game_mode_bitwarden_fills_the_screen_without_its_menu_bar(self):
+        folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080), \
+                mock.patch("nonsteamapps.cli.x11.watch") as watch, \
+                mock.patch("nonsteamapps.cli.appmenu.watch", return_value=True) as menu:
+            argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        watch.assert_called_once_with("bitwarden", os.getpid())
+        menu.assert_called_once_with(os.getpid())
+        self.assertIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertIn("--force-device-scale-factor=1.5", argv)
+        self.assertEqual(json.loads((folder / "data.json").read_text())["global_theming_selection"], "dark")
+        with mock.patch("nonsteamapps.cli.x11.watch") as watch, mock.patch("nonsteamapps.cli.appmenu.watch") as menu:
+            argv, _ = self.launch("bitwarden", "--steam-account", str(ALPHA))
+        watch.assert_not_called()
+        menu.assert_not_called()
+        self.assertNotIn("--env=DISPLAY_MODE=X11", argv)
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)
@@ -708,12 +727,24 @@ class HeliumAppTests(CliTestCase):
         self.assertIn("--enable-spatial-navigation", argv)
         self.assertIn("--force-dark-mode", argv)
         self.assertEqual(argv[-1], "https://www.primevideo.com/")
+        self.assertIn(f"--load-extension={self.paths.focus_extension}", argv)
+        self.assertTrue((self.paths.focus_extension / "focus.css").is_file())
         preferences = json.loads((profile / "Default" / "Preferences").read_text())
+        self.assertEqual(preferences["helium"]["browser"]["custom_accelerators"]["34031"], {"added": ["Control+Shift+KeyQ"]})
         self.assertEqual(preferences["helium"]["services"]["schema_version"], 1)
         self.assertTrue(preferences["helium"]["global_privacy_control"])
         self.assertEqual(json.loads((profile / "Local State").read_text())["helium"]["crash_reporting"]["mode"], -1)
         self.assertEqual((profile / "WidevineCdm").resolve(), runtime.widevine.resolve())
         redirect.assert_called_once_with(self.paths.log("primevideo"))
+
+    def test_protondb_opens_the_library_of_the_account_that_starts_it(self):
+        self.install("protondb")
+        argv, _ = self.launch("protondb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], f"https://www.protondb.com/dashboard/{76561197960265728 + BETA}")
+        self.assertIn("--kiosk", argv)
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        argv, _ = self.launch("protondb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], "https://www.protondb.com/")
 
     def test_the_settings_choose_the_scale_and_services(self):
         self.install("helium")

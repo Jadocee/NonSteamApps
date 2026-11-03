@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient, timer,
-    ui, x11,
+    __version__, appmenu, apps, browser, collection, compat, config, controllers, display, layouts, legacy, links, selfupdate, steam, steamclient,
+    timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -568,10 +568,23 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
             del os.environ[variable]
         print(f"  keeping {app.client}'s sandbox on: hid {', '.join(hidden)} ({GAME_MODE_SANDBOX}=1)")
     print("  " + " ".join(command), flush=True)
+    if game_mode:
+        _tidy_window(app)
     if channel:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _tidy_window(app: App) -> None:
+    """In Game Mode, before the app starts: ask for its windows to be full screen, and hide an Electron app's menu bar."""
+    if app.fullscreen_class:
+        x11.watch(app.fullscreen_class, os.getpid())
+    if app.hide_menu_bar:
+        if appmenu.watch(os.getpid()):
+            print(f"  hiding {app.client}'s menu bar: NonSteamApps stands in for the desktop's global menu", flush=True)
+        else:
+            print(f"  {app.client} keeps its menu bar: the session bus is out of reach, or another program owns the global menu", flush=True)
 
 
 def _qt_window(app: App, game_mode: bool, factor: Optional[float]) -> List[str]:
@@ -610,7 +623,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
         signing_in = browser.allow_callbacks(profile, url, app.callbacks)
         print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
         name = f"nonsteamapps-{app.id}"
-        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor))]
+        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), paths.focus_extension)]
         browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
         x11.watch(name, browsers[-1].pid)
 
@@ -653,7 +666,8 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     factor = display.scale(_scale_setting(settings), game_mode)
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
-    command = [str(runtime.executable), *browser.flags(profile, app.browser.url, app.browser.kiosk, game_mode, factor, name, window), *extra]
+    url = app.browser.start_url(account)
+    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, paths.focus_extension), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
     if window:
         x11.watch(name, os.getpid())

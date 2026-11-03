@@ -5,18 +5,27 @@ and changes only what its app needs. It is written for every controller type Val
 for, keeping only the inputs that controller has, into ``controller_base/templates``, where Steam lists
 layouts, and then assigned like Valve's own (see :mod:`controllers`).
 
-- **Browser**, for the Helium apps, is Web Browser with one addition: holding Menu quits (Ctrl+Shift+W,
-  which closes the window with all its tabs), while a short press still closes the tab.
+- **Browser**, for the Helium apps, is Web Browser with long presses added. Holding Menu quits: it sends
+  Ctrl+Shift+W, which closes the window with all its tabs, together with Ctrl+Shift+Q, Helium's Exit, which
+  a full-screen page cannot intercept (see :mod:`browser`). Holding L1 or R1 goes to the previous or next tab
+  (Ctrl+Page Up and Ctrl+Page Down). Short presses still close the tab and go back and forward.
 - **Files** starts from Web Browser. A presses only Enter (Valve's also presses Space, which toggles
   Dolphin's selection mode), Y only goes forward (Valve's also types S, which jumps to a file), the
   left stick moves the selection like the D-pad instead of scrolling, and holding Menu quits (Ctrl+Q).
 - **Minecraft** starts from Keyboard (WASD) and Mouse, whose buttons already match Minecraft's keys. X drops
   the held item (Q), Menu pauses (Escape) and View shows the players (Tab), the stick clicks sprint
   (Ctrl) and sneak (Shift), and the bumpers step left and right along the hotbar.
+- **LocalSend** starts from Web Browser and uses LocalSend's own keys: the D-pad moves between controls as
+  before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
+  (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
+  bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
 - **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
   Space, which would tick a box and close its dialog at once.
+- **Bitwarden** is Tools with Bitwarden's shortcuts for what its menu bar holds, which Game Mode hides
+  (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L), L1 searches it
+  (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
 """
 
 from __future__ import annotations
@@ -71,7 +80,9 @@ def _hold(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
 
 def _browser(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "switch":
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"])
+        _hold(group, "left_bumper", ["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"])
+        _hold(group, "right_bumper", ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"])
     return group
 
 
@@ -102,6 +113,18 @@ def _minecraft(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     return group
 
 
+def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press LEFT_CONTROL, Paste", "key_press V"])
+    elif source == "switch":
+        _bind(group, "left_bumper", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
+        _bind(group, "right_bumper", ["key_press TAB, Next"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+    return group
+
+
 def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "dpad":
         _bind(group, "dpad_west", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
@@ -110,6 +133,17 @@ def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
         _bind(group, "button_a", ["key_press SPACE, Select"])
         _bind(group, "button_b", ["key_press ESCAPE, Cancel"])
         _bind(group, "button_y", ["key_press RETURN, OK"])
+    return group
+
+
+def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    group = _tools(source, group, base)
+    if source == "switch":
+        _bind(group, "button_menu", ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, "button_escape", ["key_press LEFT_CONTROL, Lock", "key_press L"])
+        _bind(group, "left_bumper", ["key_press LEFT_CONTROL, Search", "key_press F"])
+        _bind(group, "right_bumper", ["key_press LEFT_CONTROL, Generator", "key_press G"])
     return group
 
 
@@ -131,9 +165,10 @@ class Layout:
 BROWSER = Layout(
     slug="browser",
     title="Browser (NonSteamApps)",
-    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit",
+    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit, hold L1 or R1 to change tabs",
     base="controller_neptune_webbrowser.vdf",
     change=_browser,
+    revision="2",
 )
 FILES = Layout(
     slug="files",
@@ -150,6 +185,13 @@ MINECRAFT = Layout(
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
 )
+LOCALSEND = Layout(
+    slug="localsend",
+    title="LocalSend (NonSteamApps)",
+    description="D-pad to move, A to select, B to go back, Y to paste, bumpers for the previous and next control, X for the keyboard, hold Start to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_localsend,
+)
 TOOLS = Layout(
     slug="tools",
     title="Tools (NonSteamApps)",
@@ -157,7 +199,14 @@ TOOLS = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_tools,
 )
-LAYOUTS = (BROWSER, FILES, MINECRAFT, TOOLS)
+BITWARDEN = Layout(
+    slug="bitwarden",
+    title="Bitwarden (NonSteamApps)",
+    description="D-pad to move, A to select, Y for OK, B to cancel, X for the keyboard, Start for settings, View to lock, L1 to search, R1 for the generator, hold Start to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_bitwarden,
+)
+LAYOUTS = (BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

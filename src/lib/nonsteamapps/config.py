@@ -76,6 +76,11 @@ class Paths:
         return self.program / "share" / "keys" / "helium.asc"
 
     @property
+    def focus_extension(self) -> Path:
+        """The Helium extension that outlines the link or button the arrow keys reach."""
+        return self.program / "share" / "extensions" / "focus"
+
+    @property
     def profiles(self) -> Path:
         """Helium profiles, one folder per app; kept when NonSteamApps is uninstalled without --purge."""
         return self.program / "profiles"

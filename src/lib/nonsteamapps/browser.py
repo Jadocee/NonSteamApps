@@ -3,9 +3,11 @@
 Each app keeps one Helium profile per Steam account. Before every start, the
 profile is told it closed cleanly (Steam ends apps by signalling them) and that
 first-run pages are done. Arrow keys move between links and buttons (spatial
-navigation), Helium and sites that offer a dark theme start dark (Helium's
-Mode setting can still choose light), and in Game Mode the interface scales
-with the screen, so a TV reads like a TV app.
+navigation), with a clear outline around the one they reach, Helium and sites
+that offer a dark theme start dark (Helium's Mode setting can still choose
+light), and in Game Mode the interface scales with the screen, so a TV reads
+like a TV app. Ctrl+Shift+Q runs Helium's Exit, which no page can intercept,
+not even in a full-screen app, for the controller's long press on Menu.
 
 Helium already blocks ads (uBlock Origin), third-party cookies and WebRTC's
 local addresses, adds fingerprinting noise and keeps background mode, link
@@ -29,6 +31,8 @@ SCHEMA_VERSION = 1
 CRASH_REPORTS_OFF = -1
 LOCAL_STATE = {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}
 FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
+EXIT_COMMAND = "34031"
+EXIT_SHORTCUT = "Control+Shift+KeyQ"
 BROWSER_BINARIES = ("helium", "chrome", "chromium")
 
 
@@ -71,6 +75,20 @@ def launch_preferences(services: bool) -> dict:
     }
 
 
+def add_exit_shortcut(preferences: dict) -> None:
+    """Add Ctrl+Shift+Q to Helium's own shortcuts for Exit (Chromium's ``IDC_EXIT``), keeping any the user added."""
+    deep_merge(preferences, {"helium": {"browser": {"custom_accelerators": {}}}})
+    commands = preferences["helium"]["browser"]["custom_accelerators"]
+    entry = commands.get(EXIT_COMMAND) if isinstance(commands.get(EXIT_COMMAND), dict) else {}
+
+    def others(name: str) -> List[str]:
+        keys = entry.get(name)
+        return [key for key in keys if isinstance(key, str) and key != EXIT_SHORTCUT] if isinstance(keys, list) else []
+
+    removed = others("removed")
+    commands[EXIT_COMMAND] = {"added": [*others("added"), EXIT_SHORTCUT], **({"removed": removed} if removed else {})}
+
+
 def _load(path: Path) -> Optional[dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -91,6 +109,7 @@ def write_preferences(profile: Path, services: bool, kiosk: bool) -> Path:
     if fresh:
         deep_merge(data, first_run_preferences(kiosk))
     deep_merge(data, launch_preferences(services))
+    add_exit_shortcut(data)
     if services:
         settings = data["helium"]["services"]
         if not isinstance(settings.get("schema_version"), int) or settings["schema_version"] < SCHEMA_VERSION:
@@ -190,9 +209,10 @@ def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:
     link_widevine(profile, widevine)
 
 
-def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None) -> List[str]:
+def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None,
+          extension: Optional[Path] = None) -> List[str]:
     """Helium's arguments. ``window`` is the size, in device-independent pixels, that a browser window takes instead of
-    being maximised: gamescope ignores maximising.
+    being maximised: gamescope ignores maximising. ``extension`` is the folder of the focus outline, loaded when present.
     """
     arguments = [
         f"--user-data-dir={profile}",
@@ -202,6 +222,7 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
         "--password-store=basic",
         "--hide-crash-restore-bubble",
         "--noerrdialogs",
+        "--hide-fullscreen-exit-ui",
         "--enable-spatial-navigation",
         "--force-dark-mode",
         f"--enable-features={FEATURES}",
@@ -209,6 +230,8 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
     ]
     if factor:
         arguments.append(f"--force-device-scale-factor={factor:g}")
+    if extension and (Path(extension) / "manifest.json").is_file():
+        arguments.append(f"--load-extension={extension}")
     if kiosk:
         arguments += [
             "--kiosk",

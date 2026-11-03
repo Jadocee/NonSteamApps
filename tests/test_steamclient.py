@@ -98,9 +98,11 @@ class SteamStopTests(unittest.TestCase):
         with mock.patch("nonsteamapps.steamclient.running", return_value=True), \
                 mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=False), \
                 mock.patch("nonsteamapps.ui.open", side_effect=OSError("no terminal"), create=True), \
-                mock.patch("nonsteamapps.steamclient._detach") as detach:
-            with self.assertRaises(steamclient.ui.Abort):
+                mock.patch("nonsteamapps.steamclient._detach") as detach, \
+                mock.patch.object(steamclient.ui, "assume_yes", False):
+            with self.assertRaises(steamclient.ui.Abort) as raised:
                 steamclient.stop("nonsteamapps update")
+        self.assertIn("Steam was left running", str(raised.exception))
         detach.assert_not_called()
         with mock.patch("nonsteamapps.steamclient.running", side_effect=[True, False]), \
                 mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=False), \

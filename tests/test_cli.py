@@ -241,6 +241,27 @@ class LaunchTests(CliTestCase):
         self.assertTrue(folder.is_dir())
         redirect.assert_called_once_with(self.paths.log("youtube"))
 
+    def test_vacuumtube_gets_the_steamos_theme_and_keeps_the_styles_turned_off(self):
+        self.install("youtube")
+        folder = self.home / f".var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-{BETA}"
+        source = self.paths.userstyles / "nonsteamapps-steamos.css"
+        self.launch("youtube", "--steam-account", str(BETA))
+        sheet = folder / "userstyles" / "nonsteamapps-steamos.css"
+        self.assertEqual(sheet.read_bytes(), source.read_bytes())
+        settings = json.loads((folder / "config.json").read_text())
+        self.assertTrue(settings["userstyles"])
+        settings["disabled_userstyles"] = ["nonsteamapps-steamos.css"]
+        (folder / "config.json").write_text(json.dumps(settings))
+        sheet.write_text("/* changed */")
+        self.launch("youtube", "--steam-account", str(BETA))
+        self.assertEqual(sheet.read_bytes(), source.read_bytes())
+        self.assertEqual(json.loads((folder / "config.json").read_text())["disabled_userstyles"], ["nonsteamapps-steamos.css"])
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        self.launch("youtube", "--steam-account", str(BETA))
+        self.assertTrue((self.home / ".var/app/rocks.shy.VacuumTube/config/VacuumTube/userstyles/nonsteamapps-steamos.css").is_file())
+        self.launch("element", "--steam-account", str(BETA))
+        self.assertFalse((self.home / ".var/app/im.riot.Riot/config/Element/userstyles").exists())
+
     def test_launch_outside_steam_uses_the_most_recent_account(self):
         argv, _ = self.launch("element")
         self.assertEqual(argv[-1], f"--profile=steam-{ALPHA}")

@@ -86,6 +86,11 @@ class Paths:
         return self.program / "share" / "extensions" / "focus"
 
     @property
+    def userstyles(self) -> Path:
+        """Style sheets that apps such as VacuumTube load from their data folder (see :attr:`apps.App.userstyles`)."""
+        return self.program / "share" / "userstyles"
+
+    @property
     def profiles(self) -> Path:
         """Helium profiles, one folder per app; kept when NonSteamApps is uninstalled without --purge."""
         return self.program / "profiles"

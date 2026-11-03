@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -148,6 +149,18 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
         self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden"])
 
+    def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
+        self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])
+        css = (Path(_paths.ROOT) / "src/share/userstyles/nonsteamapps-steamos.css").read_text()
+        body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        self.assertEqual(body.count("{"), body.count("}"))
+        rules = [rule.split("{") for rule in body.split("}") if rule.strip()]
+        self.assertTrue(all(len(rule) == 2 and rule[0].strip() for rule in rules))
+        declarations = [part.strip() for _, block in rules for part in block.split(";") if part.strip()]
+        properties = {declaration.split(":", 1)[0].strip() for declaration in declarations}
+        self.assertLessEqual({name for name in properties if not name.startswith("--")}, {"background", "background-color", "border-color", "box-shadow"})
+        self.assertTrue(all(declaration.endswith("!important") for declaration in declarations if not declaration.startswith("--nonsteamapps-")))
+
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
         self.assertEqual(apps.by_id("jellyfin").arguments(HOME, 333), ["--tv", "--fullscreen", "--profile=steam-333"])
 
@@ -196,6 +209,7 @@ class ProfileTests(unittest.TestCase):
                 "features_enabled": True,
                 "remaining_time_feature": True,
                 "wayland_hdr": True,
+                "userstyles": True,
                 "fullscreen": True,
                 "no_window_decorations": True,
                 "disabled_tabs": ["shorts", "podcasts"],
@@ -219,9 +233,10 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(
             json.loads(settings.read_text()),
             {"sponsorblock": False, "fullscreen": True, "no_window_decorations": True, "volume": 80, "disabled_tabs": ["shorts", "podcasts"],
-             **{f"sponsorblock_skip_{category}": True for category in ("selfpromo", "interaction", "intro", "outro", "preview", "hook")}},
+             **{f"sponsorblock_skip_{category}": True for category in ("selfpromo", "interaction", "intro", "outro", "preview", "hook")},
+             "userstyles": True},
         )
-        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0", "2.22.0"]})
         settings.write_text(json.dumps({"fullscreen": False, "disabled_tabs": [], "sponsorblock_skip_outro": False}))
         youtube.profile.prepare(app_home, 111, lambda options: 0)
         self.assertEqual(json.loads(settings.read_text()), {"fullscreen": False, "disabled_tabs": [], "sponsorblock_skip_outro": False})
@@ -241,7 +256,7 @@ class ProfileTests(unittest.TestCase):
             [False, False, True, True, True],
         )
         self.assertNotIn("fullscreen", data)
-        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0", "2.22.0"]})
 
     def test_a_damaged_vacuumtube_config_is_left_for_vacuumtube_and_changed_later(self):
         youtube = apps.by_id("youtube")
@@ -311,7 +326,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(youtube.profile.reset(app_home), [folder])
         data = json.loads((folder / "config.json").read_text())
         self.assertEqual((data["sponsorblock"], data["disabled_tabs"], data["fullscreen"], data["volume"]), (True, ["shorts", "podcasts"], True, 80))
-        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0"]})
+        self.assertEqual(json.loads((folder / "nonsteamapps.json").read_text()), {"changes": ["2.11.0", "2.21.0", "2.22.0"]})
         self.assertFalse(json.loads((shared / "config.json").read_text())["sponsorblock"])
         self.assertEqual(youtube.profile.reset(app_home, shared=True), [shared])
         self.assertEqual(youtube.profile.reset(app_home, shared=True), [])
@@ -405,6 +420,21 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(eden.profile.reset(app_home, shared=True), [app_home])
         self.assertIn("theme=colorful_dark\n", shared.read_text())
         self.assertNotIn("[Controls]", shared.read_text())
+
+    def test_style_sheets_are_written_only_when_missing_or_changed(self):
+        source, folder = self.home / "share", self.home / "VacuumTube-steam-111"
+        source.mkdir()
+        (source / "theme.css").write_text("a { color: red; }")
+        self.assertEqual(apps.place_userstyles(source, folder, ["theme.css"]), ["theme.css"])
+        sheet = folder / "userstyles" / "theme.css"
+        stamp = sheet.stat().st_mtime_ns
+        self.assertEqual(apps.place_userstyles(source, folder, ["theme.css"]), [])
+        self.assertEqual(sheet.stat().st_mtime_ns, stamp)
+        sheet.write_text("a { color: blue; }")
+        self.assertEqual(apps.place_userstyles(source, folder, ["theme.css"]), ["theme.css"])
+        self.assertEqual(sheet.read_text(), "a { color: red; }")
+        with self.assertRaises(OSError):
+            apps.place_userstyles(source, folder, ["missing.css"])
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

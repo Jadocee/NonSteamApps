@@ -133,7 +133,8 @@ check "Jellyfin's profile for the account was created first" grep -qF '["run", "
 check "Jellyfin started with that profile" grep -qF '"--tv", "--fullscreen", "--profile=steam-222"]' "$WORK/flatpak.log"
 check "VacuumTube started with the account's folder" grep -qF "\"--portable=$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222\"]" "$WORK/flatpak.log"
 check "VacuumTube's new folder hides the Shorts and Podcasts tabs" grep -qF '"podcasts"' "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
-check "VacuumTube's folder records the settings changes" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/nonsteamapps.json" changes)" == '["2.11.0", "2.21.0"]'
+check "VacuumTube's folder records the settings changes" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/nonsteamapps.json" changes)" == '["2.11.0", "2.21.0", "2.22.0"]'
+check "VacuumTube got the SteamOS theme, with its userstyles on" test -f "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/userstyles/nonsteamapps-steamos.css" -a "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" userstyles)" == true
 check "VacuumTube skips self-promotion and end cards" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_selfpromo) $(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_outro)" == "true true"
 check "the launch was logged" grep -q 'starting YouTube (VacuumTube) for Steam account 222' "$HOME_DIR/.local/state/nonsteamapps/youtube.log"
 run "$PROGRAM/apps/element" --steam-account 222

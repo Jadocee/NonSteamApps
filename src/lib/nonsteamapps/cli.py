@@ -590,6 +590,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     for wanted in app.settings:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
+    _place_userstyles(paths, app, account)
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
@@ -614,6 +615,19 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
+    folder = app.profile.data_folder(app.home(paths.home), account) if app.userstyles and app.profile else None
+    if not folder:
+        return
+    try:
+        written = apps.place_userstyles(paths.userstyles, folder, app.userstyles)
+    except OSError as exc:
+        print(f"  could not add NonSteamApps' styles to {app.client}: {exc}")
+        return
+    if written:
+        print(f"  added {', '.join(written)} to {app.client}'s userstyles", flush=True)
 
 
 def _tidy_window(app: App) -> None:

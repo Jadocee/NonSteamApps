@@ -1,0 +1,71 @@
+/*
+ * SteamOS theme for VacuumTube, from NonSteamApps: Game Mode's dark slate panels and blue focus on
+ * YouTube's TV interface and VacuumTube's settings. It changes colours only. NonSteamApps writes this
+ * file again at every start; to change it, copy it under another name and turn this one off in
+ * VacuumTube's settings, under Custom CSS.
+ */
+
+:root {
+    --nonsteamapps-darkest: #0e141b;
+    --nonsteamapps-dark: #171d25;
+    --nonsteamapps-panel: #23262e;
+    --nonsteamapps-grey: #3d4450;
+    --nonsteamapps-blue: #1a9fff;
+    --nonsteamapps-glow: rgba(26, 159, 255, 0.55);
+}
+
+.ytLrTvBrowseRendererHost,
+[class="ytVirtualListContainer"],
+.ytLrClassicSearchPageHost,
+.ytLrAccountSelectorHost,
+.ytLrTvSurfaceContentRendererContentHasOffsetInlineSearchBar {
+    background-color: var(--nonsteamapps-dark) !important;
+}
+
+.ytLrGuideResponseContainer,
+.ytLrGuideResponseCollapsed .ytLrGuideResponseContainer,
+.ytLrAnimatedOverlaySidesheet .ytLrAnimatedOverlayContainer {
+    background-color: var(--nonsteamapps-darkest) !important;
+}
+
+.ytLrTileRendererFocused.ytLrTileRendererFocusAppearanceRing .ytLrTileRendererHeader::after {
+    border-color: var(--nonsteamapps-blue) !important;
+    box-shadow: 0 0 1.5rem var(--nonsteamapps-glow) !important;
+}
+
+.ytLrButtonListShape.ytLrButtonFocused {
+    background-color: var(--nonsteamapps-blue) !important;
+}
+
+.ytLrTextBoxFocusable,
+.ytLrSearchVoiceMicButtonHost {
+    background-color: var(--nonsteamapps-panel) !important;
+}
+
+.ytLrProgressBarPlayed,
+.ytLrProgressBarPlayhead {
+    background-color: var(--nonsteamapps-blue) !important;
+}
+
+#vt-settings-overlay-root {
+    --vt-bg: var(--nonsteamapps-dark) !important;
+    --vt-card: var(--nonsteamapps-panel) !important;
+    --vt-card-hover: #2f343d !important;
+    --vt-card-focus: var(--nonsteamapps-grey) !important;
+    --vt-line: var(--nonsteamapps-grey) !important;
+    --vt-muted: #b8bcbf !important;
+    --vt-faint: #8b929a !important;
+    --vt-focus: var(--nonsteamapps-blue) !important;
+}
+
+#vt-settings-overlay-root .vt-toggle {
+    background: var(--nonsteamapps-grey) !important;
+}
+
+#vt-settings-overlay-root .vt-toggle.vt-toggle-on {
+    background: var(--nonsteamapps-blue) !important;
+}
+
+#vt-settings-overlay-root .vt-toggle.vt-toggle-on .vt-toggle-thumb {
+    background: #ffffff !important;
+}

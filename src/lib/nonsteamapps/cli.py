@@ -361,7 +361,7 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
     if app.system:
         return int(app.system.reset(paths.profile(app.id, None)))
     if app.release:
-        homes = sorted(folder for folder in (paths.profiles / app.id).glob("*") if folder.is_dir())
+        homes = sorted(folder for folder in (paths.profiles / app.id).glob("*") if folder.is_dir() and folder.name != kyty.GAMES)
         return sum(any([wanted.apply(home) for wanted in app.release.settings]) for home in homes)
     home = app.home(paths.home)
     count = len(app.profile.reset(home, shared=not separate)) if app.profile else 0
@@ -520,7 +520,7 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
 def _unlink_kyty_homes(paths: Paths) -> None:
     """Remove the links to KytyPS5's programs from each account's folder, which keeps only KytyPS5's data."""
     for home in sorted((paths.profiles / "kytyps5").glob("*")):
-        if home.is_dir():
+        if home.is_dir() and home.name != kyty.GAMES:
             kyty.unlink_home(home)
 
 
@@ -725,10 +725,19 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
         raise ui.Abort(f"KytyPS5 is not installed; run: {paths.launcher} install {app.id}")
     settings = config.read_settings(paths.settings)
     home = paths.profile(app.id, account)
+    fresh = not (home / kyty.SETTINGS_FILE).exists()
     launcher = runtime.prepare_home(home)
+    for name in kyty.share_game_data(home, paths.profiles / app.id / kyty.GAMES):
+        print(f"  {home / name} stays as it is: it holds what the shared folder already has")
     for wanted in app.release.settings:
         if not wanted.target(home).exists():
             wanted.apply(home)
+    if fresh:
+        others = [path for path in sorted((paths.profiles / app.id).glob(f"*/{kyty.SETTINGS_FILE}")) if path.parent != home]
+        folders = kyty.game_folders(others)
+        if folders:
+            apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", folders),)).apply(home)
+            print(f"  starting with the game folders another account set up: {folders}")
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}

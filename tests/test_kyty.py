@@ -182,6 +182,36 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.home.iterdir()), ["Kyty.ini", "_SaveData"])
         self.assertEqual(kyty.unlink_home(self.home), [])
 
+    def test_game_content_is_shared_by_every_accounts_folder_and_saves_are_not(self):
+        games = self.home.parent / kyty.GAMES
+        other = self.home.parent / "222"
+        (self.home / "_DownloadData" / "PPSA00001").mkdir(parents=True)
+        (self.home / "_SaveData").mkdir()
+        self.assertEqual(kyty.share_game_data(self.home, games), [])
+        self.assertEqual(kyty.share_game_data(other, games), [])
+        for home in (self.home, other):
+            self.assertEqual(os.readlink(home / "_DownloadData"), os.path.join("..", kyty.GAMES, "_DownloadData"))
+            self.assertTrue((home / "_DownloadData" / "PPSA00001").is_dir())
+            self.assertTrue((home / "_PipelineCache").is_dir())
+        self.assertFalse((other / "_SaveData").exists())
+        third = self.home.parent / "333"
+        (third / "_PipelineCache").mkdir(parents=True)
+        (third / "_PipelineCache" / "PPSA00001.bin").write_text("mine")
+        (games / "_PipelineCache" / "PPSA00001.bin").write_text("shared")
+        self.assertEqual(kyty.share_game_data(third, games), ["_PipelineCache"])
+        self.assertEqual((third / "_PipelineCache" / "PPSA00001.bin").read_text(), "mine")
+        self.assertTrue((third / "_DownloadData").is_symlink())
+
+    def test_a_new_account_gets_the_game_folders_saved_last(self):
+        older, newer, empty = (self.home.parent / name / kyty.SETTINGS_FILE for name in ("1", "2", "3"))
+        for path, text in ((older, "[Launcher]\ngame_dirs=/old\n"), (newer, "[MainDialog]\ngame_dirs=/not-here\n[Launcher]\ngame_dirs=/run/media/deck/SD/PS5, /home/deck/PS5\n"),
+                           (empty, "[Launcher]\nsize=0\n")):
+            path.parent.mkdir(parents=True)
+            path.write_text(text)
+        os.utime(older, (1, 1))
+        self.assertEqual(kyty.game_folders([older, newer, empty]), "/run/media/deck/SD/PS5, /home/deck/PS5")
+        self.assertIsNone(kyty.game_folders([empty, self.home / "missing.ini"]))
+
     def test_a_users_own_file_in_the_folder_is_never_replaced(self):
         self.home.mkdir(parents=True)
         (self.home / "lib").mkdir()

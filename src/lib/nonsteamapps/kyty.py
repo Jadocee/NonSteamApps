@@ -10,6 +10,11 @@ kept, and keeps its settings in ``Kyty.ini`` in the folder it is started in. Eac
 gets a folder of its own (:meth:`Runtime.prepare_home`), in which the build's programs are hard links, so
 that KytyPS5 takes that folder as its own, and everything else is a symbolic link into the build. Saves and
 settings stay there when the build changes. KytyPS5's own updater is left out of that folder.
+
+Games are shared by every account, their saves and settings are not: a game's downloaded content and the
+shader caches built from it live once, in a ``games`` folder beside the accounts' folders
+(:func:`share_game_data`), and an account that starts KytyPS5 for the first time gets the game folders that
+another account set up (:func:`game_folders`).
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ UPDATER = "kyty_updater"
 SETTINGS_FILE = "Kyty.ini"
 BUILD_RECORD = ".nonsteamapps.json"
 LINK_RECORD = ".nonsteamapps-links.json"
+GAMES = "games"
+SHARED_DATA = ("_DownloadData", "_PipelineCache")
 _TAG = re.compile(r"KytyPS5-(\d{4}-\d{2}-\d{2})-([0-9a-f]{7,40})\Z")
 _DIGEST = re.compile(r"sha256:([0-9a-f]{64})\Z")
 _ARCHIVE = re.compile(r"(KytyPS5-\d{4}-\d{2}-\d{2}-[0-9a-f]{7,40})-Linux-x86_64\.tar\.gz\Z")
@@ -385,3 +392,53 @@ def unlink_home(home: Path) -> List[str]:
             removed.append(name)
     record.unlink()
     return removed
+
+
+def share_game_data(home: Path, games: Path) -> List[str]:
+    """Make ``home``'s folders for game content links into ``games``; return the ones that had to stay as they were.
+
+    What such a folder already holds is moved into ``games`` first, without replacing anything there; a folder
+    left with anything in it stays, and so does a link the user made.
+    """
+    home, games = Path(home), Path(games)
+    home.mkdir(parents=True, exist_ok=True)
+    kept = []
+    for name in SHARED_DATA:
+        shared, link = games / name, home / name
+        shared.mkdir(parents=True, exist_ok=True)
+        if link.is_symlink():
+            continue
+        if link.is_dir():
+            for entry in sorted(link.iterdir()):
+                if not os.path.lexists(shared / entry.name):
+                    entry.rename(shared / entry.name)
+            try:
+                link.rmdir()
+            except OSError:
+                kept.append(name)
+                continue
+        elif os.path.lexists(link):
+            kept.append(name)
+            continue
+        link.symlink_to(os.path.relpath(shared, home))
+    return kept
+
+
+def game_folders(settings_files: Sequence[Path]) -> Optional[str]:
+    """The game folders that the most recently saved of these ``Kyty.ini`` files lists, as KytyPS5 wrote them."""
+    found = []
+    for path in settings_files:
+        try:
+            stamp, lines = Path(path).stat().st_mtime, Path(path).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        group = ""
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                group = stripped[1:-1]
+                continue
+            key, separator, value = stripped.partition("=")
+            if group == "Launcher" and separator and key.strip() == "game_dirs" and value.strip():
+                found.append((stamp, value.strip()))
+    return max(found)[1] if found else None

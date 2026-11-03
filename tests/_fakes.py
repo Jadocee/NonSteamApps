@@ -268,7 +268,7 @@ def make_kyty_build(directory: Path) -> Path:
 
     Like KytyPS5's launcher, the fake launcher runs the emulator through $TERMINAL with ``-e``, in the
     emulator's own folder, from a shell that waits for a key, and ignores how that ends; the fake emulator
-    writes a save there.
+    writes a save and downloaded game content there.
     """
     directory.mkdir(parents=True)
     (directory / "kyty_launcher").write_text(
@@ -289,6 +289,7 @@ def make_kyty_build(directory: Path) -> Path:
         "log = os.environ.get(\"FAKE_KYTY_LOG\")\n"
         "if log:\n    open(log, \"a\").write(json.dumps({\"emulator\": sys.argv[1:], \"cwd\": os.getcwd()}) + \"\\n\")\n"
         "os.makedirs(os.path.join(\"_SaveData\", \"PPSA00000\"), exist_ok=True)\n"
+        "os.makedirs(os.path.join(\"_DownloadData\", \"PPSA00000\"), exist_ok=True)\n"
     )
     (directory / "kyty_updater").write_text("#!/bin/sh\nexit 1\n")
     for name in ("kyty_launcher", "kyty_emulator", "kyty_updater"):

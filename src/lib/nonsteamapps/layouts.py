@@ -19,9 +19,9 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
-- **KytyPS5** starts from Gamepad with Mouse Trackpad, whose right trackpad moves the pointer but whose press is
-  the right stick's click. It presses the left mouse button instead, so that KytyPS5's launcher, which has no
-  controller support, can be used; the rest is a gamepad for the game, and other controllers get only that.
+- **Emulator**, for KytyPS5 and Eden, starts from Gamepad with Mouse Trackpad, whose right trackpad moves the
+  pointer but whose press is the right stick's click. It presses the left mouse button instead, so that the
+  emulators' own menus can be used; the rest is a gamepad for the game, and other controllers get only that.
 - **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
@@ -36,7 +36,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from . import controllers, vdf
 from .fsutil import atomic_write_bytes
@@ -128,7 +128,7 @@ def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     return group
 
 
-def _kytyps5(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+def _emulator(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "right_trackpad":
         _bind(group, "click", ["mouse_button LEFT"])
     return group
@@ -158,7 +158,10 @@ def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
 
 @dataclass(frozen=True)
 class Layout:
-    """A layout made from Valve's ``base`` layout for the Deck, with ``change`` applied to each group it keeps."""
+    """A layout made from Valve's ``base`` layout for the Deck, with ``change`` applied to each group it keeps.
+
+    ``replaces`` are the slugs it had in earlier versions, whose files go when it is written or removed.
+    """
 
     slug: str
     title: str
@@ -166,9 +169,14 @@ class Layout:
     base: str
     change: Change
     revision: str = "1"
+    replaces: Tuple[str, ...] = ()
 
-    def file_name(self, kind: str) -> str:
-        return f"{kind}_{PREFIX}{self.slug}.vdf"
+    def file_name(self, kind: str, slug: str = "") -> str:
+        return f"{kind}_{PREFIX}{slug or self.slug}.vdf"
+
+    def retired(self, directory: Path) -> List[Path]:
+        """The files written under the slugs in ``replaces``."""
+        return sorted(path for slug in self.replaces for path in Path(directory).glob(self.file_name("controller_*", slug)))
 
 
 BROWSER = Layout(
@@ -194,12 +202,13 @@ MINECRAFT = Layout(
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
 )
-KYTYPS5 = Layout(
-    slug="kytyps5",
-    title="KytyPS5 (NonSteamApps)",
-    description="Steam's Gamepad layout for the game, with the right trackpad as a mouse whose press clicks, for KytyPS5's launcher",
+EMULATOR = Layout(
+    slug="emulator",
+    title="Emulator (NonSteamApps)",
+    description="Steam's Gamepad layout for games, with the right trackpad as a mouse whose press clicks, for the emulator's own menus",
     base="controller_neptune_gamepad+mouse.vdf",
-    change=_kytyps5,
+    change=_emulator,
+    replaces=("kytyps5",),
 )
 LOCALSEND = Layout(
     slug="localsend",
@@ -222,7 +231,7 @@ BITWARDEN = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_bitwarden,
 )
-LAYOUTS = (BITWARDEN, BROWSER, FILES, KYTYPS5, LOCALSEND, MINECRAFT, TOOLS)
+LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:
@@ -323,13 +332,16 @@ def install(root: Path, layout: Layout) -> List[str]:
         if current != text:
             atomic_write_bytes(path, text.encode("utf-8"))
             written.append(path.name)
+    for path in layout.retired(directory):
+        path.unlink()
     return written
 
 
 def remove(root: Path, layout: Layout) -> List[str]:
     """Delete the files :func:`install` wrote for ``layout``; return their names."""
+    directory = controllers.templates_dir(root)
     removed = []
-    for path in sorted(controllers.templates_dir(root).glob(layout.file_name("controller_*"))):
+    for path in [*sorted(directory.glob(layout.file_name("controller_*"))), *layout.retired(directory)]:
         path.unlink()
         removed.append(path.name)
     return removed

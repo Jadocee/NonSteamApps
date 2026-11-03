@@ -102,13 +102,14 @@ class InstallTests(CliTestCase):
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
             ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
-             "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "net.davidotek.pupgui2", "com.github.Matoking.protontricks"],
+             "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2",
+             "com.github.Matoking.protontricks"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "protonup", "protontricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -369,6 +370,20 @@ class LaunchTests(CliTestCase):
             argv, _ = self.launch("prism", "--steam-account", str(ALPHA))
         self.assertEqual(argv, [
             self.fake.command, "run", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb", "org.prismlauncher.PrismLauncher", f"--dir={folder}",
+            "-qwindowgeometry", "1280x720+0+0",
+        ])
+
+    def test_eden_starts_in_each_accounts_folder_full_screen_and_scaled_for_a_tv(self):
+        folder = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}"
+        argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", "dev.eden_emu.eden", "-f"])
+        self.assertTrue((folder / "user/config/qt-config.ini").is_file())
+        self.assertEqual((folder / "user/keys").resolve(), (self.home / ".var/app/dev.eden_emu.eden/data/eden/keys").resolve())
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
+            argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [
+            self.fake.command, "run", f"--cwd={folder}", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb", "dev.eden_emu.eden", "-f",
             "-qwindowgeometry", "1280x720+0+0",
         ])
 

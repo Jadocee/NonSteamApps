@@ -116,6 +116,17 @@ class FilesLayoutTests(unittest.TestCase):
             "controller_xboxone_nonsteamapps_minecraft.vdf",
         ])
 
+    def test_the_emulator_layout_replaces_the_kytyps5_layout_of_2_19_0(self):
+        old = ["controller_neptune_nonsteamapps_kytyps5.vdf", "controller_xboxone_nonsteamapps_kytyps5.vdf"]
+        for name in old:
+            (self.folder / name).write_text('"controller_mappings" {}')
+        written = layouts.install(self.root, layouts.EMULATOR)
+        self.assertEqual(written, ["controller_neptune_nonsteamapps_emulator.vdf", "controller_xboxone_nonsteamapps_emulator.vdf"])
+        self.assertFalse(any((self.folder / name).exists() for name in old))
+        (self.folder / old[0]).write_text('"controller_mappings" {}')
+        self.assertEqual(layouts.remove(self.root, layouts.EMULATOR), [*written, old[0]])
+        self.assertEqual(list(self.folder.glob("*_nonsteamapps_*")), [])
+
     def test_without_valves_base_layout_nothing_is_written(self):
         (self.folder / layouts.FILES.base).unlink()
         self.assertEqual(layouts.install(self.root, layouts.FILES), [])
@@ -180,13 +191,13 @@ class FilesLayoutTests(unittest.TestCase):
         )
         self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
 
-    def test_kytyps5_plays_with_a_gamepad_and_its_trackpad_clicks_in_the_launcher(self):
-        deck = groups(layouts.build(layouts.KYTYPS5, self.read(layouts.KYTYPS5.base), self.read("controller_neptune_gamepad_joystick.vdf")))
+    def test_emulators_play_with_a_gamepad_and_the_trackpad_clicks_in_their_menus(self):
+        deck = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(find(deck["right_trackpad"], "mode"), "absolute_mouse")
         self.assertEqual(bindings(deck["right_trackpad"], "click"), ["mouse_button LEFT"])
         self.assertEqual(bindings(deck["button_diamond"], "button_a"), ["xinput_button A"])
         self.assertEqual(bindings(deck["switch"], "button_menu"), ["xinput_button button_menu"])
-        xbox = groups(layouts.build(layouts.KYTYPS5, self.read(layouts.KYTYPS5.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        xbox = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
         self.assertNotIn("right_trackpad", xbox)
         self.assertEqual(bindings(xbox["button_diamond"], "button_y"), ["xinput_button Y"])
 

@@ -14,7 +14,7 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "kytyps5", "protonup", "protontricks", "files",
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "kytyps5", "protonup", "protontricks", "files",
              "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
@@ -69,7 +69,7 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "kytyps5", "protonup", "protontricks", "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "kytyps5", "protonup", "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -135,9 +135,18 @@ class ArgumentTests(unittest.TestCase):
         app = apps.by_id("kytyps5")
         self.assertEqual((app.flatpak, app.browser, app.system), ("", None, None))
         self.assertEqual(app.release.settings, (apps.IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),)),))
-        self.assertEqual((app.controller, app.fullscreen_class), ("KytyPS5 (NonSteamApps)", "nonsteamapps-kytyps5"))
+        self.assertEqual((app.controller, app.fullscreen_class), ("Emulator (NonSteamApps)", "nonsteamapps-kytyps5"))
         self.assertEqual(app.tv_scale.variables(1.5), {"QT_SCALE_FACTOR": "1.5"})
         self.assertEqual([candidate.id for candidate in apps.APPS if candidate.release], ["kytyps5"])
+
+    def test_eden_starts_full_screen_from_each_accounts_folder(self):
+        eden = apps.by_id("eden")
+        folder = HOME / ".var/app/dev.eden_emu.eden/data/eden-steam-111"
+        self.assertEqual((eden.arguments(HOME, 111), eden.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
+        self.assertEqual((eden.arguments(HOME, None), eden.run_options(HOME, None)), (["-f"], []))
+        self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
+        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden"])
 
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
         self.assertEqual(apps.by_id("jellyfin").arguments(HOME, 333), ["--tv", "--fullscreen", "--profile=steam-333"])
@@ -295,6 +304,82 @@ class ProfileTests(unittest.TestCase):
             "[General]\nApplicationTheme=dark\nJavaPath=/usr/bin/java\nLanguage=en_AU\n"
             "IconTheme=flat_white\nCloseAfterLaunch=true\nQuitAfterGameStop=true\nLaunchMaximized=true\n"
         ))
+
+    def test_each_eden_account_keeps_its_saves_and_shares_games_keys_and_firmware(self):
+        eden = apps.by_id("eden")
+        app_home = eden.home(self.home)
+        self.assertTrue(eden.profile.prepare(app_home, 111, lambda options: 0))
+        user = app_home / "data/eden-steam-111/user"
+        settings = user / "config/qt-config.ini"
+        pad = "engine:sdl,port:0,guid:03000000de280000ff11000001000000"
+        for line in ("[UI]", "fullscreen\\default=false", "fullscreen=true", "confirmStop=2", "gui_hide_backend_warning=true",
+                     "theme=colorful_dark", "UIGameList\\game_list_mode=1", "UIGameList\\game_icon_size=256", "[Controls]",
+                     "player_0_button_a\\default=false", f'player_0_button_a="{pad},button:1"', f'player_0_button_zr="{pad},axis:5,threshold:0.5,invert:+"',
+                     f'player_0_button_dup="{pad},hat:0,direction:up"',
+                     f'player_0_rstick="{pad},axis_x:3,axis_y:4,offset_x:0.000000,offset_y:0.000000,invert_x:+,invert_y:+"'):
+            self.assertIn(line + "\n", settings.read_text())
+        shared = {"keys": "../../eden/keys", "load": "../../eden/load", "shader": "../../eden/shader",
+                  "nand/system/Contents/registered": "../../../../../eden/nand/system/Contents/registered",
+                  "nand/user/Contents/registered": "../../../../../eden/nand/user/Contents/registered"}
+        for name, target in shared.items():
+            self.assertEqual(os.readlink(user / name), target)
+            self.assertEqual((user / name).resolve(), (app_home / "data/eden" / name).resolve())
+        for name in ("nand/user/save", "nand/system/save", "sdmc"):
+            self.assertFalse((user / name).exists())
+        settings.write_text("[UI]\ntheme=default\n")
+        eden.profile.prepare(app_home, 111, lambda options: 0)
+        self.assertEqual(settings.read_text(), "[UI]\ntheme=default\n")
+        self.assertEqual([path.name for path in eden.profile.existing(app_home)], ["eden-steam-111"])
+
+    def test_a_new_eden_account_starts_with_the_game_folders_last_saved(self):
+        eden = apps.by_id("eden")
+        app_home = eden.home(self.home)
+        shared = app_home / "config/eden/qt-config.ini"
+        eden.profile.prepare_shared(app_home)
+        self.assertIn("theme=colorful_dark\n", shared.read_text())
+        shared.write_text("[UI]\ntheme=default\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=/home/deck/Switch\n"
+                          "Paths\\gamedirs\\2\\deep_scan\\default=false\nPaths\\gamedirs\\2\\deep_scan=true\nPaths\\gamedirs\\size=2\n")
+        os.utime(shared, (1, 1))
+        eden.profile.prepare(app_home, 111, lambda options: 0)
+        first = app_home / "data/eden-steam-111/user/config/qt-config.ini"
+        for line in ("theme=colorful_dark", "Paths\\gamedirs\\2\\path=/home/deck/Switch", "Paths\\gamedirs\\2\\deep_scan=true", "Paths\\gamedirs\\size=2"):
+            self.assertIn(line + "\n", first.read_text())
+        first.write_text(first.read_text().replace(
+            "Paths\\gamedirs\\size=2", "Paths\\gamedirs\\3\\path=/run/media/deck/SD/Switch\nPaths\\gamedirs\\size=3\n"
+                                       "Paths\\external_content_dirs\\1\\path=/run/media/deck/SD/Updates\nPaths\\external_content_dirs\\size=1"))
+        eden.profile.prepare(app_home, 222, lambda options: 0)
+        second = app_home / "data/eden-steam-222/user/config/qt-config.ini"
+        for line in ("Paths\\gamedirs\\3\\path=/run/media/deck/SD/Switch", "Paths\\gamedirs\\size=3",
+                     "Paths\\external_content_dirs\\1\\path=/run/media/deck/SD/Updates", "Paths\\external_content_dirs\\size=1"):
+            self.assertIn(line + "\n", second.read_text())
+        self.assertNotIn("theme=default", second.read_text())
+        before = second.read_text()
+        first.write_text("[UI]\nPaths\\gamedirs\\size=0\n")
+        eden.profile.prepare(app_home, 222, lambda options: 0)
+        self.assertEqual(second.read_text(), before)
+
+    def test_an_install_puts_edens_tv_settings_back_and_keeps_the_controls_chosen(self):
+        eden = apps.by_id("eden")
+        app_home = eden.home(self.home)
+        eden.profile.prepare(app_home, 111, lambda options: 0)
+        settings = app_home / "data/eden-steam-111/user/config/qt-config.ini"
+        settings.write_text('[UI]\nfullscreen\\default=true\nfullscreen=false\ntheme=default\n\n[Controls]\nplayer_0_button_a="engine:keyboard,code:67"\n')
+        self.assertEqual(eden.profile.reset(app_home), [settings.parents[2]])
+        for line in ("fullscreen\\default=false", "fullscreen=true", "theme=colorful_dark", 'player_0_button_a="engine:keyboard,code:67"'):
+            self.assertIn(line + "\n", settings.read_text())
+        self.assertNotIn("player_0_button_b", settings.read_text())
+        self.assertEqual(eden.profile.reset(app_home), [])
+        self.assertEqual(eden.profile.reset(app_home, shared=True), [])
+        self.assertFalse((app_home / "config/eden").exists())
+        eden.profile.prepare_shared(app_home)
+        shared = app_home / "config/eden/qt-config.ini"
+        self.assertIn('player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"\n', shared.read_text())
+        shared.write_text("[UI]\ntheme=default\n")
+        eden.profile.prepare_shared(app_home)
+        self.assertEqual(shared.read_text(), "[UI]\ntheme=default\n")
+        self.assertEqual(eden.profile.reset(app_home, shared=True), [app_home])
+        self.assertIn("theme=colorful_dark\n", shared.read_text())
+        self.assertNotIn("[Controls]", shared.read_text())
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

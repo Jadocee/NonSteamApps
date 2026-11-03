@@ -12,6 +12,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
 from .layouts import BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
+from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
 _STEAM_PROFILE = re.compile(r"steam-\d+\Z")
@@ -402,10 +403,20 @@ class SystemApp:
 
 @dataclass(frozen=True)
 class Browser:
-    """An app that runs in NonSteamApps' own Helium: the browser itself, or one site full screen (kiosk)."""
+    """An app that runs in NonSteamApps' own Helium: the browser itself, or one site full screen (kiosk).
+
+    ``account_url``, with ``{steam_id}`` in it, opens in place of ``url`` when Steam starts the app for an account.
+    """
 
     url: str = ""
     kiosk: bool = False
+    account_url: str = ""
+
+    def start_url(self, account: Optional[int]) -> str:
+        """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
+        if self.account_url and account:
+            return self.account_url.format(steam_id=STEAM_ID64_BASE + account)
+        return self.url
 
 
 @dataclass(frozen=True)
@@ -734,7 +745,7 @@ APPS: Tuple[App, ...] = (
         name="ProtonDB",
         client="Helium",
         summary="Player reports on how well games run with Proton, full screen in Helium",
-        browser=Browser(url="https://www.protondb.com/", kiosk=True),
+        browser=Browser(url="https://www.protondb.com/", kiosk=True, account_url="https://www.protondb.com/dashboard/{steam_id}"),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

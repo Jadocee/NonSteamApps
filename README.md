@@ -19,7 +19,7 @@ Living-room apps for SteamOS, added to the Steam library with original artwork. 
 | **HBO Max** | HBO Max in Helium | Helium, full screen | Warner Bros. Discovery's streaming service, full screen with no browser interface. |
 | **Netflix** | Netflix in Helium | Helium, full screen | Netflix's streaming service, full screen with no browser interface. |
 | **Disney+** | Disney+ in Helium | Helium, full screen | Disney's streaming service, full screen with no browser interface. |
-| **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. |
+| **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. It opens on your Steam library's dashboard. |
 | **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. Sign in with your Proton account. |
 
 ## Features
@@ -169,6 +169,11 @@ Each app has its own Helium profile for each Steam account, so signing in to one
 - **Widevine:** all four services need Widevine copy protection. Helium downloads it through Helium's services the first time a profile asks for it, and every profile then shares that download. If the first video does not play, close the app and open it again.
 - **Picture quality:** on Linux, Widevine runs without hardware protection (level L3), and the services limit browsers like this: Prime Video to standard definition, Netflix to 720p. Disney+ plays, but may limit quality too. HBO Max does not officially support Linux, so it may limit quality, or stop playing altogether. NonSteamApps cannot lift these limits.
 - **Helium's services:** they are on by default, because they deliver Widevine and keep the ad blocker's filter lists current. Set `HELIUM_SERVICES=0` to keep Helium from contacting them; the streaming apps then cannot play.
+
+### ProtonDB: your library and report filters
+
+- **Your library:** ProtonDB opens on the dashboard of the Steam account that started it, `protondb.com/dashboard/<SteamID64>`, which shows how well each of your games runs. No sign-in is needed, but your Steam profile and its **Game details** must be public (Steam → Profile → Edit Profile → Privacy Settings). With `PROFILE_PER_STEAM_ACCOUNT=0`, it opens on ProtonDB's home page. For the Explore page's **Library** filter, enter your Steam ID or profile URL once under ProtonDB's **Profile**, or choose **Sign In With Steam**.
+- **Report filters:** open the cog above a game's reports (**Filtering Settings**), set **GPU**, **CPU** and **Distro** (for example AMD, AMD and SteamOS) and tick **Persist Across Site?**. ProtonDB keeps the filters in the browser's own storage, not in cookies, so they stay in that Steam account's ProtonDB profile, and installing again leaves them alone. Matching reports are listed first, with the rest below. ProtonDB also remembers the **Steam Deck** or **PC** tab you last chose on a game page. Reports from a Steam Deck give their distro as SteamOS Holo.
 
 ### Privacy, security and ad blocking
 

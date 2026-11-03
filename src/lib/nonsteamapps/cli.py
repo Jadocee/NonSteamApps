@@ -653,7 +653,8 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     factor = display.scale(_scale_setting(settings), game_mode)
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
-    command = [str(runtime.executable), *browser.flags(profile, app.browser.url, app.browser.kiosk, game_mode, factor, name, window), *extra]
+    url = app.browser.start_url(account)
+    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
     if window:
         x11.watch(name, os.getpid())

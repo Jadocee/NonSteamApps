@@ -715,6 +715,15 @@ class HeliumAppTests(CliTestCase):
         self.assertEqual((profile / "WidevineCdm").resolve(), runtime.widevine.resolve())
         redirect.assert_called_once_with(self.paths.log("primevideo"))
 
+    def test_protondb_opens_the_library_of_the_account_that_starts_it(self):
+        self.install("protondb")
+        argv, _ = self.launch("protondb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], f"https://www.protondb.com/dashboard/{76561197960265728 + BETA}")
+        self.assertIn("--kiosk", argv)
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        argv, _ = self.launch("protondb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], "https://www.protondb.com/")
+
     def test_the_settings_choose_the_scale_and_services(self):
         self.install("helium")
         config.set_setting(self.paths.settings, cli.TV_SCALE, "1.25")

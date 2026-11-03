@@ -17,7 +17,7 @@ jobs:
         run: python3 -m unittest discover -s tests -v
 
       - name: ShellCheck
-        run: shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin src/share/sandbox/xdg-open
+        run: shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin src/share/sandbox/xdg-open src/share/kytyps5/terminal
 
       - name: JavaScript syntax
         run: node --check tools/render-artwork.js

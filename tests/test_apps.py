@@ -14,7 +14,7 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files",
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "kytyps5", "protonup", "protontricks", "files",
              "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
@@ -69,7 +69,7 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "protonup", "protontricks", "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "kytyps5", "protonup", "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -127,8 +127,17 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(bitwarden.run_options(HOME, None), [])
         self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Bitwarden (NonSteamApps)"))
         self.assertEqual((bitwarden.game_mode_env, bitwarden.fullscreen_class, bitwarden.hide_menu_bar), ((("DISPLAY_MODE", "X11"),), "bitwarden", True))
-        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar or app.fullscreen_class], ["bitwarden"])
+        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["bitwarden"])
+        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["bitwarden", "kytyps5"])
         self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
+
+    def test_kytyps5_is_downloaded_from_its_releases_with_its_own_updater_off(self):
+        app = apps.by_id("kytyps5")
+        self.assertEqual((app.flatpak, app.browser, app.system), ("", None, None))
+        self.assertEqual(app.release.settings, (apps.IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),)),))
+        self.assertEqual((app.controller, app.fullscreen_class), ("KytyPS5 (NonSteamApps)", "nonsteamapps-kytyps5"))
+        self.assertEqual(app.tv_scale.variables(1.5), {"QT_SCALE_FACTOR": "1.5"})
+        self.assertEqual([candidate.id for candidate in apps.APPS if candidate.release], ["kytyps5"])
 
     def test_jellyfin_starts_in_its_tv_layout_with_a_named_profile(self):
         self.assertEqual(apps.by_id("jellyfin").arguments(HOME, 333), ["--tv", "--fullscreen", "--profile=steam-333"])

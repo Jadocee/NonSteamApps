@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+from typing import Optional
 from pathlib import Path
 
 import _paths
@@ -188,7 +189,7 @@ DECK_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "b
 
 
 def add_controller_templates(root: Path) -> Path:
-    """Valve's Web Browser and WASD layouts for the Deck, and Gamepad layouts for the Deck, an Xbox controller and touch."""
+    """Valve's Web Browser, WASD and Gamepad with Mouse Trackpad layouts for the Deck, and Gamepad layouts for the Deck, an Xbox controller and touch."""
     folder = controllers.templates_dir(root)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "controller_neptune_webbrowser.vdf").write_text("\ufeff" + controller_layout("controller_neptune", "Web Browser", WEB_BROWSER), encoding="utf-8")
@@ -197,6 +198,13 @@ def add_controller_templates(root: Path) -> Path:
     )
     (folder / "controller_neptune_gamepad_joystick.vdf").write_text(
         controller_layout("controller_neptune", "Gamepad", gamepad_groups(DECK_SWITCH, trackpads=True)), encoding="utf-8"
+    )
+    (folder / "controller_neptune_gamepad+mouse.vdf").write_text(
+        controller_layout("controller_neptune", "Gamepad with Mouse Trackpad", [
+            *gamepad_groups(DECK_SWITCH),
+            ("left_trackpad", "dpad", {"dpad_north": ["xinput_button dpad_up"]}),
+            ("right_trackpad", "absolute_mouse", {"click": ["xinput_button JOYSTICK_RIGHT"]}),
+        ]), encoding="utf-8"
     )
     (folder / "controller_xboxone_gamepad_joystick.vdf").write_text(
         controller_layout("controller_xboxone", "Gamepad", gamepad_groups(XBOX_SWITCH), settings=(("xbox", "1"),)), encoding="utf-8"
@@ -250,6 +258,73 @@ def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "F
     if extra_path:
         env["PATH"] = f"{extra_path}{os.pathsep}{env.get('PATH', '')}"
     return env
+
+
+KYTY_TAG = "KytyPS5-2026-11-02-dfec14a"
+
+
+def make_kyty_build(directory: Path) -> Path:
+    """A folder laid out like KytyPS5's Linux build, whose programs record what they were started with in $FAKE_KYTY_LOG.
+
+    Like KytyPS5's launcher, the fake launcher runs the emulator through $TERMINAL with ``-e``, in the
+    emulator's own folder, from a shell that waits for a key, and ignores how that ends; the fake emulator
+    writes a save there.
+    """
+    directory.mkdir(parents=True)
+    (directory / "kyty_launcher").write_text(
+        "#!/usr/bin/env python3\nimport json, os, subprocess, sys\n"
+        "here = os.path.dirname(os.path.abspath(sys.argv[0]))\n"
+        "record = {\"argv\": sys.argv[1:], \"cwd\": os.getcwd(), \"folder\": here,\n"
+        "          \"env\": {name: os.environ.get(name, \"\") for name in (\"TERMINAL\", \"RESOURCE_NAME\", \"SDL_APP_ID\", \"QT_QPA_PLATFORM\", \"QT_SCALE_FACTOR\")},\n"
+        "          \"settings\": open(\"Kyty.ini\").read() if os.path.exists(\"Kyty.ini\") else None}\n"
+        "log = os.environ.get(\"FAKE_KYTY_LOG\")\n"
+        "if log:\n    open(log, \"a\").write(json.dumps(record) + \"\\n\")\n"
+        "terminal = os.environ.get(\"TERMINAL\")\n"
+        "if terminal and os.environ.get(\"FAKE_KYTY_PLAY\"):\n"
+        "    command = ['bash', '-c', '\"$@\"; echo Press any key...; read -n1', 'kyty', os.path.join(here, 'kyty_emulator'), '--game', os.environ['FAKE_KYTY_PLAY']]\n"
+        "    subprocess.run([terminal, '-e', *command], cwd=here, timeout=20, check=False)\n"
+    )
+    (directory / "kyty_emulator").write_text(
+        "#!/usr/bin/env python3\nimport json, os, sys\n"
+        "log = os.environ.get(\"FAKE_KYTY_LOG\")\n"
+        "if log:\n    open(log, \"a\").write(json.dumps({\"emulator\": sys.argv[1:], \"cwd\": os.getcwd()}) + \"\\n\")\n"
+        "os.makedirs(os.path.join(\"_SaveData\", \"PPSA00000\"), exist_ok=True)\n"
+    )
+    (directory / "kyty_updater").write_text("#!/bin/sh\nexit 1\n")
+    for name in ("kyty_launcher", "kyty_emulator", "kyty_updater"):
+        (directory / name).chmod(0o755)
+    (directory / "lib").mkdir()
+    (directory / "lib" / "libQt6Core.so.6").write_text("")
+    (directory / "plugins" / "platforms").mkdir(parents=True)
+    (directory / "plugins" / "platforms" / "libqxcb.so").write_text("")
+    (directory / "qt.conf").write_text("[Paths]\nPlugins = plugins\n")
+    return directory
+
+
+def make_kyty_archive(directory: Path, tag: str = KYTY_TAG) -> Path:
+    """A KytyPS5 Linux build archive, packed as KytyPS5's release workflow packs it (``tar -C build -czf … .``)."""
+    build = make_kyty_build(directory / f"kyty-build-{tag}")
+    archive = directory / f"{tag}-Linux-x86_64.tar.gz"
+    subprocess.run(["tar", "-C", str(build), "-czf", str(archive), "."], check=True)
+    return archive
+
+
+def kyty_release(archive: Path, tag: str = KYTY_TAG, published: str = "2026-11-02T08:00:00Z", digest: Optional[str] = None) -> dict:
+    """GitHub's description of a KytyPS5 release whose Linux build is ``archive``."""
+    import hashlib
+    name = f"{tag}-Linux-x86_64.tar.gz"
+    return {
+        "tag_name": tag,
+        "draft": False,
+        "prerelease": False,
+        "published_at": published,
+        "assets": [
+            {"name": f"{tag}-Windows-x64.zip", "browser_download_url": f"https://github.com/KytyPS5/KytyPS5/releases/download/{tag}/{tag}-Windows-x64.zip",
+             "size": 1, "digest": "sha256:" + "0" * 64},
+            {"name": name, "browser_download_url": f"https://github.com/KytyPS5/KytyPS5/releases/download/{tag}/{name}",
+             "size": archive.stat().st_size, "digest": digest or "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()},
+        ],
+    }
 
 
 def make_helium_archive(directory: Path, version: str = "0.0.0.1") -> Path:

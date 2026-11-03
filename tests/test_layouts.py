@@ -107,6 +107,7 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(layouts.remove(self.root, layouts.FILES), written)
         self.assertEqual(sorted(path.name for path in self.folder.iterdir()), [
             "controller_mobile_touch_gamepad_joystick.vdf",
+            "controller_neptune_gamepad+mouse.vdf",
             "controller_neptune_gamepad_joystick.vdf",
             "controller_neptune_nonsteamapps_minecraft.vdf",
             "controller_neptune_wasd.vdf",
@@ -178,6 +179,16 @@ class FilesLayoutTests(unittest.TestCase):
              ["key_press LEFT_CONTROL, Search", "key_press F"], ["key_press LEFT_CONTROL, Generator", "key_press G"]],
         )
         self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+
+    def test_kytyps5_plays_with_a_gamepad_and_its_trackpad_clicks_in_the_launcher(self):
+        deck = groups(layouts.build(layouts.KYTYPS5, self.read(layouts.KYTYPS5.base), self.read("controller_neptune_gamepad_joystick.vdf")))
+        self.assertEqual(find(deck["right_trackpad"], "mode"), "absolute_mouse")
+        self.assertEqual(bindings(deck["right_trackpad"], "click"), ["mouse_button LEFT"])
+        self.assertEqual(bindings(deck["button_diamond"], "button_a"), ["xinput_button A"])
+        self.assertEqual(bindings(deck["switch"], "button_menu"), ["xinput_button button_menu"])
+        xbox = groups(layouts.build(layouts.KYTYPS5, self.read(layouts.KYTYPS5.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        self.assertNotIn("right_trackpad", xbox)
+        self.assertEqual(bindings(xbox["button_diamond"], "button_y"), ["xinput_button Y"])
 
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])

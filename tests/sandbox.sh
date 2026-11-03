@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
-# fake flatpak, a running fake firewall, a stand-in Helium release and two Steam
+# fake flatpak, a running fake firewall, stand-in Helium and KytyPS5 releases and two Steam
 # accounts, launches through the links Steam runs, an update that keeps what the
 # user changed, an install that puts it back, and uninstall.sh. Needs bash,
 # python3 and xz.
@@ -17,7 +17,8 @@ trap 'rm -rf "$WORK"' EXIT
 run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
-        FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" "$@"
+        FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
+        FAKE_KYTY_LOG="$WORK/kyty.log" "$@"
 }
 
 check() {
@@ -97,6 +98,7 @@ printf '%s\n' '"users"' '{' \
 printf '%s\n' '"libraryfolders"' '{' "\"0\" { \"path\" \"$STEAM\" }" "\"1\" { \"path\" \"$WORK/sdcard\" }" '}' >"$STEAM/steamapps/libraryfolders.vdf"
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
+KYTY_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_kyty_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
 YOUTUBE_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import steam; print(steam.shortcut_appid(steam.quote(sys.argv[2]), "YouTube"))' "$ROOT/src/lib" "$PROGRAM/apps/youtube")
 printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"' '{' '"CompatToolMapping"' '{' \
@@ -104,20 +106,22 @@ printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"
     '"1245620" { "name" "proton_9" "config" "" "priority" "250" }' '}' '}' '}' '}' '}' >"$STEAM/config/config.vdf"
 
 echo "==> install.sh"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
     cat "$WORK/install.log"
     exit 1
 }
-everything="Bitwarden Disney+ Element Files HBO Max Helium Jellyfin LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 17
+everything="Bitwarden Disney+ Element Files HBO Max Helium Jellyfin KytyPS5 LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 18
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 17
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 18
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "17 17"
+check "KytyPS5 was unpacked and made current" test -x "$PROGRAM/kytyps5/current/kyty_launcher"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "18 18"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
+check "KytyPS5 got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_kytyps5.vdf' | wc -l)" -eq 2
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
 echo "==> launch through the link Steam runs"
@@ -161,6 +165,13 @@ check "ProtonUp-Qt starts in the Steam Deck theme" grep -qxF "theme=steam" "$HOM
 run "$PROGRAM/apps/protontricks" --steam-account 222
 check "Protontricks opened its game picker with the SD card's library" grep -qF "\"--filesystem=$WORK/sdcard\", \"com.github.Matoking.protontricks\", \"--no-term\", \"--gui\"]" "$WORK/flatpak.log"
 
+KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
+run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
+check "KytyPS5's launcher started in the account's folder" grep -qF "\"cwd\": \"$KYTY_HOME\", \"folder\": \"$KYTY_HOME\"" "$WORK/kyty.log"
+check "KytyPS5's own updater is off" grep -qxF "check_updates_on_startup=false" "$KYTY_HOME/Kyty.ini"
+check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
+check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
+
 VACUUMTUBE="$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
 echo "==> update keeps what the user changed"
 rename_shortcut 222 YouTube "My Tube"
@@ -170,12 +181,12 @@ run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/
     exit 1
 }
 check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
-check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 17
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 18
 check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
 check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"
 
 echo "==> installing again puts NonSteamApps' set-up back"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --skip-verify >"$WORK/reinstall.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --skip-verify >"$WORK/reinstall.log" 2>&1 || {
     cat "$WORK/reinstall.log"
     exit 1
 }
@@ -188,6 +199,7 @@ run "$ROOT/uninstall.sh" --yes >"$WORK/uninstall.log" 2>&1 || {
     exit 1
 }
 check "only the app profiles remain" test "$(ls "$PROGRAM")" == "profiles"
+check "KytyPS5's save stayed, without its programs" test -d "$KYTY_HOME/_SaveData/PPSA00000" -a ! -e "$KYTY_HOME/kyty_launcher"
 check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 222)"
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
 check "the collection was removed" test "$(collection_size 111) $(collection_size 222)" == "0 0"

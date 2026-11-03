@@ -35,6 +35,7 @@ class CliTestCase(unittest.TestCase):
         self.wall = _fakes.FakeFirewall(Path(self.tmp.name))
         (Path(self.tmp.name) / "release").mkdir()
         self.helium_archive = _fakes.make_helium_archive(Path(self.tmp.name) / "release")
+        self.kyty_archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "release")
         patches = [
             mock.patch.dict(os.environ, _fakes.environment(self.home, self.fake, wall=self.wall), clear=True),
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
@@ -63,7 +64,7 @@ class CliTestCase(unittest.TestCase):
         return status
 
     def install(self, *names):
-        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--skip-verify")
+        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive), "--skip-verify")
         self.assertEqual(self.run_cli("install", *names, *options), 0, self.errors)
 
     def entries(self, account):
@@ -831,6 +832,81 @@ class HeliumAppTests(CliTestCase):
                                       "--helium-archive", str(_fakes.make_helium_archive(newer, "0.0.0.2")), "--skip-verify"), 0, self.errors)
         self.assertEqual(self.run_cli("rollback"), 0, self.errors)
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
+
+
+class KytyTests(CliTestCase):
+    def launch_kyty(self, account=BETA, game_mode=False):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080), \
+                mock.patch("nonsteamapps.cli.os.chdir") as chdir, \
+                mock.patch("nonsteamapps.cli.x11.watch") as watch, \
+                mock.patch.dict(os.environ):
+            argv, _ = self.launch("kytyps5", "--steam-account", str(account))
+            environ = dict(os.environ)
+        return argv, environ, chdir, watch
+
+    def test_kytyps5_starts_in_each_accounts_folder_with_its_saves_and_no_terminal_window(self):
+        self.install("kytyps5")
+        self.assertIn("installing KytyPS5 2026-11-02 (dfec14a) without checking it against GitHub (--skip-verify)", self.errors)
+        build = self.paths.kyty / "current"
+        argv, environ, chdir, watch = self.launch_kyty()
+        home = self.paths.profile("kytyps5", BETA)
+        self.assertEqual(argv, [str(home / "kyty_launcher")])
+        chdir.assert_called_once_with(home)
+        self.assertTrue(os.path.samefile(home / "kyty_emulator", build / "kyty_emulator"))
+        self.assertFalse(os.path.lexists(home / "kyty_updater"))
+        self.assertEqual(environ["TERMINAL"], str(self.paths.program / "share" / "kytyps5" / "terminal"))
+        self.assertTrue(os.access(environ["TERMINAL"], os.X_OK))
+        self.assertIn("check_updates_on_startup=false", (home / "Kyty.ini").read_text())
+        self.assertNotIn("RESOURCE_NAME", environ)
+        watch.assert_not_called()
+        argv, environ, _, watch = self.launch_kyty(game_mode=True)
+        watch.assert_called_once_with("nonsteamapps-kytyps5", os.getpid())
+        self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "QT_SCALE_FACTOR")],
+                         ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "1.5"])
+        self.launch_kyty(account=ALPHA)
+        self.assertTrue((self.paths.profile("kytyps5", ALPHA) / "Kyty.ini").is_file())
+        (home / "Kyty.ini").write_text("[MainDialog]\ncheck_updates_on_startup=true\n[GameConfigurations]\nsize=1\n")
+        self.install("kytyps5")
+        self.assertEqual((home / "Kyty.ini").read_text(), "[MainDialog]\ncheck_updates_on_startup=false\n[GameConfigurations]\nsize=1\n")
+
+    def test_kytyps5_updates_only_when_asked_and_rolls_back(self):
+        self.install("kytyps5")
+        newer = "KytyPS5-2026-11-05-5555555"
+        archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "newer", newer)
+        releases = json.dumps([_fakes.kyty_release(archive, newer, "2026-11-05T08:00:00Z")])
+        with mock.patch("nonsteamapps.kyty.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.kyty.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
+            self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
+            self.assertEqual(cli._kyty(self.paths).current(), _fakes.KYTY_TAG)
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Updated KytyPS5 to 2026-11-05 (5555555)", self.errors)
+        self.assertEqual(cli._kyty(self.paths).current(), newer)
+        self.assertEqual(self.run_cli("rollback", "kytyps5"), 0, self.errors)
+        self.assertEqual(cli._kyty(self.paths).current(), _fakes.KYTY_TAG)
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn("KytyPS5    2026-11-02 (dfec14a) (also 2026-11-05 (5555555))", self.output)
+
+    def test_removing_kytyps5_removes_its_builds_and_keeps_the_saves_unless_purged(self):
+        self.install("kytyps5")
+        self.launch_kyty()
+        saves = self.paths.profile("kytyps5", BETA) / "_SaveData"
+        saves.mkdir()
+        self.assertEqual(self.run_cli("remove", "kytyps5", "--yes"), 0, self.errors)
+        self.assertFalse(self.paths.kyty.exists())
+        self.assertTrue(saves.is_dir())
+        self.assertEqual(sorted(path.name for path in saves.parent.iterdir()), ["Kyty.ini", "_SaveData"])
+        self.install("kytyps5")
+        self.assertEqual(self.run_cli("remove", "kytyps5", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse((self.paths.profiles / "kytyps5").exists())
+
+    def test_without_its_download_the_other_apps_are_installed_and_kytyps5_alone_fails(self):
+        with mock.patch("nonsteamapps.kyty.net.fetch_text", side_effect=OSError("offline")):
+            self.assertEqual(self.run_cli("install", "localsend", "kytyps5", "--yes", "--no-auto-update"), 0, self.errors)
+            self.assertIn("KytyPS5 was not installed, so it is left out", self.errors)
+            self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
+            self.assertNotEqual(self.run_cli("install", "kytyps5", "--yes", "--no-auto-update"), 0)
+        self.assertIn("could not read KytyPS5's releases from GitHub: offline", self.errors)
 
 
 class UpdateTests(CliTestCase):

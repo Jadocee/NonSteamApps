@@ -19,6 +19,9 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
+- **KytyPS5** starts from Gamepad with Mouse Trackpad, whose right trackpad moves the pointer but whose press is
+  the right stick's click. It presses the left mouse button instead, so that KytyPS5's launcher, which has no
+  controller support, can be used; the rest is a gamepad for the game, and other controllers get only that.
 - **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
@@ -125,6 +128,12 @@ def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     return group
 
 
+def _kytyps5(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "right_trackpad":
+        _bind(group, "click", ["mouse_button LEFT"])
+    return group
+
+
 def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "dpad":
         _bind(group, "dpad_west", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
@@ -185,6 +194,13 @@ MINECRAFT = Layout(
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
 )
+KYTYPS5 = Layout(
+    slug="kytyps5",
+    title="KytyPS5 (NonSteamApps)",
+    description="Steam's Gamepad layout for the game, with the right trackpad as a mouse whose press clicks, for KytyPS5's launcher",
+    base="controller_neptune_gamepad+mouse.vdf",
+    change=_kytyps5,
+)
 LOCALSEND = Layout(
     slug="localsend",
     title="LocalSend (NonSteamApps)",
@@ -206,7 +222,7 @@ BITWARDEN = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_bitwarden,
 )
-LAYOUTS = (BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS)
+LAYOUTS = (BITWARDEN, BROWSER, FILES, KYTYPS5, LOCALSEND, MINECRAFT, TOOLS)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

@@ -15,13 +15,22 @@ LIB = x11.library()
 class MatchingTests(unittest.TestCase):
     def test_only_shown_windows_of_the_class_are_made_full_screen_once(self):
         windows = [
-            (1, "nonsteamapps-helium", "Nonsteamapps-helium", True),
-            (2, "helium", "nonsteamapps-helium", True),
-            (3, "nonsteamapps-helium", "x", False),
-            (4, "element", "Element", True),
+            (1, "nonsteamapps-helium", "Nonsteamapps-helium", True, 0),
+            (2, "helium", "nonsteamapps-helium", True, 0),
+            (3, "nonsteamapps-helium", "x", False, 0),
+            (4, "element", "Element", True, 0),
         ]
         self.assertEqual(x11.matching(windows, "nonsteamapps-helium", set()), [1, 2])
         self.assertEqual(x11.matching(windows, "nonsteamapps-helium", {1}), [2])
+
+    def test_dialogs_keep_their_size_but_a_main_window_transient_for_a_hidden_leader_does_not(self):
+        windows = [
+            (10, "leader", "nonsteamapps-kytyps5", False, 0),
+            (11, "nonsteamapps-kytyps5", "Kyty_launcher", True, 10),
+            (12, "nonsteamapps-kytyps5", "Kyty_launcher", True, 11),
+            (13, "nonsteamapps-kytyps5", "nonsteamapps-kytyps5", True, 0),
+        ]
+        self.assertEqual(x11.matching(windows, "nonsteamapps-kytyps5", set()), [11, 13])
 
     def test_a_process_runs_until_it_has_exited(self):
         self.assertTrue(x11.running(os.getpid()))
@@ -65,14 +74,17 @@ class XServerTests(unittest.TestCase):
         self.server.terminate()
         self.server.wait(timeout=10)
 
-    def make_window(self, name, kind):
+    def make_window(self, name, kind, transient_for=0):
         LIB.XCreateSimpleWindow.restype = ctypes.c_ulong
         LIB.XCreateSimpleWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_uint,
                                             ctypes.c_uint, ctypes.c_ulong, ctypes.c_ulong]
         LIB.XSetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(SetClassHint)]
+        LIB.XSetTransientForHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong]
         LIB.XMapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         window = LIB.XCreateSimpleWindow(self.display, self.root, 0, 0, 640, 360, 0, 0, 0)
         LIB.XSetClassHint(self.display, window, ctypes.byref(SetClassHint(name.encode(), kind.encode())))
+        if transient_for:
+            LIB.XSetTransientForHint(self.display, window, transient_for)
         LIB.XMapWindow(self.display, window)
         LIB.XSync(self.display, 0)
         return window
@@ -84,6 +96,7 @@ class XServerTests(unittest.TestCase):
         LIB.XSelectInput(self.display, self.root, x11.SUBSTRUCTURE_NOTIFY)
         browser = self.make_window("nonsteamapps-helium", "Nonsteamapps-helium")
         self.make_window("element", "Element")
+        self.make_window("nonsteamapps-helium", "Nonsteamapps-helium", transient_for=browser)
         passes = iter(range(6))
         self.assertEqual(x11.keep_fullscreen("nonsteamapps-helium", lambda: next(passes, None) is not None, 0.02, self.name), 1)
         LIB.XSync(self.display, 0)

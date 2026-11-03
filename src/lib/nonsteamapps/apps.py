@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, FILES, LOCALSEND, MINECRAFT, TOOLS
+from .layouts import BITWARDEN, BROWSER, FILES, KYTYPS5, LOCALSEND, MINECRAFT, TOOLS
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -144,6 +144,7 @@ BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
     (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
 )
+KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),))
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
     tuple(("General", key, value) for key, value in (
@@ -402,6 +403,17 @@ class SystemApp:
 
 
 @dataclass(frozen=True)
+class Release:
+    """An app NonSteamApps downloads itself from its project's GitHub releases, as it does for KytyPS5 (see :mod:`kyty`).
+
+    Each Steam account runs it from a folder of its own, where it keeps its data. ``settings`` are written there
+    when their files are missing and put back by every install.
+    """
+
+    settings: Tuple[IniSettings, ...] = ()
+
+
+@dataclass(frozen=True)
 class Browser:
     """An app that runs in NonSteamApps' own Helium: the browser itself, or one site full screen (kiosk).
 
@@ -461,7 +473,8 @@ CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
 
 @dataclass(frozen=True)
 class App:
-    """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), or one SteamOS includes (``system``).
+    """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
+    (``system``), or one it downloads from its project's releases (``release``).
 
     ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
     :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
@@ -490,6 +503,7 @@ class App:
     flatpak: str = ""
     browser: Optional[Browser] = None
     system: Optional[SystemApp] = None
+    release: Optional[Release] = None
     args: Tuple[str, ...] = ()
     profile: Optional[Profile] = None
     controller: str = ""
@@ -645,6 +659,19 @@ APPS: Tuple[App, ...] = (
         game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
         qt_window=True,
         notice="Prism Launcher asks for a language and the Microsoft account that owns Minecraft on its first start, once for each Steam account",
+    ),
+    App(
+        id="kytyps5",
+        name="KytyPS5",
+        client="KytyPS5",
+        summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
+        release=Release(settings=(KYTY_SETTINGS,)),
+        controller=KYTYPS5.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        fullscreen_class="nonsteamapps-kytyps5",
+        notice="KytyPS5 plays only games you own, copied from your own console; it updates with `nonsteamapps update`, not every week",
     ),
     App(
         id="protonup",

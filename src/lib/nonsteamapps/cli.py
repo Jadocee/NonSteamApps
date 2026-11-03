@@ -752,6 +752,11 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
         if folders:
             apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", folders),)).apply(home)
             print(f"  starting with the game folders another account set up: {folders}")
+    if not kyty.game_folders([home / kyty.SETTINGS_FILE], keys=("game_dirs", "game_dir")):
+        games = paths.home / kyty.DEFAULT_GAMES
+        games.mkdir(parents=True, exist_ok=True)
+        apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", str(games)),)).apply(home)
+        print(f"  starting with the games folder {games}: copy your games there, or add folders in KytyPS5's global settings")
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}

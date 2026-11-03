@@ -177,6 +177,7 @@ KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
 run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
 check "KytyPS5's launcher started in the account's folder" grep -qF "\"cwd\": \"$KYTY_HOME\", \"folder\": \"$KYTY_HOME\"" "$WORK/kyty.log"
 check "KytyPS5's own updater is off" grep -qxF "check_updates_on_startup=false" "$KYTY_HOME/Kyty.ini"
+check "KytyPS5 started with a games folder, so it asks for none" grep -qxF "game_dirs=$HOME_DIR/Games/PS5" "$KYTY_HOME/Kyty.ini"
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
 check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
 check "the game's downloaded content went to the folder every account shares" test -d "$PROGRAM/profiles/kytyps5/games/_DownloadData/PPSA00000" -a -L "$KYTY_HOME/_DownloadData"

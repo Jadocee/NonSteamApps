@@ -258,6 +258,10 @@ The owner answered the open questions. Where these answers differ from the text 
     - **How Steam stores it:** a tool forced on a non-Steam shortcut is kept in the install's `config/config.vdf`, under `InstallConfigStore/Software/Valve/Steam/CompatToolMapping` and the shortcut's 32-bit app ID. A shortcut without an entry, or with one that names no tool, runs natively [34]. Guides apply Proton to non-Steam games through this per-shortcut setting [35].
     - **What NonSteamApps does:** `compat` removes any forced tool from NonSteamApps' shortcuts, as Steam ROM Manager's "none" does. It runs on `steam add`, so on every install and repair, while Steam is closed, and says which app it reset. It keeps a backup, and writes nothing when nothing needs to change; the file round-trips byte for byte. Removing an app drops its entries once no account has its shortcut, because Steam never prunes them. `doctor` reports a forced tool.
 
+25. **New apps on a repeat install (bug fix, owner report).** After updating, the owner did not see Proton Calendar or Prism Launcher. Run again without app names, the installer repaired only the apps already installed, so apps added in later versions never reached an existing install: Files, Prism Launcher and Proton Calendar.
+    - **Fix:** the record now keeps `offered`, the apps that existed at each install, whether the user took them or not. A repeat install without names finds the apps never offered, asks once whether to add them (`--yes` accepts), and prints the command to add them later if declined. An app the user removed stays offered, so it does not come back.
+    - **Older records:** a record from before has no `offered` list, so each app it does not manage counts as new, once.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources

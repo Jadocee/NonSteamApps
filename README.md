@@ -45,13 +45,13 @@ In Desktop Mode, open Konsole and run:
 curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash
 ```
 
-This installs all eleven apps. To choose, name them:
+This installs every app in the table above. To choose, name them:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- youtube jellyfin
 ```
 
-From a clone, run `./install.sh [APP...]`. Run it again at any time to update NonSteamApps or repair the apps you use; without names, it handles the apps already installed. Steam must be closed while its library is changed, so the installer offers to close Steam and starts it again afterwards. It cannot do that from Game Mode.
+From a clone, run `./install.sh [APP...]`. Run it again at any time to update NonSteamApps or repair the apps you use. Without names, it handles the apps already installed, and offers to add any app NonSteamApps has gained since your last install; an app you removed is not offered again. Steam must be closed while its library is changed, so the installer offers to close Steam and starts it again afterwards. It cannot do that from Game Mode.
 
 | Option | Effect |
 | --- | --- |
@@ -262,7 +262,7 @@ Installing NonSteamApps on a device with SteamOS YT, the Helium-based YouTube ki
 
 ```bash
 python3 -m unittest discover -s tests          # apps, Flatpak, Helium (with real signatures), Steam, layouts, migration and command-line flows
-shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo
+shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin
 tests/sandbox.sh                               # install.sh, launches through the links Steam runs, uninstall.sh
 node tools/render-artwork.js [APP...]          # render assets/src/<app> into assets/artwork/<app>
 ```

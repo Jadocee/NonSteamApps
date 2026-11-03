@@ -349,11 +349,19 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         ui.warn("this does not look like SteamOS; continuing anyway")
     record = Record.load(paths.record)
     old = legacy.Legacy.detect()
-    chosen = _choose(args.apps) or _managed(record)
+    named = _choose(args.apps)
+    chosen = named or _managed(record)
     if not chosen:
         chosen = list(apps.APPS)
         if not ui.confirm(f"Install {_listing(chosen)}?", default=True):
             raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install {' '.join(apps.ids())}")
+    elif not named:
+        new = [app for app in apps.APPS if record.is_new(app.id)]
+        if new and ui.confirm(f"New in NonSteamApps since your last install: {_listing(new)}. Add {'them' if len(new) > 1 else 'it'}?", default=True):
+            chosen = [app for app in apps.APPS if app in chosen or app in new]
+        elif new:
+            ui.info(f"To add {'them' if len(new) > 1 else 'it'} later, run: {paths.launcher} install {' '.join(app.id for app in new)}")
+    record.mark_offered(apps.ids())
     youtube = apps.by_id("youtube")
     if old.present() and youtube not in chosen:
         chosen.insert(0, youtube)

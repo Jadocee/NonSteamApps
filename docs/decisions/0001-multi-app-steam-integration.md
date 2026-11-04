@@ -378,6 +378,11 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Hold View for a pointer:** the Emulator layout now has a mode shift, which Steam Input applies while a button is held and drops when it is let go [89]. Holding View shifts the right stick and the face buttons into Valve's Web Browser groups for the same controller: the stick moves the pointer and its click clicks, A clicks, B is Escape, Y is Enter, and X keeps Web Browser's on-screen keyboard. A mode shift is a `mode_shift <source> <group>` binding on the held button, beside its own, and a group bound as `<source> active modeshift` [90]. View still sends its own button, so a short press in a game is unchanged. Triggers and bumpers cannot be shifted [89], so R2 does not click; Steam's own chords, STEAM with the right stick and R2, also point and click. Without Valve's Web Browser layout on the device, the layout is written without the shift.
     - **Eden's games folder:** Eden's sandbox has no access to the home folder [77], so `~/Games/Switch` is created and opened to it read-only with `--filesystem` for each start from Steam, as item 27 does for Steam's libraries. It joins the game list, scanned with its subfolders, while none of the folders added to it exists, after the SD card and NAND entries Eden adds itself only to an empty list (`Paths\gamedirs`, written as Eden writes it) [76]. Started from the applications menu, Eden cannot read it.
 
+45. **No glow around the highlighted tile (owner report).** The owner found the soft glow that item 43 put around the highlighted tile cut off where it reached past the tile. The glow is removed and the light ring stays.
+    - Giving the glow room would mean changing YouTube's layout, which the sheet leaves alone (item 40); a glow inside the ring, which nothing would cut off, would lighten the edges of the thumbnail instead.
+    - In the owner's developer-tools reports (item 42), YouTube's own ring has no shadow, so none returns in its place. The sheet now sets colours only, and its test no longer allows `box-shadow`.
+    - Each start copies the changed sheet over the old one (item 40), so installs need nothing else.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources

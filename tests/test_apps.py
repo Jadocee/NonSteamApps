@@ -161,7 +161,7 @@ class ArgumentTests(unittest.TestCase):
         declarations = [part.strip() for _, block in rules for part in block.split(";") if part.strip()]
         properties = {declaration.split(":", 1)[0].strip() for declaration in declarations}
         self.assertLessEqual({name for name in properties if not name.startswith("--")},
-                             {"background", "background-color", "background-image", "border-color", "box-shadow", "color", "fill", "filter"})
+                             {"background", "background-color", "background-image", "border-color", "color", "fill", "filter"})
         selectors = " ".join(selector for selector, _ in rules)
         self.assertEqual(re.findall(r"\.(?!zylon-focus|vt-|WEB_PAGE_TYPE_)[A-Za-z][\w-]*", selectors), [])
         self.assertTrue(all(declaration.endswith("!important") for declaration in declarations if not declaration.startswith("--nonsteamapps-")))

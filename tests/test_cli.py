@@ -394,11 +394,12 @@ class LaunchTests(CliTestCase):
             "-qwindowgeometry", "1280x720+0+0",
         ])
 
-    def test_eden_starts_in_each_accounts_folder_full_screen_and_scaled_for_a_tv(self):
+    def test_eden_starts_in_each_accounts_folder_full_screen_on_x11_and_scaled_for_a_tv(self):
         folder = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}"
         games = self.home / "Games" / "Switch"
+        x11 = ["--socket=x11", "--nosocket=fallback-x11", "--env=QT_QPA_PLATFORM=xcb"]
         argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
-        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", *x11, "dev.eden_emu.eden", "-f"])
         settings = (folder / "user/config/qt-config.ini").read_text()
         self.assertIn(f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n", settings)
         self.assertTrue(games.is_dir())
@@ -407,14 +408,14 @@ class LaunchTests(CliTestCase):
                 mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
             argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
         self.assertEqual(argv, [
-            self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb",
+            self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--env=QT_SCALE_FACTOR=3", *x11,
             "dev.eden_emu.eden", "-f", "-qwindowgeometry", "1280x720+0+0",
         ])
         self.assertEqual((folder / "user/config/qt-config.ini").read_text().count(str(games)), 1)
         self.install("eden")
         config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
         argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
-        self.assertEqual(argv[2:], [f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        self.assertEqual(argv[2:], [f"--filesystem={games}:ro", *x11, "dev.eden_emu.eden", "-f"])
         self.assertIn(f"path={games}\n", (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
 
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):

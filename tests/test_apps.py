@@ -147,7 +147,8 @@ class ArgumentTests(unittest.TestCase):
         folder = HOME / ".var/app/dev.eden_emu.eden/data/eden-steam-111"
         self.assertEqual((eden.arguments(HOME, 111), eden.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
         self.assertEqual((eden.arguments(HOME, None), eden.run_options(HOME, None)), (["-f"], []))
-        self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, ()))
+        self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [("eden", (("QT_QPA_PLATFORM", "xcb"),))])
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
         self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden"])
 

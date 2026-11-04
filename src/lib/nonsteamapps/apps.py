@@ -676,8 +676,10 @@ class App:
     the firewall, when one is running, so other devices can reach the app.
 
     For a Flathub app, ``env`` is set for every start from Steam and ``game_mode_env`` for starts in Game
-    Mode. ``settings`` are NonSteamApps' TV set-up in the app's own folder, for an app without data per
-    account: written when missing and put back by every install. ``libraries`` gives the app's sandbox
+    Mode. An ``x11`` app is given X11 for every start from Steam, even where Flatpak would give it only
+    Wayland (see :func:`flatpak.x11_options`); its ``env`` chooses X11 for its toolkit. ``settings`` are
+    NonSteamApps' TV set-up in the app's own folder, for an app without data per account: written when
+    missing and put back by every install. ``libraries`` gives the app's sandbox
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
@@ -711,6 +713,7 @@ class App:
     ports: Tuple[str, ...] = ()
     env: Tuple[Tuple[str, str], ...] = ()
     game_mode_env: Tuple[Tuple[str, str], ...] = ()
+    x11: bool = False
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
@@ -884,7 +887,8 @@ APPS: Tuple[App, ...] = (
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
-        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        env=(("QT_QPA_PLATFORM", "xcb"),),
+        x11=True,
         qt_window=True,
         games="Games/Switch",
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",

@@ -21,7 +21,7 @@ from . import (
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
-from .flatpak import Flatpak, FlatpakError, Installed
+from .flatpak import Flatpak, FlatpakError, Installed, x11_options
 from .helium import HeliumError, Runtime
 
 EXIT_ERROR = 1
@@ -715,8 +715,9 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
 
 
 def _environment(app: App, game_mode: bool) -> List[str]:
-    """``flatpak run`` options for the variables the app is started with from Steam."""
-    return [f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ()))]
+    """``flatpak run`` options for the display and the variables the app is started with from Steam."""
+    display_options = x11_options() if app.x11 else []
+    return [*display_options, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
 
 
 def _libraries(app: App) -> List[str]:

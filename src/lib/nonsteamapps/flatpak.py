@@ -11,6 +11,15 @@ REMOTE = "flathub"
 REMOTE_URL = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 
 
+def x11_options() -> List[str]:
+    """``flatpak run`` options that give an app X11 even where Flatpak finds a Wayland display.
+
+    An app that falls back to X11 (``fallback-x11``) gets X11 only where there is no Wayland display, and
+    Flatpak 1.14 and 1.16 ignore ``--socket=x11`` while that fallback is set, so it is turned off as well.
+    """
+    return ["--socket=x11", "--nosocket=fallback-x11"]
+
+
 class FlatpakError(RuntimeError):
     """A ``flatpak`` command failed."""
 

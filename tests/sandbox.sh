@@ -155,7 +155,7 @@ check "Prism Launcher starts dark and quits after the game" grep -qxF "QuitAfter
 check "Prism Launcher shares Minecraft's downloads" test "$(readlink "$PRISM/PrismLauncher-steam-222/assets")" == "../PrismLauncher/assets"
 EDEN="$HOME_DIR/.var/app/dev.eden_emu.eden/data"
 run "$PROGRAM/apps/eden" --steam-account 222
-check "Eden started full screen and portable, in the account's folder, with its games folder" grep -qF "[\"run\", \"--cwd=$EDEN/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch:ro\", \"dev.eden_emu.eden\", \"-f\"]" "$WORK/flatpak.log"
+check "Eden started full screen, portable and on X11, in the account's folder, with its games folder" grep -qF "[\"run\", \"--cwd=$EDEN/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"dev.eden_emu.eden\", \"-f\"]" "$WORK/flatpak.log"
 check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden shares the keys, firmware and installed games" test "$(readlink "$EDEN/eden-steam-222/user/keys")" == "../../eden/keys" -a -d "$EDEN/eden/nand/user/Contents/registered"

@@ -746,17 +746,21 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
     for wanted in app.release.settings:
         if not wanted.target(home).exists():
             wanted.apply(home)
+    apps.apply_changes(home, app.release.changes)
     if fresh:
         others = [path for path in sorted((paths.profiles / app.id).glob(f"*/{kyty.SETTINGS_FILE}")) if path.parent != home]
         folders = kyty.game_folders(others)
         if folders:
             apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", folders),)).apply(home)
             print(f"  starting with the game folders another account set up: {folders}")
-    if not kyty.game_folders([home / kyty.SETTINGS_FILE], keys=("game_dirs", "game_dir")):
+    listed = kyty.listed_game_folders(home / kyty.SETTINGS_FILE)
+    if not any(Path(folder).is_dir() for folder in listed):
         games = paths.home / kyty.DEFAULT_GAMES
         games.mkdir(parents=True, exist_ok=True)
-        apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", str(games)),)).apply(home)
-        print(f"  starting with the games folder {games}: copy your games there, or add folders in KytyPS5's global settings")
+        folders = listed if str(games) in listed else [*listed, str(games)]
+        apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", kyty.game_folders_value(folders)),)).apply(home)
+        reason = "none of the game folders KytyPS5 lists exists" if listed else "KytyPS5 lists no game folder"
+        print(f"  {reason}, so it has {games}: copy your games there, or add folders in its global settings")
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}

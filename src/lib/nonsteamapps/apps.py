@@ -157,6 +157,24 @@ def place_userstyles(source: Path, folder: Path, names: Sequence[str]) -> List[s
     return written
 
 
+def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
+    """Make each change not yet recorded in ``folder``'s ``nonsteamapps.json`` once; return the names made now.
+
+    A change whose file cannot be read stays pending, so it is made at a later start instead.
+    """
+    if not changes:
+        return []
+    record = Path(folder) / CHANGES_FILE
+    try:
+        done = list(json.loads(record.read_text(encoding="utf-8"))["changes"])
+    except (OSError, ValueError, TypeError, KeyError):
+        done = []
+    applied = [name for name, settings in changes if name not in done and settings.apply(folder) is not None]
+    if applied:
+        atomic_write_json(record, {"changes": done + applied})
+    return applied
+
+
 def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
     """The keys of ``[group]`` in an INI file that start with ``prefix``, with their values as they are written."""
     try:
@@ -194,7 +212,8 @@ BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
     (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
 )
-KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),))
+KYTY_TV = IniSettings("Kyty.ini", (("MainDialog", "theme", "1"), ("Launcher", "grid_view", "true"), ("Launcher", "grid_icon_width", "256")))
+KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"), *KYTY_TV.values))
 STEAM_VIRTUAL_GAMEPAD = "03000000de280000ff11000001000000"
 
 
@@ -260,7 +279,7 @@ class FolderProfile:
     shared: str = ""
     defaults: Tuple[Tuple[str, str], ...] = ()
     settings: Tuple[Settings, ...] = ()
-    changes: Tuple[Tuple[str, JsonSettings], ...] = ()
+    changes: Tuple[Tuple[str, Settings], ...] = ()
     links: Tuple[str, ...] = ()
 
     def path(self, app_home: Path, account: int) -> Path:
@@ -294,17 +313,7 @@ class FolderProfile:
         self._change(folder)
 
     def _change(self, folder: Path) -> None:
-        if not self.changes:
-            return
-        record = folder / CHANGES_FILE
-        try:
-            done = list(json.loads(record.read_text(encoding="utf-8"))["changes"])
-        except (OSError, ValueError, TypeError, KeyError):
-            done = []
-        pending = [(name, settings) for name, settings in self.changes if name not in done]
-        applied = [name for name, settings in pending if settings.apply(folder) is not None]
-        if applied:
-            atomic_write_json(record, {"changes": done + applied})
+        apply_changes(folder, self.changes)
 
     def _link(self, folder: Path, shared: Path) -> None:
         for name in self.links:
@@ -556,10 +565,12 @@ class Release:
     """An app NonSteamApps downloads itself from its project's GitHub releases, as it does for KytyPS5 (see :mod:`kyty`).
 
     Each Steam account runs it from a folder of its own, where it keeps its data. ``settings`` are written there
-    when their files are missing and put back by every install.
+    when their files are missing and put back by every install; ``changes`` are made once in folders that
+    already exist, as :attr:`FolderProfile.changes` are.
     """
 
     settings: Tuple[IniSettings, ...] = ()
+    changes: Tuple[Tuple[str, IniSettings], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -847,7 +858,7 @@ APPS: Tuple[App, ...] = (
         name="KytyPS5",
         client="KytyPS5",
         summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
-        release=Release(settings=(KYTY_SETTINGS,)),
+        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV),)),
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),

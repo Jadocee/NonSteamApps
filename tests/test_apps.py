@@ -441,6 +441,28 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(OSError):
             apps.place_userstyles(source, folder, ["missing.css"])
 
+    def test_edens_game_list_gets_the_games_folder_while_no_folder_added_to_it_exists(self):
+        settings, games = self.home / "qt-config.ini", self.home / "Games" / "Switch"
+        settings.write_text("[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
+                            "Paths\\gamedirs\\size=3\n")
+        self.assertTrue(apps.add_game_folder(settings, games))
+        for line in (f"Paths\\gamedirs\\4\\path={games}", "Paths\\gamedirs\\4\\deep_scan=true", "Paths\\gamedirs\\size=4"):
+            self.assertIn(line + "\n", settings.read_text())
+        self.assertNotIn("size=3", settings.read_text())
+        self.assertFalse(apps.add_game_folder(settings, games))
+        own = self.home / "My Switch games"
+        own.mkdir()
+        settings.write_text(f"[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=\"{own}\"\nPaths\\gamedirs\\size=2\n")
+        self.assertFalse(apps.add_game_folder(settings, games))
+        own.rmdir()
+        self.assertTrue(apps.add_game_folder(settings, games))
+        self.assertIn(f"Paths\\gamedirs\\3\\path={games}\n", settings.read_text())
+        self.assertIn("Paths\\gamedirs\\size=3\n", settings.read_text())
+        fresh = self.home / "fresh" / "qt-config.ini"
+        self.assertTrue(apps.add_game_folder(fresh, games))
+        self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
+                                            f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
+
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")
         home = localsend.home(self.home)

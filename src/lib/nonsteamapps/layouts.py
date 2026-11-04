@@ -20,8 +20,10 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
 - **Emulator**, for KytyPS5 and Eden, starts from Gamepad with Mouse Trackpad, whose right trackpad moves the
-  pointer but whose press is the right stick's click. It presses the left mouse button instead, so that the
-  emulators' own menus can be used; the rest is a gamepad for the game, and other controllers get only that.
+  pointer but whose press is the right stick's click. It presses the left mouse button instead; the rest is a
+  gamepad for the game. Holding View shifts the right stick and the face buttons into Web Browser's for every
+  controller, for the emulators' own windows: the stick points (its click clicks), A clicks, B is Escape,
+  Y is Enter and X the on-screen keyboard. Valve does not let a mode shift change triggers or bumpers.
 - **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
@@ -137,6 +139,14 @@ def _emulator(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.
     return group
 
 
+def _windows(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "button_diamond":
+        _bind(group, "button_a", ["mouse_button LEFT, Click"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press RETURN, OK"])
+    return group
+
+
 def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "dpad":
         _bind(group, "dpad_west", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
@@ -166,10 +176,21 @@ def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
 
 
 @dataclass(frozen=True)
+class Shift:
+    """While ``button`` of the switches is held, ``sources`` take their groups from Valve's layout ``template``, changed by ``change``."""
+
+    button: str
+    template: str
+    sources: Tuple[str, ...]
+    change: Change
+
+
+@dataclass(frozen=True)
 class Layout:
     """A layout made from Valve's ``base`` layout for the Deck, with ``change`` applied to each group it keeps.
 
-    ``replaces`` are the slugs it had in earlier versions, whose files go when it is written or removed.
+    ``replaces`` are the slugs it had in earlier versions, whose files go when it is written or removed. ``shift``
+    is a mode shift, built from another of Valve's layouts on the device.
     """
 
     slug: str
@@ -179,6 +200,7 @@ class Layout:
     change: Change
     revision: str = "1"
     replaces: Tuple[str, ...] = ()
+    shift: Optional[Shift] = None
 
     def file_name(self, kind: str, slug: str = "") -> str:
         return f"{kind}_{PREFIX}{slug or self.slug}.vdf"
@@ -214,10 +236,12 @@ MINECRAFT = Layout(
 EMULATOR = Layout(
     slug="emulator",
     title="Emulator (NonSteamApps)",
-    description="Steam's Gamepad layout for games, with the right trackpad as a mouse whose press clicks, for the emulator's own menus",
+    description="Steam's Gamepad layout for games; hold View for the emulator's own windows: right stick to point, A to click, B for Escape, Y for Enter, X for the keyboard",
     base="controller_neptune_gamepad+mouse.vdf",
     change=_emulator,
+    revision="2",
     replaces=("kytyps5",),
+    shift=Shift("button_escape", "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
 )
 LOCALSEND = Layout(
     slug="localsend",
@@ -279,8 +303,40 @@ def _inputs(group: vdf.Pairs) -> List[str]:
     return [name for name, _ in _find(group, "inputs") or []]
 
 
-def build(layout: Layout, base: vdf.Pairs, target: vdf.Pairs) -> Optional[vdf.Pairs]:
-    """``layout`` for the controller of Valve's Gamepad layout ``target``, from Valve's ``base`` layout."""
+def _add(group: vdf.Pairs, button: str, bindings: List[str]) -> bool:
+    for name, value in _find(group, "inputs") or []:
+        if name == button:
+            activator = _find(_find(value, "activators") or [], "Full_Press") or []
+            pairs = _find(activator, "bindings")
+            if isinstance(pairs, list):
+                pairs.extend(("binding", binding) for binding in bindings)
+                return True
+    return False
+
+
+def _add_shift(shift: Shift, template: vdf.Pairs, targets: Dict[str, vdf.Pairs], body: vdf.Pairs, sources: vdf.Pairs) -> None:
+    """Add ``shift``'s groups as mode shifts, and bind them to its button; leave the layout as it is when it has no such button."""
+    switch_id = next((group_id for group_id, binding in sources if binding == "switch active"), None)
+    switch = next((group for name, group in body if _find(group, "id") == switch_id), None)
+    if switch is None or shift.button not in _inputs(switch):
+        return
+    groups = _active_groups(_mappings(template))
+    bindings = []
+    for source in shift.sources:
+        if source not in targets or source not in groups:
+            continue
+        group = shift.change(source, copy.deepcopy(groups[source]), groups)
+        group_id = str(len(sources))
+        body.append(("group", [("id", group_id), *[(name, value) for name, value in group if name != "id"]]))
+        sources.append((group_id, f"{source} active modeshift"))
+        bindings.append(f"mode_shift {source} {group_id}")
+    if bindings:
+        _add(switch, shift.button, bindings)
+
+
+def build(layout: Layout, base: vdf.Pairs, target: vdf.Pairs, shift: Optional[vdf.Pairs] = None) -> Optional[vdf.Pairs]:
+    """``layout`` for the controller of Valve's Gamepad layout ``target``, from Valve's ``base`` layout, and ``shift``, the
+    layout its mode shift comes from."""
     base_mappings, target_mappings = _mappings(base), _mappings(target)
     kind = str(_find(target_mappings, "controller_type") or "")
     if not kind.startswith("controller_"):
@@ -303,6 +359,8 @@ def build(layout: Layout, base: vdf.Pairs, target: vdf.Pairs) -> Optional[vdf.Pa
         sources.append((group_id, f"{source} active"))
     if not sources:
         return None
+    if layout.shift and shift is not None:
+        _add_shift(layout.shift, shift, _active_groups(target_mappings), body, sources)
     settings = _find(base_mappings if same_controller else target_mappings, "settings") or []
     header: vdf.Pairs = [
         ("version", "3"),
@@ -329,12 +387,16 @@ def install(root: Path, layout: Layout) -> List[str]:
         base = _read(directory / layout.base)
     except (OSError, vdf.VdfError):
         return []
+    try:
+        shift = _read(directory / layout.shift.template) if layout.shift else None
+    except (OSError, vdf.VdfError):
+        shift = None
     written = []
     for kind, name in sorted(controllers.find_templates(root, "Gamepad").items()):
         if kind.startswith("controller_mobile"):
             continue
         try:
-            built = build(layout, base, _read(directory / name))
+            built = build(layout, base, _read(directory / name), shift)
         except (OSError, vdf.VdfError):
             continue
         if built is None:

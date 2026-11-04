@@ -201,6 +201,34 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertNotIn("right_trackpad", xbox)
         self.assertEqual(bindings(xbox["button_diamond"], "button_y"), ["xinput_button Y"])
 
+    def test_holding_view_turns_the_emulator_layout_into_a_pointer_for_launcher_windows(self):
+        shift = self.read(layouts.EMULATOR.shift.template)
+        for template in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
+            with self.subTest(template=template):
+                built = layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read(template), shift)
+                mappings = find(built, "controller_mappings")
+                by_id = {find(group, "id"): group for name, group in mappings if name == "group"}
+                bound = find(find(mappings, "preset"), "group_source_bindings")
+                shifted = {binding.split()[0]: by_id[group_id] for group_id, binding in bound if binding.endswith("active modeshift")}
+                active = {binding.split()[0]: by_id[group_id] for group_id, binding in bound if binding.endswith(" active")}
+                self.assertEqual(sorted(shifted), ["button_diamond", "right_joystick"])
+                ids = {binding.split()[0]: group_id for group_id, binding in bound if binding.endswith("active modeshift")}
+                self.assertEqual(bindings(active["switch"], "button_escape"),
+                                 ["xinput_button button_escape", f"mode_shift right_joystick {ids['right_joystick']}",
+                                  f"mode_shift button_diamond {ids['button_diamond']}"])
+                self.assertEqual(find(shifted["right_joystick"], "mode"), "joystick_mouse")
+                self.assertEqual(bindings(shifted["right_joystick"], "click"), ["mouse_button LEFT"])
+                self.assertEqual([bindings(shifted["button_diamond"], button) for button in ("button_a", "button_b", "button_x", "button_y")],
+                                 [["mouse_button LEFT, Click"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"],
+                                  ["key_press RETURN, OK"]])
+                self.assertEqual(bindings(active["button_diamond"], "button_a"), ["xinput_button A"])
+                self.assertEqual(find(active["right_joystick"], "mode"), "joystick_move")
+                self.assertEqual(find(mappings, "revision"), "2")
+        alone = layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
+        self.assertFalse(any(binding.endswith("modeshift") for _, binding in find(find(find(alone, "controller_mappings"), "preset"), "group_source_bindings")))
+        (self.folder / layouts.EMULATOR.shift.template).unlink()
+        self.assertEqual(len(layouts.install(self.root, layouts.EMULATOR)), 2)
+
     def test_youtube_stays_a_gamepad_and_holding_view_reloads_it(self):
         for template in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
             with self.subTest(template=template):

@@ -591,6 +591,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
     _place_userstyles(paths, app, account)
+    games = _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
@@ -598,7 +599,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     folder = app.profile.data_folder(app.home(paths.home), account) if required and app.profile else None
     if folder and required.apply(folder):
         print(f"  set {', '.join(key for key, _ in required.values)} in {required.file}, which the TV scale needs")
-    options = [*app.run_options(paths.home, account), *scale_options, *_environment(app, game_mode), *_libraries(app)]
+    options = [*app.run_options(paths.home, account), *games, *scale_options, *_environment(app, game_mode), *_libraries(app)]
     channel = _link_channel(paths, app, game_mode)
     if channel:
         options += links.sandbox_options(paths.program / "share" / "sandbox", channel[0], app.callbacks)
@@ -615,6 +616,22 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
+    """Create the app's games folder, add it to the game list when the user has none there, and open it to the sandbox for this run."""
+    if not app.games:
+        return []
+    games = paths.home / app.games
+    try:
+        games.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"  {app.client} starts without {games}: {exc}")
+        return []
+    settings = app.profile.settings_file(app.home(paths.home), account) if isinstance(app.profile, apps.PortableProfile) else None
+    if settings and apps.add_game_folder(settings, games):
+        print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
+    return [f"--filesystem={games}:ro"]
 
 
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
@@ -746,17 +763,21 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
     for wanted in app.release.settings:
         if not wanted.target(home).exists():
             wanted.apply(home)
+    apps.apply_changes(home, app.release.changes)
     if fresh:
         others = [path for path in sorted((paths.profiles / app.id).glob(f"*/{kyty.SETTINGS_FILE}")) if path.parent != home]
         folders = kyty.game_folders(others)
         if folders:
             apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", folders),)).apply(home)
             print(f"  starting with the game folders another account set up: {folders}")
-    if not kyty.game_folders([home / kyty.SETTINGS_FILE], keys=("game_dirs", "game_dir")):
+    listed = kyty.listed_game_folders(home / kyty.SETTINGS_FILE)
+    if not any(Path(folder).is_dir() for folder in listed):
         games = paths.home / kyty.DEFAULT_GAMES
         games.mkdir(parents=True, exist_ok=True)
-        apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", str(games)),)).apply(home)
-        print(f"  starting with the games folder {games}: copy your games there, or add folders in KytyPS5's global settings")
+        folders = listed if str(games) in listed else [*listed, str(games)]
+        apps.IniSettings(kyty.SETTINGS_FILE, (("Launcher", "game_dirs", kyty.game_folders_value(folders)),)).apply(home)
+        reason = "none of the game folders KytyPS5 lists exists" if listed else "KytyPS5 lists no game folder"
+        print(f"  {reason}, so it has {games}: copy your games there, or add folders in its global settings")
     game_mode = steamclient.in_game_mode()
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}

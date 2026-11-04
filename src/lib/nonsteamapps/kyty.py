@@ -19,6 +19,7 @@ another account set up (:func:`game_folders`).
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -423,6 +424,20 @@ def share_game_data(home: Path, games: Path) -> List[str]:
             continue
         link.symlink_to(os.path.relpath(shared, home))
     return kept
+
+
+def listed_game_folders(settings_file: Path) -> List[str]:
+    """The game folders a ``Kyty.ini`` lists, as KytyPS5 reads them: ``game_dirs``, or else the older ``game_dir``."""
+    for key in ("game_dirs", "game_dir"):
+        value = game_folders([settings_file], keys=(key,))
+        if value:
+            return [folder.strip() for folder in next(csv.reader([value], skipinitialspace=True)) if folder.strip()]
+    return []
+
+
+def game_folders_value(folders: Sequence[str]) -> str:
+    """``folders`` as QSettings writes a list in an INI file, with a folder that holds a comma in quotes."""
+    return ", ".join('"' + folder.replace('"', '\\"') + '"' if "," in folder or '"' in folder else folder for folder in folders)
 
 
 def game_folders(settings_files: Sequence[Path], keys: Sequence[str] = ("game_dirs",)) -> Optional[str]:

@@ -123,6 +123,7 @@ check "Prism Launcher got the Minecraft layout for each controller" test "$(find
 check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
 check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
+check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
 echo "==> launch through the link Steam runs"
@@ -154,7 +155,8 @@ check "Prism Launcher starts dark and quits after the game" grep -qxF "QuitAfter
 check "Prism Launcher shares Minecraft's downloads" test "$(readlink "$PRISM/PrismLauncher-steam-222/assets")" == "../PrismLauncher/assets"
 EDEN="$HOME_DIR/.var/app/dev.eden_emu.eden/data"
 run "$PROGRAM/apps/eden" --steam-account 222
-check "Eden started full screen and portable, in the account's folder" grep -qF "[\"run\", \"--cwd=$EDEN/eden-steam-222\", \"dev.eden_emu.eden\", \"-f\"]" "$WORK/flatpak.log"
+check "Eden started full screen and portable, in the account's folder, with its games folder" grep -qF "[\"run\", \"--cwd=$EDEN/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch:ro\", \"dev.eden_emu.eden\", \"-f\"]" "$WORK/flatpak.log"
+check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden shares the keys, firmware and installed games" test "$(readlink "$EDEN/eden-steam-222/user/keys")" == "../../eden/keys" -a -d "$EDEN/eden/nand/user/Contents/registered"
 run "$PROGRAM/apps/files" --steam-account 222
@@ -178,6 +180,7 @@ run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --ste
 check "KytyPS5's launcher started in the account's folder" grep -qF "\"cwd\": \"$KYTY_HOME\", \"folder\": \"$KYTY_HOME\"" "$WORK/kyty.log"
 check "KytyPS5's own updater is off" grep -qxF "check_updates_on_startup=false" "$KYTY_HOME/Kyty.ini"
 check "KytyPS5 started with a games folder, so it asks for none" grep -qxF "game_dirs=$HOME_DIR/Games/PS5" "$KYTY_HOME/Kyty.ini"
+check "KytyPS5's launcher starts dark, with its games in a grid" test "$(grep -cxE 'theme=1|grid_view=true' "$KYTY_HOME/Kyty.ini")" -eq 2
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
 check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
 check "the game's downloaded content went to the folder every account shares" test -d "$PROGRAM/profiles/kytyps5/games/_DownloadData/PPSA00000" -a -L "$KYTY_HOME/_DownloadData"

@@ -396,17 +396,26 @@ class LaunchTests(CliTestCase):
 
     def test_eden_starts_in_each_accounts_folder_full_screen_and_scaled_for_a_tv(self):
         folder = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}"
+        games = self.home / "Games" / "Switch"
         argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
-        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", "dev.eden_emu.eden", "-f"])
-        self.assertTrue((folder / "user/config/qt-config.ini").is_file())
+        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        settings = (folder / "user/config/qt-config.ini").read_text()
+        self.assertIn(f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n", settings)
+        self.assertTrue(games.is_dir())
         self.assertEqual((folder / "user/keys").resolve(), (self.home / ".var/app/dev.eden_emu.eden/data/eden/keys").resolve())
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
                 mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
             argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
         self.assertEqual(argv, [
-            self.fake.command, "run", f"--cwd={folder}", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb", "dev.eden_emu.eden", "-f",
-            "-qwindowgeometry", "1280x720+0+0",
+            self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb",
+            "dev.eden_emu.eden", "-f", "-qwindowgeometry", "1280x720+0+0",
         ])
+        self.assertEqual((folder / "user/config/qt-config.ini").read_text().count(str(games)), 1)
+        self.install("eden")
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[2:], [f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        self.assertIn(f"path={games}\n", (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
 
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
@@ -893,7 +902,10 @@ class KytyTests(CliTestCase):
         self.assertFalse(os.path.lexists(home / "kyty_updater"))
         self.assertEqual(environ["TERMINAL"], str(self.paths.program / "share" / "kytyps5" / "terminal"))
         self.assertTrue(os.access(environ["TERMINAL"], os.X_OK))
-        self.assertIn("check_updates_on_startup=false", (home / "Kyty.ini").read_text())
+        settings = (home / "Kyty.ini").read_text()
+        for line in ("check_updates_on_startup=false", "theme=1", "grid_view=true", "grid_icon_width=256"):
+            self.assertIn(line + "\n", settings)
+        self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0"]})
         self.assertNotIn("RESOURCE_NAME", environ)
         watch.assert_not_called()
         argv, environ, _, watch = self.launch_kyty(game_mode=True)
@@ -901,32 +913,56 @@ class KytyTests(CliTestCase):
         self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "QT_SCALE_FACTOR")],
                          ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "1.5"])
         games = self.home / "Games" / "PS5"
-        self.assertIn(f"[Launcher]\ngame_dirs={games}\n", (home / "Kyty.ini").read_text())
+        self.assertIn(f"game_dirs={games}\n", (home / "Kyty.ini").read_text())
         self.assertTrue(games.is_dir())
-        apps.IniSettings("Kyty.ini", (("Launcher", "game_dirs", "/run/media/deck/SD/PS5, /home/deck/PS5"),)).apply(home)
+        card = self.home / "SD card" / "PS5"
+        card.mkdir(parents=True)
+        apps.IniSettings("Kyty.ini", (("Launcher", "game_dirs", f"{card}, /home/deck/PS5"),)).apply(home)
         self.launch_kyty(account=ALPHA)
         alpha = self.paths.profile("kytyps5", ALPHA)
-        self.assertIn("game_dirs=/run/media/deck/SD/PS5, /home/deck/PS5\n", (alpha / "Kyty.ini").read_text())
+        self.assertIn(f"game_dirs={card}, /home/deck/PS5\n", (alpha / "Kyty.ini").read_text())
         self.assertNotIn(str(games), (alpha / "Kyty.ini").read_text())
         self.assertIn("check_updates_on_startup=false", (alpha / "Kyty.ini").read_text())
         self.assertEqual((alpha / "_DownloadData").resolve(), (home / "_DownloadData").resolve())
         self.assertEqual((alpha / "_DownloadData").resolve(), self.paths.profiles / "kytyps5" / "games" / "_DownloadData")
         (home / "Kyty.ini").write_text("[MainDialog]\ncheck_updates_on_startup=true\n[GameConfigurations]\nsize=1\n")
         self.install("kytyps5")
-        self.assertEqual((home / "Kyty.ini").read_text(), "[MainDialog]\ncheck_updates_on_startup=false\n[GameConfigurations]\nsize=1\n")
+        self.assertEqual((home / "Kyty.ini").read_text(), "[MainDialog]\ncheck_updates_on_startup=false\ntheme=1\n[GameConfigurations]\nsize=1\n"
+                                                          "\n[Launcher]\ngrid_view=true\ngrid_icon_width=256\n")
 
-    def test_kytyps5_gets_a_games_folder_only_when_none_is_set(self):
+    def test_kytyps5_gets_a_games_folder_while_none_it_lists_exists(self):
         self.install("kytyps5")
         home = self.paths.profile("kytyps5", BETA)
         home.mkdir(parents=True)
-        (home / "Kyty.ini").write_text("[Launcher]\ngame_dir=/home/deck/Old PS5\n")
+        old = self.home / "Old PS5"
+        old.mkdir()
+        (home / "Kyty.ini").write_text(f"[Launcher]\ngame_dir={old}\n")
         self.launch_kyty()
         self.assertEqual((home / "Kyty.ini").read_text().count("game_dir"), 1)
         self.assertFalse((self.home / "Games").exists())
-        (home / "Kyty.ini").write_text("[Launcher]\ngame_dirs=\n")
+        games = self.home / "Games" / "PS5"
+        old.rmdir()
         self.launch_kyty()
-        self.assertIn(f"game_dirs={self.home / 'Games' / 'PS5'}\n", (home / "Kyty.ini").read_text())
-        self.assertTrue((self.home / "Games" / "PS5").is_dir())
+        self.assertIn(f"game_dirs={old}, {games}\n", (home / "Kyty.ini").read_text())
+        self.assertTrue(games.is_dir())
+        (home / "Kyty.ini").write_text('[Launcher]\ngame_dirs="/run/media/deck/SD, card/PS5"\n')
+        self.launch_kyty()
+        self.assertIn(f'game_dirs="/run/media/deck/SD, card/PS5", {games}\n', (home / "Kyty.ini").read_text())
+        self.launch_kyty()
+        self.assertEqual((home / "Kyty.ini").read_text().count(str(games)), 1)
+
+    def test_an_existing_kytyps5_folder_turns_dark_once_and_keeps_a_theme_chosen_later(self):
+        self.install("kytyps5")
+        home = self.paths.profile("kytyps5", BETA)
+        home.mkdir(parents=True)
+        (home / "Kyty.ini").write_text("[MainDialog]\ntheme=0\n[Launcher]\ngrid_view=false\n")
+        self.launch_kyty()
+        settings = (home / "Kyty.ini").read_text()
+        self.assertIn("theme=1\n", settings)
+        self.assertIn("grid_view=true\n", settings)
+        (home / "Kyty.ini").write_text(settings.replace("theme=1", "theme=2"))
+        self.launch_kyty()
+        self.assertIn("theme=2\n", (home / "Kyty.ini").read_text())
 
     def test_kytyps5_updates_only_when_asked_and_rolls_back(self):
         self.install("kytyps5")
@@ -953,7 +989,7 @@ class KytyTests(CliTestCase):
         self.assertEqual(self.run_cli("remove", "kytyps5", "--yes"), 0, self.errors)
         self.assertFalse(self.paths.kyty.exists())
         self.assertTrue(saves.is_dir())
-        self.assertEqual(sorted(path.name for path in saves.parent.iterdir()), ["Kyty.ini", "_DownloadData", "_PipelineCache", "_SaveData"])
+        self.assertEqual(sorted(path.name for path in saves.parent.iterdir()), ["Kyty.ini", "_DownloadData", "_PipelineCache", "_SaveData", "nonsteamapps.json"])
         self.assertTrue((saves.parent / "_DownloadData").is_symlink())
         self.assertTrue((self.paths.profiles / "kytyps5" / "games" / "_DownloadData").is_dir())
         self.install("kytyps5")

@@ -157,6 +157,50 @@ def place_userstyles(source: Path, folder: Path, names: Sequence[str]) -> List[s
     return written
 
 
+EDEN_GAME_LIST = "Paths\\gamedirs\\"
+EDEN_BUILT_IN = ("SDMC", "UserNAND", "SysNAND")
+
+
+def add_game_folder(settings_file: Path, folder: Path) -> bool:
+    """Add ``folder`` to Eden's game list in ``settings_file`` while none of the folders added to it exists; return whether it was.
+
+    Eden lists its SD card and NAND first, and adds them itself only to an empty list, so an empty list gets them
+    as well. ``folder`` is scanned with its subfolders.
+    """
+    entries = dict(ini_entries(settings_file, "UI", EDEN_GAME_LIST))
+    try:
+        size = int(entries.get(f"{EDEN_GAME_LIST}size", "0").strip('"'))
+    except ValueError:
+        size = 0
+    listed = [entries.get(f"{EDEN_GAME_LIST}{index}\\path", "").replace('"', "") for index in range(1, size + 1)]
+    added = [path for path in listed if path and path not in EDEN_BUILT_IN]
+    if str(folder) in added or any(Path(path).is_dir() for path in added):
+        return False
+    values = [("UI", f"{EDEN_GAME_LIST}{index}\\path", name) for index, name in enumerate(EDEN_BUILT_IN, 1)] if not size else []
+    index = (size or len(EDEN_BUILT_IN)) + 1
+    values += [("UI", f"{EDEN_GAME_LIST}{index}\\path", str(folder)), ("UI", f"{EDEN_GAME_LIST}{index}\\deep_scan", "true"),
+               ("UI", f"{EDEN_GAME_LIST}size", str(index))]
+    return bool(IniSettings(Path(settings_file).name, tuple(values)).apply(Path(settings_file).parent))
+
+
+def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
+    """Make each change not yet recorded in ``folder``'s ``nonsteamapps.json`` once; return the names made now.
+
+    A change whose file cannot be read stays pending, so it is made at a later start instead.
+    """
+    if not changes:
+        return []
+    record = Path(folder) / CHANGES_FILE
+    try:
+        done = list(json.loads(record.read_text(encoding="utf-8"))["changes"])
+    except (OSError, ValueError, TypeError, KeyError):
+        done = []
+    applied = [name for name, settings in changes if name not in done and settings.apply(folder) is not None]
+    if applied:
+        atomic_write_json(record, {"changes": done + applied})
+    return applied
+
+
 def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
     """The keys of ``[group]`` in an INI file that start with ``prefix``, with their values as they are written."""
     try:
@@ -194,7 +238,8 @@ BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
     (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
 )
-KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),))
+KYTY_TV = IniSettings("Kyty.ini", (("MainDialog", "theme", "1"), ("Launcher", "grid_view", "true"), ("Launcher", "grid_icon_width", "256")))
+KYTY_SETTINGS = IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"), *KYTY_TV.values))
 STEAM_VIRTUAL_GAMEPAD = "03000000de280000ff11000001000000"
 
 
@@ -260,7 +305,7 @@ class FolderProfile:
     shared: str = ""
     defaults: Tuple[Tuple[str, str], ...] = ()
     settings: Tuple[Settings, ...] = ()
-    changes: Tuple[Tuple[str, JsonSettings], ...] = ()
+    changes: Tuple[Tuple[str, Settings], ...] = ()
     links: Tuple[str, ...] = ()
 
     def path(self, app_home: Path, account: int) -> Path:
@@ -294,17 +339,7 @@ class FolderProfile:
         self._change(folder)
 
     def _change(self, folder: Path) -> None:
-        if not self.changes:
-            return
-        record = folder / CHANGES_FILE
-        try:
-            done = list(json.loads(record.read_text(encoding="utf-8"))["changes"])
-        except (OSError, ValueError, TypeError, KeyError):
-            done = []
-        pending = [(name, settings) for name, settings in self.changes if name not in done]
-        applied = [name for name, settings in pending if settings.apply(folder) is not None]
-        if applied:
-            atomic_write_json(record, {"changes": done + applied})
+        apply_changes(folder, self.changes)
 
     def _link(self, folder: Path, shared: Path) -> None:
         for name in self.links:
@@ -431,6 +466,12 @@ class PortableProfile(FolderProfile):
             if not settings.target(app_home).exists():
                 settings.apply(app_home)
 
+    def settings_file(self, app_home: Path, account: Optional[int]) -> Optional[Path]:
+        """The app's main settings file for ``account``, or the app's own when accounts share its data."""
+        if account:
+            return self.settings[0].target(self.path(app_home, account)) if self.settings else None
+        return self.shared_settings[0].target(Path(app_home)) if self.shared_settings else None
+
     def reset(self, app_home: Path, shared: bool = False) -> List[Path]:
         """Put the ``settings`` back in each account's folder, and the ``shared_settings`` in the app's own data while accounts share it."""
         changed = [folder for folder in self.existing(app_home) if any([settings.apply(folder) for settings in self.settings])]
@@ -556,10 +597,12 @@ class Release:
     """An app NonSteamApps downloads itself from its project's GitHub releases, as it does for KytyPS5 (see :mod:`kyty`).
 
     Each Steam account runs it from a folder of its own, where it keeps its data. ``settings`` are written there
-    when their files are missing and put back by every install.
+    when their files are missing and put back by every install; ``changes`` are made once in folders that
+    already exist, as :attr:`FolderProfile.changes` are.
     """
 
     settings: Tuple[IniSettings, ...] = ()
+    changes: Tuple[Tuple[str, IniSettings], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -644,7 +687,9 @@ class App:
     :mod:`x11`), and a ``hide_menu_bar`` app runs with NonSteamApps standing in for the desktop's global
     menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`). ``userstyles`` are style
     sheets from NonSteamApps' ``share/userstyles``, copied at every start into the ``userstyles`` folder of
-    the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`).
+    the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` is a
+    folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
+    for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
     """
 
     id: str
@@ -673,6 +718,7 @@ class App:
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
     userstyles: Tuple[str, ...] = ()
+    games: str = ""
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -840,6 +886,7 @@ APPS: Tuple[App, ...] = (
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
         game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
         qt_window=True,
+        games="Games/Switch",
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
     ),
     App(
@@ -847,7 +894,7 @@ APPS: Tuple[App, ...] = (
         name="KytyPS5",
         client="KytyPS5",
         summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
-        release=Release(settings=(KYTY_SETTINGS,)),
+        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV),)),
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),

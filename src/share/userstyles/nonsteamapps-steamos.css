@@ -1,31 +1,60 @@
 /*
- * SteamOS theme for VacuumTube, from NonSteamApps: Game Mode's dark slate and blue on YouTube's TV interface
- * and VacuumTube's settings. It changes colours only, and finds YouTube's parts by their element names,
- * the zylon-focus class YouTube gives what is highlighted, and named idomkey attributes, never by YouTube's
- * minified class names, which change with each build. NonSteamApps writes this file again at every start;
- * to change it, copy it under another name and turn this one off in VacuumTube's settings, under Custom CSS.
+ * SteamOS theme for VacuumTube, from NonSteamApps: YouTube's TV interface and VacuumTube's settings in
+ * Game Mode's colours, used as Game Mode uses them. Focus is a white ring with a soft glow, the highlighted
+ * button or menu entry is a lighter grey with white text, and blue marks progress and what is switched on:
+ * the player's bar, the bar on videos already started, and VacuumTube's switches. The player's fills are
+ * tinted with a filter that turns any fill Game Mode's blue (#1a9fff) and keeps its transparency, as they
+ * have no names of their own.
+ *
+ * It changes colours only, and finds YouTube's parts by element names, the zylon-focus class YouTube gives
+ * what is highlighted, named idomkey attributes and the page types on <body>, never by YouTube's minified
+ * class names, which change with each build. NonSteamApps writes this file again at every start; to change
+ * it, copy it under another name and turn this one off in VacuumTube's settings, under Custom CSS.
  */
 
 :root {
-    --nonsteamapps-dark: #171d25;
+    --nonsteamapps-background: #0e141b;
+    --nonsteamapps-background-top: #1b2230;
     --nonsteamapps-panel: #23262e;
-    --nonsteamapps-grey: #3d4450;
+    --nonsteamapps-selected: #3d4450;
+    --nonsteamapps-text: #ffffff;
+    --nonsteamapps-focus: #dcdedf;
+    --nonsteamapps-glow: rgba(255, 255, 255, 0.3);
     --nonsteamapps-blue: #1a9fff;
-    --nonsteamapps-glow: rgba(26, 159, 255, 0.55);
 }
 
 body:not(.WEB_PAGE_TYPE_WATCH):not(.WEB_PAGE_TYPE_SHORTS) {
-    background-color: var(--nonsteamapps-dark) !important;
+    background-color: var(--nonsteamapps-background) !important;
+    background-image: linear-gradient(var(--nonsteamapps-background-top), var(--nonsteamapps-background)) !important;
 }
 
 ytlr-tile-renderer.zylon-focus ytlr-tile-header-renderer::after {
-    border-color: var(--nonsteamapps-blue) !important;
-    box-shadow: 0 0 1.5rem var(--nonsteamapps-glow) !important;
+    border-color: var(--nonsteamapps-focus) !important;
+    box-shadow: 0 0 1.25rem var(--nonsteamapps-glow) !important;
 }
 
 ytlr-button.zylon-focus,
 ytlr-guide-entry-renderer.zylon-focus > div > div {
-    background-color: var(--nonsteamapps-blue) !important;
+    background-color: var(--nonsteamapps-selected) !important;
+}
+
+ytlr-button.zylon-focus,
+ytlr-button.zylon-focus *,
+ytlr-guide-entry-renderer.zylon-focus,
+ytlr-guide-entry-renderer.zylon-focus * {
+    color: var(--nonsteamapps-text) !important;
+}
+
+ytlr-button.zylon-focus svg,
+ytlr-button.zylon-focus svg *,
+ytlr-guide-entry-renderer.zylon-focus svg,
+ytlr-guide-entry-renderer.zylon-focus svg * {
+    fill: var(--nonsteamapps-text) !important;
+}
+
+ytlr-progress-bar [idomkey="slider"] > div,
+ytlr-progress-bar [idomkey^="chapter-"] > div {
+    filter: brightness(0) saturate(100%) invert(51%) sepia(28%) saturate(4165%) hue-rotate(180deg) !important;
 }
 
 ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"] {
@@ -33,18 +62,17 @@ ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"] {
 }
 
 #vt-settings-overlay-root {
-    --vt-bg: var(--nonsteamapps-dark) !important;
-    --vt-card: var(--nonsteamapps-panel) !important;
-    --vt-card-hover: #2f343d !important;
-    --vt-card-focus: var(--nonsteamapps-grey) !important;
-    --vt-line: var(--nonsteamapps-grey) !important;
+    --vt-bg: var(--nonsteamapps-panel) !important;
+    --vt-card: #2a2f38 !important;
+    --vt-card-hover: #333944 !important;
+    --vt-card-focus: var(--nonsteamapps-selected) !important;
+    --vt-line: var(--nonsteamapps-selected) !important;
     --vt-muted: #b8bcbf !important;
     --vt-faint: #8b929a !important;
-    --vt-focus: var(--nonsteamapps-blue) !important;
 }
 
 #vt-settings-overlay-root .vt-toggle {
-    background: var(--nonsteamapps-grey) !important;
+    background: var(--nonsteamapps-selected) !important;
 }
 
 #vt-settings-overlay-root .vt-toggle.vt-toggle-on {

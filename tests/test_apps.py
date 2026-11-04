@@ -135,7 +135,9 @@ class ArgumentTests(unittest.TestCase):
     def test_kytyps5_is_downloaded_from_its_releases_with_its_own_updater_off(self):
         app = apps.by_id("kytyps5")
         self.assertEqual((app.flatpak, app.browser, app.system), ("", None, None))
-        self.assertEqual(app.release.settings, (apps.IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"),)),))
+        tv = (("MainDialog", "theme", "1"), ("Launcher", "grid_view", "true"), ("Launcher", "grid_icon_width", "256"))
+        self.assertEqual(app.release.settings, (apps.IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"), *tv)),))
+        self.assertEqual(app.release.changes, (("2.23.0", apps.IniSettings("Kyty.ini", tv)),))
         self.assertEqual((app.controller, app.fullscreen_class), ("Emulator (NonSteamApps)", "nonsteamapps-kytyps5"))
         self.assertEqual(app.tv_scale.variables(1.5), {"QT_SCALE_FACTOR": "1.5"})
         self.assertEqual([candidate.id for candidate in apps.APPS if candidate.release], ["kytyps5"])
@@ -159,7 +161,7 @@ class ArgumentTests(unittest.TestCase):
         declarations = [part.strip() for _, block in rules for part in block.split(";") if part.strip()]
         properties = {declaration.split(":", 1)[0].strip() for declaration in declarations}
         self.assertLessEqual({name for name in properties if not name.startswith("--")},
-                             {"background", "background-color", "background-image", "border-color", "box-shadow"})
+                             {"background", "background-color", "background-image", "border-color", "box-shadow", "color", "fill", "filter"})
         selectors = " ".join(selector for selector, _ in rules)
         self.assertEqual(re.findall(r"\.(?!zylon-focus|vt-|WEB_PAGE_TYPE_)[A-Za-z][\w-]*", selectors), [])
         self.assertTrue(all(declaration.endswith("!important") for declaration in declarations if not declaration.startswith("--nonsteamapps-")))
@@ -438,6 +440,28 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(sheet.read_text(), "a { color: red; }")
         with self.assertRaises(OSError):
             apps.place_userstyles(source, folder, ["missing.css"])
+
+    def test_edens_game_list_gets_the_games_folder_while_no_folder_added_to_it_exists(self):
+        settings, games = self.home / "qt-config.ini", self.home / "Games" / "Switch"
+        settings.write_text("[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
+                            "Paths\\gamedirs\\size=3\n")
+        self.assertTrue(apps.add_game_folder(settings, games))
+        for line in (f"Paths\\gamedirs\\4\\path={games}", "Paths\\gamedirs\\4\\deep_scan=true", "Paths\\gamedirs\\size=4"):
+            self.assertIn(line + "\n", settings.read_text())
+        self.assertNotIn("size=3", settings.read_text())
+        self.assertFalse(apps.add_game_folder(settings, games))
+        own = self.home / "My Switch games"
+        own.mkdir()
+        settings.write_text(f"[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=\"{own}\"\nPaths\\gamedirs\\size=2\n")
+        self.assertFalse(apps.add_game_folder(settings, games))
+        own.rmdir()
+        self.assertTrue(apps.add_game_folder(settings, games))
+        self.assertIn(f"Paths\\gamedirs\\3\\path={games}\n", settings.read_text())
+        self.assertIn("Paths\\gamedirs\\size=3\n", settings.read_text())
+        fresh = self.home / "fresh" / "qt-config.ini"
+        self.assertTrue(apps.add_game_folder(fresh, games))
+        self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
+                                            f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

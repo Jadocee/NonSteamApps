@@ -1,10 +1,10 @@
 /*
  * SteamOS theme for VacuumTube, from NonSteamApps: YouTube's TV interface and VacuumTube's settings in
- * Game Mode's colours, used as Game Mode uses them. Focus is a white ring with a soft glow, the highlighted
- * button or menu entry is a lighter grey with white text, and blue marks progress and what is switched on:
- * the player's bar, the bar on videos already started, and VacuumTube's switches. The player's fills are
- * tinted with a filter that turns any fill Game Mode's blue (#1a9fff) and keeps its transparency, as they
- * have no names of their own.
+ * Game Mode's colours, used as Game Mode uses them. Focus is a light ring, the highlighted button or menu
+ * entry is a lighter grey with white text, and blue marks progress and what is switched on: the player's
+ * bar, the bar on videos already started, and VacuumTube's switches. The player's fills are tinted with a
+ * filter that turns any fill Game Mode's blue (#1a9fff) and keeps its transparency, as they have no names
+ * of their own.
  *
  * It changes colours only, and finds YouTube's parts by element names, the zylon-focus class YouTube gives
  * what is highlighted, named idomkey attributes and the page types on <body>, never by YouTube's minified
@@ -19,7 +19,6 @@
     --nonsteamapps-selected: #3d4450;
     --nonsteamapps-text: #ffffff;
     --nonsteamapps-focus: #dcdedf;
-    --nonsteamapps-glow: rgba(255, 255, 255, 0.3);
     --nonsteamapps-blue: #1a9fff;
 }
 
@@ -30,7 +29,6 @@ body:not(.WEB_PAGE_TYPE_WATCH):not(.WEB_PAGE_TYPE_SHORTS) {
 
 ytlr-tile-renderer.zylon-focus ytlr-tile-header-renderer::after {
     border-color: var(--nonsteamapps-focus) !important;
-    box-shadow: 0 0 1.25rem var(--nonsteamapps-glow) !important;
 }
 
 ytlr-button.zylon-focus,

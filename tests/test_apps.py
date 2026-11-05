@@ -60,7 +60,10 @@ class ArgumentTests(unittest.TestCase):
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
             self.assertEqual(app.controller, "Browser (NonSteamApps)")
         self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal"])
-        self.assertEqual(apps.by_id("protondb").browser.start_url(111), "https://www.protondb.com/dashboard/76561197960265839")
+        self.assertEqual(apps.by_id("protondb").browser.start_url(111), "https://www.protondb.com/dashboard/76561197960265839?nonsteamapps=library")
+        self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.extensions], ["protondb"])
+        self.assertEqual([(app.id, app.desktop) for app in apps.APPS if app.desktop],
+                         [("helium", apps.DesktopEntry("Web Browser", ("Network", "WebBrowser")))])
         self.assertEqual(apps.by_id("protondb").browser.start_url(None), "https://www.protondb.com/")
         self.assertEqual(apps.by_id("netflix").browser.start_url(111), "https://www.netflix.com/")
         self.assertEqual(apps.by_id("localsend").controller, "LocalSend (NonSteamApps)")

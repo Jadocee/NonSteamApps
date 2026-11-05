@@ -251,7 +251,7 @@ def make_legacy(home: Path, root: Path, shared_sign_in: bool = False):
 
 
 def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "FakeFirewall" = None) -> dict:
-    env = {key: value for key, value in os.environ.items() if not key.startswith("XDG_")}
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "DBUS_"))}
     env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1")
     if wall:
         env.update(wall.env)

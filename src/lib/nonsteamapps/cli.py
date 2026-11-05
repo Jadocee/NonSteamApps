@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, browser, collection, compat, config, controllers, display, kyty, layouts, legacy, links, selfupdate, steam,
-    steamclient, timer, ui, x11,
+    __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, selfupdate,
+    steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -465,6 +465,8 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         reset = _reset(paths, app, separate)
         if reset:
             ui.ok(f"Put back {app.name}'s TV settings ({reset} data folder{'s' if reset > 1 else ''}); sign-ins are kept")
+        if app.desktop:
+            _add_to_desktop(paths, app)
     _open_ports(record, chosen)
     record.save()
 
@@ -498,6 +500,7 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     steam_remove(paths, chosen, "all", args.restart_steam)
     for app in chosen:
         paths.app_link(app.id).unlink(missing_ok=True)
+        _remove_from_desktop(paths, app)
         if args.purge:
             _purge(paths, app)
     if not args.keep_app:
@@ -516,6 +519,33 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
         ui.ok("Removed KytyPS5's builds" + (f"; each Steam account's saves and settings stay in {paths.profiles / 'kytyps5'}" if kept else ""))
     ui.ok(f"Removed {_listing(chosen)}")
     return 0
+
+
+def _add_to_desktop(paths: Paths, app: App) -> None:
+    """Add the app to Desktop Mode's applications menu and pin it to Plasma's taskbar (see :mod:`desktop`)."""
+    entry = paths.desktop_entry(app.id)
+    text = desktop.entry_text(app.name, app.summary, paths.app_link(app.id), paths.artwork(app.id) / "icon.png", entry.stem,
+                              app.desktop.generic, app.desktop.categories)
+    try:
+        desktop.write_entry(entry, text)
+    except OSError as exc:
+        ui.warn(f"could not add {app.name} to Desktop Mode's applications menu: {exc}")
+        return
+    pinned = desktop.pin(desktop.launcher(entry), paths.plasma_layout)
+    if pinned is None:
+        ui.info(f"Added {app.name} to Desktop Mode's applications menu; Plasma's taskbar could not be changed, so pin it from the menu")
+    else:
+        ui.ok(f"Added {app.name} to Desktop Mode's applications menu and taskbar")
+
+
+def _remove_from_desktop(paths: Paths, app: App) -> None:
+    """Take the app off Plasma's taskbar and out of Desktop Mode's applications menu, where NonSteamApps put it."""
+    entry = paths.desktop_entry(app.id)
+    if not entry.exists():
+        return
+    if desktop.unpin(desktop.launcher(entry), paths.plasma_layout):
+        ui.ok(f"Took {app.name} off Desktop Mode's taskbar")
+    entry.unlink(missing_ok=True)
 
 
 def _unlink_kyty_homes(paths: Paths) -> None:
@@ -719,7 +749,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
         signing_in = browser.allow_callbacks(profile, url, app.callbacks)
         print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
         name = f"nonsteamapps-{app.id}"
-        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), paths.focus_extension)]
+        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), [paths.focus_extension])]
         browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
         x11.watch(name, browsers[-1].pid)
 
@@ -764,7 +794,8 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
     url = app.browser.start_url(account)
-    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, paths.focus_extension), *extra]
+    extensions = [paths.focus_extension, *(paths.extension(folder) for folder in app.browser.extensions)]
+    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, extensions), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
     if window:
         x11.watch(name, os.getpid())
@@ -1094,6 +1125,8 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
         raise ui.Abort("cancelled")
     ui.log("Removing NonSteamApps")
     steam_remove(paths, managed, "all", args.restart_steam)
+    for app in apps.APPS:
+        _remove_from_desktop(paths, app)
     if args.purge:
         for app in managed:
             _purge(paths, app)

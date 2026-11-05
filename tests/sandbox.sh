@@ -19,7 +19,7 @@ run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
-        FAKE_KYTY_LOG="$WORK/kyty.log" "$@"
+        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" "$@"
 }
 
 check() {
@@ -81,6 +81,18 @@ print(len(collection.members(collection.storage_file(Path(sys.argv[2]), int(sys.
 EOF
 }
 
+status_back() {
+    local _
+    for _ in $(seq 100); do
+        if grep -qF '"steam://friends/status/invisible"' "$WORK/steam.log" 2>/dev/null &&
+            [ "$(tail -n 1 "$WORK/steam.log")" = '["-ifrunning", "steam://friends/status/online"]' ]; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
 mkdir -p "$WORK/bin" "$WORK/sdcard" "$STEAM/userdata/111/config" "$STEAM/userdata/222/config" "$STEAM/config" "$STEAM/steamapps"
 for account in 111 222; do
     mkdir -p "$STEAM/userdata/$account/config/cloudstorage"
@@ -88,6 +100,7 @@ for account in 111 222; do
     echo '[]' >"$STEAM/userdata/$account/config/cloudstorage/cloud-storage-namespace-1.json"
 done
 ln -s "$ROOT/tests/fakes/flatpak" "$WORK/bin/flatpak"
+ln -s "$ROOT/tests/fakes/steam" "$WORK/bin/steam"
 ln -s "$ROOT/tests/fakes/firewall-cmd" "$WORK/bin/firewall-cmd"
 ln -s "$ROOT/tests/fakes/sudo" "$WORK/bin/sudo"
 ln -s "$ROOT/tests/fakes/dolphin" "$WORK/bin/dolphin"
@@ -210,6 +223,7 @@ check "KytyPS5's games render at 1080p" grep -qxF "screen_resolution=1920x1080" 
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
 check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
 check "the game's downloaded content went to the folder every account shares" test -d "$PROGRAM/profiles/kytyps5/games/_DownloadData/PPSA00000" -a -L "$KYTY_HOME/_DownloadData"
+check "the account was invisible to friends while the apps ran, and online once they had closed" status_back
 
 VACUUMTUBE="$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
 echo "==> update keeps what the user changed"

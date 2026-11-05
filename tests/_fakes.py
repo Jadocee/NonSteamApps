@@ -1,9 +1,10 @@
-"""Test doubles: fake flatpak, firewall-cmd and sudo commands, and a throwaway home with Steam and a NonSteamApps program folder."""
+"""Test doubles: fake flatpak, steam, firewall-cmd and sudo commands, and a throwaway home with Steam and a NonSteamApps program folder."""
 
 import json
 import os
 import shutil
 import subprocess
+import time
 from typing import Optional
 from pathlib import Path
 
@@ -33,6 +34,27 @@ class FakeFlatpak:
 
     def state_value(self, key):
         return json.loads(self.state.read_text()).get(key)
+
+
+class FakeSteam:
+    """The steam command as tests/fakes/steam stands in for it, recording what is sent to a running Steam."""
+
+    def __init__(self, directory: Path):
+        self.log = directory / "steam.log"
+        self.command = str(FAKES / "steam")
+        self.env = {"FAKE_STEAM_LOG": str(self.log)}
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def statuses(self, timeout: float = 5.0, count: int = 0):
+        """The ``steam://friends/status`` commands sent so far, waiting up to ``timeout`` for ``count`` of them."""
+        deadline = time.monotonic() + timeout
+        while True:
+            found = [call[-1].rsplit("/", 1)[-1] for call in self.calls() if call and call[-1].startswith("steam://friends/status/")]
+            if len(found) >= count or time.monotonic() > deadline:
+                return found
+            time.sleep(0.05)
 
 
 class FakeFirewall:

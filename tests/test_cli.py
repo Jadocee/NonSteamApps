@@ -10,7 +10,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, cli, collection, compat, config, nx2, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, cli, collection, compat, config, nx2, presence, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -36,8 +36,10 @@ class CliTestCase(unittest.TestCase):
         (Path(self.tmp.name) / "release").mkdir()
         self.helium_archive = _fakes.make_helium_archive(Path(self.tmp.name) / "release")
         self.kyty_archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "release")
+        self.steam_command = _fakes.FakeSteam(Path(self.tmp.name))
         patches = [
-            mock.patch.dict(os.environ, _fakes.environment(self.home, self.fake, wall=self.wall), clear=True),
+            mock.patch.dict(os.environ, {**_fakes.environment(self.home, self.fake, wall=self.wall), **self.steam_command.env}, clear=True),
+            mock.patch("nonsteamapps.steamclient.command", return_value=self.steam_command.command),
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
         ]
@@ -50,6 +52,8 @@ class CliTestCase(unittest.TestCase):
         self.branch = _fakes.NX2_COMMIT
         patches.append(mock.patch("nonsteamapps.nx2.remote_refs", side_effect=lambda repository, fetch=None: {"refs/heads/eden-nx2": self.branch}))
         patches.append(mock.patch.multiple("nonsteamapps.nx2", BUILD_SPACE=0, SDK_SPACE=0))
+        self.status_watch = mock.patch("nonsteamapps.presence.Presence.watch")
+        patches.append(self.status_watch)
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -239,6 +243,30 @@ class MigrationTests(CliTestCase):
 
 
 class LaunchTests(CliTestCase):
+    def test_an_app_steam_starts_hides_the_account_from_friends_as_the_setting_says(self):
+        watch = presence.Presence.watch
+        record = self.paths.state / "presence.json"
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_args.args, (os.getpid(), True))
+        self.assertEqual({key: value for key, value in json.loads(record.read_text()).items() if key != "apps"}, {"previous": None, "changed": True})
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_args.args, (os.getpid(), False))
+        record.unlink()
+        (steam.config_dir(self.root, ALPHA) / "localconfig.vdf").write_text('"UserLocalConfigStore" { "friends" { "PersonaStateDesired" "7" } }')
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual((watch.call_args.args, json.loads(record.read_text())["previous"]), ((os.getpid(), False), 7))
+        calls = watch.call_count
+        self.launch("youtube")
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text(f"{presence.SETTING}=off\n")
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.paths.settings.write_text(f"{presence.SETTING}=eden kytyps5\n")
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_count, calls)
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_count, calls + 1)
+        self.assertEqual(self.steam_command.calls(), [])
+
     def test_each_account_gets_its_own_vacuumtube_folder(self):
         self.install("youtube")
         argv, redirect = self.launch("youtube", "--steam-account", str(BETA), "--", "--debug-gpu")

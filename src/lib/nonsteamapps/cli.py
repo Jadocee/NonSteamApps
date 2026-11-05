@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
     __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, nx2,
-    selfupdate, steam, steamclient, timer, ui, x11,
+    presence, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -635,6 +635,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     print(f"nonsteamapps {__version__}: starting {_listing([app])} for {f'Steam account {account}' if account else 'all accounts'}")
     if steamclient.leave_steam_environment(os.environ):
         print("  without Steam's overlay library and Steam Runtime paths")
+    _hide_from_friends(paths, app, settings, hint)
     if app.browser:
         return _launch_helium(paths, app, account, extra)
     if app.system:
@@ -678,6 +679,24 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: Optional[str]) -> None:
+    """Keep an app that Steam started out of the status friends see, as ``INVISIBLE_WHILE_RUNNING`` says (see :mod:`presence`).
+
+    Steam's shortcuts pass ``--steam-account``; an app started from elsewhere, such as the applications menu,
+    is not one Steam shows, so the status stays as it is.
+    """
+    if not hint or not presence.applies(settings.get(presence.SETTING), app.id):
+        return
+    root = _steam_root()
+    account = steam.launch_account(root, hint) if root else None
+    localconfig = steam.config_dir(root, account) / "localconfig.vdf" if root and account else None
+    keeper = presence.Presence(paths.state, localconfig)
+    invisible, message = keeper.hide(os.getpid())
+    if message:
+        print(f"  {message}", flush=True)
+    keeper.watch(os.getpid(), invisible)
 
 
 def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:

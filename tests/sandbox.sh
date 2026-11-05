@@ -121,6 +121,7 @@ check "YouTube no longer forces Proton, and another game still does" test "$(gre
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
+check "Jellyfin got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_jellyfin.vdf' | wc -l)" -eq 2
 check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"

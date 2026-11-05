@@ -65,7 +65,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(apps.by_id("netflix").browser.start_url(111), "https://www.netflix.com/")
         self.assertEqual(apps.by_id("localsend").controller, "LocalSend (NonSteamApps)")
         self.assertEqual(apps.by_id("youtube").controller, "YouTube (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
+        self.assertEqual(apps.by_id("jellyfin").controller, "Jellyfin (NonSteamApps)")
+        self.assertEqual([app.id for app in apps.APPS if not app.controller], [])
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(

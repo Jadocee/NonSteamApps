@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
+from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -881,6 +881,7 @@ APPS: Tuple[App, ...] = (
         summary="Your Jellyfin media server's films, shows and music, in its TV layout",
         args=("--tv", "--fullscreen"),
         profile=JellyfinProfile(),
+        controller=JELLYFIN.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(argument="--scale-factor={factor}"),
     ),

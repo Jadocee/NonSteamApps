@@ -31,6 +31,11 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
 - **Bitwarden** is Tools with Bitwarden's shortcuts for what its menu bar holds, which Game Mode hides
   (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L), L1 searches it
   (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
+- **Jellyfin** starts from Web Browser and sends Jellyfin Desktop's keys, as its Flatpak cannot reach a
+  controller itself: the D-pad and the left stick move (arrow keys), A selects (Enter), B goes back
+  (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
+  Down), Menu plays or pauses (Space), held, quits (Ctrl+Q), and View goes home. B's short press waits for
+  its release, as Jellyfin quits when Escape is held for half a second; Valve's Menu, Ctrl+W, would quit at once.
 - **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
   the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
   home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down.
@@ -94,10 +99,16 @@ def _browser(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.P
     return group
 
 
+def _stick_as_dpad(group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    """The left stick's group with the D-pad's inputs, so that the stick moves the selection as the D-pad does."""
+    group = [(name, value) for name, value in group if name != "inputs"]
+    group.insert(2, ("inputs", copy.deepcopy(_find(base["dpad"], "inputs"))))
+    return group
+
+
 def _files(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "joystick" and "dpad" in base:
-        group = [(name, value) for name, value in group if name != "inputs"]
-        group.insert(2, ("inputs", copy.deepcopy(_find(base["dpad"], "inputs"))))
+        group = _stick_as_dpad(group, base)
     elif source == "button_diamond":
         _bind(group, "button_a", ["key_press RETURN, Open"])
         _bind(group, "button_y", ["mouse_button FORWARD, ▶️"])
@@ -130,6 +141,23 @@ def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
         _bind(group, "left_bumper", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
         _bind(group, "right_bumper", ["key_press TAB, Next"])
         _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+    return group
+
+
+def _jellyfin(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "joystick" and "dpad" in base:
+        group = _stick_as_dpad(group, base)
+    elif source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _hold(group, "button_b", ["key_press H, Home"])
+        _bind(group, "button_y", ["key_press LEFT_CONTROL, Search", "key_press F"])
+    elif source == "switch":
+        _bind(group, "button_menu", ["key_press SPACE, Play or pause"])
+        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, "button_escape", ["key_press H, Home"])
+        _bind(group, "left_bumper", ["key_press PAGE_UP, Rewind"])
+        _bind(group, "right_bumper", ["key_press PAGE_DOWN, Fast forward"])
     return group
 
 
@@ -243,6 +271,13 @@ EMULATOR = Layout(
     replaces=("kytyps5",),
     shift=Shift("button_escape", "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
 )
+JELLYFIN = Layout(
+    slug="jellyfin",
+    title="Jellyfin (NonSteamApps)",
+    description="D-pad or left stick to move, A to select, B to go back (hold for home), Y to search, L1 and R1 to rewind and fast forward, Start to play or pause, hold Start to quit, View for home, X for the keyboard",
+    base="controller_neptune_webbrowser.vdf",
+    change=_jellyfin,
+)
 LOCALSEND = Layout(
     slug="localsend",
     title="LocalSend (NonSteamApps)",
@@ -271,7 +306,7 @@ YOUTUBE = Layout(
     base="controller_neptune_gamepad_joystick.vdf",
     change=_youtube,
 )
-LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE)
+LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

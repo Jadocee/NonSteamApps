@@ -193,10 +193,15 @@ check "Eden started full screen, portable and on X11, in the account's folder, w
 check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden shares the keys, firmware and installed games" test "$(readlink "$EDEN/eden-steam-222/user/keys")" == "../../eden/keys" -a -d "$EDEN/eden/nand/user/Contents/registered"
+check "Eden runs on Vulkan, on the first graphics chip" grep -qxF "backend=1" "$EDEN/eden-steam-222/user/config/qt-config.ini"
+printf 'header_key = 00\n' > "$EDEN/eden/keys/prod.keys"
 NX2="$HOME_DIR/.var/app/$NX2_ID/data"
 run "$PROGRAM/apps/edennx2" --steam-account 222
 check "Eden-NX2 started as Eden does, from its own Flatpak, with its own games folder" grep -qF "[\"run\", \"--cwd=$NX2/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch2:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"$NX2_ID\", \"-f\"]" "$WORK/flatpak.log"
 check "Eden-NX2 lists ~/Games/Switch2 among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$NX2/eden-steam-222/user/config/qt-config.ini"
+check "Eden-NX2 took the keys installed in Eden, so it does not ask for them" cmp -s "$EDEN/eden/keys/prod.keys" "$NX2/eden-steam-222/user/keys/prod.keys"
+check "Eden-NX2 runs on Vulkan" grep -qxF "backend=1" "$NX2/eden-steam-222/user/config/qt-config.ini"
+check "Eden-NX2 keeps ASTC textures as BC3, decoded on the graphics chip" grep -qxF "astc_recompression=2" "$NX2/eden-steam-222/user/config/qt-config.ini"
 run "$PROGRAM/apps/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"

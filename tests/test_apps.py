@@ -168,6 +168,14 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((nx2.games, eden.games), ("Games/Switch2", "Games/Switch"))
         same = ("controller", "tv_scale", "env", "x11", "qt_window", "console_mode", "logo_position", "args")
         self.assertEqual([getattr(nx2, name) for name in same], [getattr(eden, name) for name in same])
+        self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden")])
+
+    def test_both_emulators_run_on_vulkan_and_eden_nx2_keeps_astc_textures_small(self):
+        vulkan = (("Renderer", "backend\\default", "true"), ("Renderer", "backend", "1"),
+                  ("Renderer", "vulkan_device\\default", "true"), ("Renderer", "vulkan_device", "0"))
+        astc = (("Renderer", "accelerate_astc\\default", "true"), ("Renderer", "accelerate_astc", "1"),
+                ("Renderer", "astc_recompression\\default", "false"), ("Renderer", "astc_recompression", "2"))
+        self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics], [("eden", vulkan), ("edennx2", vulkan + astc)])
 
     def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
         self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])
@@ -480,6 +488,36 @@ class ProfileTests(unittest.TestCase):
         self.assertTrue(apps.add_game_folder(fresh, games))
         self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
                                             f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
+
+    def test_edens_graphics_go_into_its_renderer_settings_and_replace_a_fallback_it_saved(self):
+        settings = self.home / "config" / "qt-config.ini"
+        settings.parent.mkdir()
+        settings.write_text("[Renderer]\nbackend\\default=false\nbackend=0\nresolution_setup=3\n\n[UI]\ntheme=default\n")
+        self.assertTrue(apps.write_eden_settings(settings, apps.EDEN_GRAPHICS))
+        self.assertEqual(settings.read_text(), "[Renderer]\nbackend\\default=true\nbackend=1\nresolution_setup=3\n"
+                                               "vulkan_device\\default=true\nvulkan_device=0\n\n[UI]\ntheme=default\n")
+        self.assertFalse(apps.write_eden_settings(settings, apps.EDEN_GRAPHICS))
+
+    def test_keys_are_copied_where_missing_or_older_and_ones_installed_since_stay(self):
+        source, target = self.home / "eden" / "keys", self.home / "nx2" / "keys"
+        self.assertEqual(apps.copy_keys(source, target), [])
+        source.mkdir(parents=True)
+        (source / "prod.keys").write_text("header_key = 00\n")
+        os.utime(source / "prod.keys", ns=(1_000_000_000, 1_000_000_000))
+        self.assertEqual(apps.copy_keys(source, target), ["prod.keys"])
+        self.assertEqual(((target / "prod.keys").read_text(), (target / "prod.keys").stat().st_mode & 0o777), ("header_key = 00\n", 0o600))
+        self.assertEqual(apps.copy_keys(source, target), [])
+        (source / "prod.keys").write_text("header_key = 11\n")
+        (source / "title.keys").write_text("0100 = 22\n")
+        for name, when in (("prod.keys", 3), ("title.keys", 3)):
+            os.utime(source / name, ns=(when * 1_000_000_000, when * 1_000_000_000))
+        self.assertEqual(apps.copy_keys(source, target), ["prod.keys", "title.keys"])
+        self.assertEqual((target / "prod.keys").read_text(), "header_key = 11\n")
+        (target / "title.keys").write_text("0100 = 33\n")
+        os.utime(target / "title.keys", ns=(5_000_000_000, 5_000_000_000))
+        os.utime(source / "title.keys", ns=(4_000_000_000, 4_000_000_000))
+        self.assertEqual(apps.copy_keys(source, target), [])
+        self.assertEqual((target / "title.keys").read_text(), "0100 = 33\n")
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

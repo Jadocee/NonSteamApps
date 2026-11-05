@@ -473,6 +473,37 @@ class LaunchTests(CliTestCase):
         self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
         self.assertIn("[UI]\n", settings.read_text())
 
+    def test_each_start_runs_eden_and_eden_nx2_on_vulkan_even_after_eden_fell_back_to_opengl(self):
+        vulkan = "[Renderer]\nbackend\\default=true\nbackend=1\nvulkan_device\\default=true\nvulkan_device=0\n"
+        astc = "accelerate_astc\\default=true\naccelerate_astc=1\nastc_recompression\\default=false\nastc_recompression=2\n"
+        eden = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+        edennx2 = self.home / f".var/app/{nx2.APP_ID}/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        self.assertTrue(eden.read_text().endswith("\n\n" + vulkan))
+        self.assertIn(vulkan + astc, edennx2.read_text())
+        eden.write_text(eden.read_text().replace("backend\\default=true\nbackend=1", "backend\\default=false\nbackend=0"))
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertIn(vulkan, eden.read_text())
+        self.assertNotIn("backend=0", eden.read_text())
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text(f"{cli.PER_ACCOUNT}=0\n")
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertIn(vulkan, (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
+
+    def test_eden_nx2_takes_the_keys_installed_in_eden_so_that_it_does_not_ask_for_them(self):
+        eden = self.home / ".var/app/dev.eden_emu.eden/data/eden/keys"
+        edennx2 = self.home / f".var/app/{nx2.APP_ID}/data/eden/keys"
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        self.assertEqual(sorted(path.name for path in edennx2.iterdir()), [])
+        self.launch("eden", "--steam-account", str(BETA))
+        (eden / "prod.keys").write_text("header_key = 00\n")
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        account = self.home / f".var/app/{nx2.APP_ID}/data/eden-steam-{ALPHA}/user/keys"
+        self.assertEqual([(path.name, path.read_text()) for path in account.iterdir()], [("prod.keys", "header_key = 00\n")])
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(sorted(path.name for path in eden.iterdir()), ["prod.keys"])
+
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
         library.mkdir()

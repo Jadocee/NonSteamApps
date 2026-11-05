@@ -160,6 +160,8 @@ def place_userstyles(source: Path, folder: Path, names: Sequence[str]) -> List[s
 
 EDEN_GAME_LIST = "Paths\\gamedirs\\"
 EDEN_BUILT_IN = ("SDMC", "UserNAND", "SysNAND")
+EDEN_KEYS = "keys"
+EDEN_KEY_FILES = ("prod.keys", "title.keys")
 
 
 def add_game_folder(settings_file: Path, folder: Path) -> bool:
@@ -189,8 +191,34 @@ def set_console_mode(settings_file: Path, docked: bool) -> bool:
 
     A game's own console mode, in its properties, still takes precedence.
     """
-    values = _eden_setting("System", "use_docked_mode", "1" if docked else "0")
-    return bool(IniSettings(Path(settings_file).name, values).apply(Path(settings_file).parent))
+    return write_eden_settings(settings_file, _eden_setting("System", "use_docked_mode", "1" if docked else "0"))
+
+
+def write_eden_settings(settings_file: Path, values: Sequence[Tuple[str, str, str]]) -> bool:
+    """Write ``(group, key, value)`` entries into Eden's ``settings_file``; return whether it changed."""
+    return bool(IniSettings(Path(settings_file).name, tuple(values)).apply(Path(settings_file).parent))
+
+
+def copy_keys(source: Path, target: Path) -> List[str]:
+    """Copy the decryption keys in the folder ``source`` into ``target`` where they are missing or older; return the files copied.
+
+    They are the keys from the user's own Switch, installed once in Eden, which Eden-NX2 would otherwise ask
+    for at every start. A key file installed in ``target`` after it was copied there is newer, so it stays.
+    """
+    copied = []
+    for name in EDEN_KEY_FILES:
+        given, kept = Path(source) / name, Path(target) / name
+        try:
+            if not given.is_file() or (kept.is_file() and kept.stat().st_mtime_ns >= given.stat().st_mtime_ns):
+                continue
+            atomic_write_bytes(kept, given.read_bytes())
+            os.chmod(kept, 0o600)
+            stat = given.stat()
+            os.utime(kept, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        except OSError:
+            continue
+        copied.append(name)
+    return copied
 
 
 def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
@@ -299,6 +327,11 @@ def _eden_setting(group: str, key: str, value: str) -> Tuple[Tuple[str, str, str
     return ((group, f"{key}\\default", "false"), (group, key, value))
 
 
+def _eden_default(group: str, key: str, value: str) -> Tuple[Tuple[str, str, str], ...]:
+    """A setting at Eden's own default, written as Eden writes it, so that Eden saving it changes nothing."""
+    return ((group, f"{key}\\default", "true"), (group, key, value))
+
+
 def _eden_pad(binding: str) -> str:
     return f'"engine:sdl,port:0,guid:{STEAM_VIRTUAL_GAMEPAD},{binding}"'
 
@@ -327,6 +360,15 @@ EDEN_CONTROLS = tuple(
 )
 EDEN_SETTINGS = IniSettings("user/config/qt-config.ini", EDEN_TV, new=EDEN_CONTROLS)
 EDEN_SHARED_SETTINGS = IniSettings("config/eden/qt-config.ini", EDEN_TV, new=EDEN_CONTROLS)
+EDEN_GRAPHICS = (
+    *_eden_default("Renderer", "backend", "1"),
+    *_eden_default("Renderer", "vulkan_device", "0"),
+)
+NX2_GRAPHICS = (
+    *EDEN_GRAPHICS,
+    *_eden_default("Renderer", "accelerate_astc", "1"),
+    *_eden_setting("Renderer", "astc_recompression", "2"),
+)
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
     tuple(("General", key, value) for key, value in (
@@ -517,6 +559,10 @@ class PortableProfile(FolderProfile):
         for settings in self.shared_settings:
             if not settings.target(app_home).exists():
                 settings.apply(app_home)
+
+    def shared_path(self, app_home: Path, name: str) -> Path:
+        """The folder ``name`` in the app's own data, which every account's folder links to."""
+        return Path(app_home) / self.shared / name
 
     def settings_file(self, app_home: Path, account: Optional[int]) -> Optional[Path]:
         """The app's main settings file for ``account``, or the app's own when accounts share its data."""
@@ -765,7 +811,11 @@ class App:
     for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
     A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
     (see :func:`set_console_mode`). An app with a ``desktop`` entry is added to Desktop Mode's applications menu
-    and its taskbar at install, for use outside Game Mode.
+    and its taskbar at install, for use outside Game Mode. ``graphics`` are an emulator's graphics settings for
+    SteamOS's hardware, written into its settings file at every start (see :func:`write_eden_settings`), so that
+    a fallback the emulator saved after one failed start does not stay. An emulator with ``keys_from`` takes
+    the decryption keys installed in that app at every start, where its own are missing or older (see
+    :func:`copy_keys`).
     """
 
     id: str
@@ -797,6 +847,8 @@ class App:
     userstyles: Tuple[str, ...] = ()
     games: str = ""
     console_mode: bool = False
+    graphics: Tuple[Tuple[str, str, str], ...] = ()
+    keys_from: str = ""
     desktop: Optional[DesktopEntry] = None
     from_source: bool = False
 
@@ -821,7 +873,7 @@ EDEN_PROFILE = PortableProfile(
     settings=(EDEN_SETTINGS,),
     shared_settings=(EDEN_SHARED_SETTINGS,),
     shared_links=(
-        ("user/keys", "keys"),
+        ("user/keys", EDEN_KEYS),
         ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
         ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
         ("user/load", "load"),
@@ -972,6 +1024,7 @@ APPS: Tuple[App, ...] = (
         qt_window=True,
         games="Games/Switch",
         console_mode=True,
+        graphics=EDEN_GRAPHICS,
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
     ),
     App(
@@ -991,6 +1044,8 @@ APPS: Tuple[App, ...] = (
         qt_window=True,
         games="Games/Switch2",
         console_mode=True,
+        graphics=NX2_GRAPHICS,
+        keys_from="eden",
         notice="Eden-NX2 is early work, and few Switch 2 games start: copy each one you own, dumped as a folder holding its exefs and romfs, "
                "into ~/Games/Switch2. It is built here, so nonsteamapps update builds its newest source, which can take an hour",
     ),

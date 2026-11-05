@@ -682,6 +682,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     for wanted in app.settings:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
+    _share_keys(paths, app)
+    _graphics(paths, app, account)
     _place_userstyles(paths, app, account)
     games = _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
@@ -766,6 +768,27 @@ def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict
     settings_file = app.profile.settings_file(app.home(paths.home), account)
     if settings_file and apps.set_console_mode(settings_file, docked):
         print(f"  {app.client} runs {'docked' if docked else 'handheld'}: {reason}", flush=True)
+
+
+def _graphics(paths: Paths, app: App, account: Optional[int]) -> None:
+    """Write the emulator's graphics settings for SteamOS's hardware, such as Vulkan, in case it saved another after a failed start."""
+    if not app.graphics or not isinstance(app.profile, apps.PortableProfile):
+        return
+    settings_file = app.profile.settings_file(app.home(paths.home), account)
+    if settings_file and apps.write_eden_settings(settings_file, app.graphics):
+        chosen = ", ".join(f"{key}={value}" for _, key, value in app.graphics if not key.endswith("\\default"))
+        print(f"  set {app.client}'s graphics: {chosen}", flush=True)
+
+
+def _share_keys(paths: Paths, app: App) -> None:
+    """Give the emulator the decryption keys installed in the one ``keys_from`` names, so that it does not ask for them at every start."""
+    origin = apps.by_id(app.keys_from) if app.keys_from else None
+    if not origin or not isinstance(app.profile, apps.PortableProfile) or not isinstance(origin.profile, apps.PortableProfile):
+        return
+    source = origin.profile.shared_path(origin.home(paths.home), apps.EDEN_KEYS)
+    copied = apps.copy_keys(source, app.profile.shared_path(app.home(paths.home), apps.EDEN_KEYS))
+    if copied:
+        print(f"  gave {app.client} the keys installed in {origin.client}: {', '.join(copied)}", flush=True)
 
 
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:

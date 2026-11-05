@@ -54,6 +54,10 @@ class CliTestCase(unittest.TestCase):
         patches.append(mock.patch.multiple("nonsteamapps.nx2", BUILD_SPACE=0, SDK_SPACE=0))
         self.status_watch = mock.patch("nonsteamapps.presence.Presence.watch")
         patches.append(self.status_watch)
+        self.units = Path(self.tmp.name) / "units"
+        patches.append(mock.patch("nonsteamapps.remote.UNIT_DIRS", (self.units,)))
+        self.restart_remote = mock.MagicMock(return_value=True)
+        patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -738,6 +742,40 @@ class SteamPlayTests(CliTestCase):
         self.assertNotIn(str(appid), compat.config_file(self.root).read_text())
         self.assertEqual(compat.forced(self.root, [1245620]), {1245620: "proton_9"})
 
+    def test_the_tv_remotes_daemon_stops_typing_the_controllers_presses_and_gets_its_settings_back(self):
+        settings = self.home / ".config" / "plasma-remotecontrollersrc"
+        self.install("localsend")
+        self.assertFalse(settings.exists())
+        self.units.mkdir()
+        (self.units / "plasma-remotecontrollers.service").write_text("[Unit]\n")
+        settings.write_text("[General]\nEnableCEC=true\n")
+        self.install("localsend")
+        self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=false\nEnableEvdev=false\n")
+        self.assertIn("Plasma Remote Controllers, which reads the TV's remote, no longer types the controllers' presses as keys as well", self.errors)
+        self.assertEqual(self.restart_remote.call_count, 1)
+        settings.write_text("[General]\nEnableCEC=true\nEnableJoystick=true\nEnableEvdev=false\n")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("EnableJoystick=true", settings.read_text())
+        self.install("localsend")
+        self.assertIn("EnableJoystick=false", settings.read_text())
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=true\n")
+        self.assertIn("Put back Plasma Remote Controllers' own settings for controllers", self.errors)
+
+    def test_an_update_also_runs_every_app_natively_and_without_steams_overlay(self):
+        self.install("localsend")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+        appid = self.force("localsend", "steamlinuxruntime_sniper")
+        path = steam.config_dir(self.root, ALPHA) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        shortcuts.find(str(self.paths.app_link("localsend")))[0].set("AllowOverlay", 1, vdf.INT32)
+        shortcuts.save()
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("LocalSend no longer forces the Steam Play tool steamlinuxruntime_sniper", self.errors)
+        self.assertEqual(compat.forced(self.root, [appid, 1245620]), {1245620: "proton_9"})
+        self.assertEqual([entry.get("AllowOverlay") for entry in self.entries(ALPHA).values()], [0])
+
 
 class FilesTests(CliTestCase):
     def setUp(self):
@@ -953,6 +991,13 @@ class HeliumAppTests(CliTestCase):
         self.assertIn("--start-maximized", argv)
         preferences = json.loads((self.paths.profiles / "helium" / str(ALPHA) / "Default" / "Preferences").read_text())
         self.assertFalse(preferences["helium"]["services"]["enabled"])
+
+    def test_helium_takes_each_key_of_steams_keyboard_once(self):
+        self.install("helium")
+        for given, used in (("Steam", "simple"), ("fcitx", "fcitx")):
+            with mock.patch.dict(os.environ, {"GTK_IM_MODULE": given}):
+                self.launch("helium", "--steam-account", str(ALPHA))
+                self.assertEqual(os.environ["GTK_IM_MODULE"], used)
 
     def test_the_old_helium_scale_setting_still_applies(self):
         self.install("helium")
@@ -1339,6 +1384,8 @@ class SignInTests(CliTestCase):
             "FAKE_FLATPAK_DONE": str(Path(self.tmp.name) / "signed-in"),
             "FAKE_HELIUM_OPEN": callback,
             "FAKE_HELIUM_LOG": str(Path(self.tmp.name) / "helium.log"),
+            "FAKE_HELIUM_INPUT_LOG": str(Path(self.tmp.name) / "helium-input.log"),
+            "GTK_IM_MODULE": "Steam",
         }
         with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
@@ -1361,6 +1408,7 @@ class SignInTests(CliTestCase):
         [helium] = [json.loads(line) for line in (Path(self.tmp.name) / "helium.log").read_text().splitlines()]
         self.assertEqual((helium[0], helium[-1]), (f"--user-data-dir={profile}", authorize))
         self.assertIn("--ozone-platform=x11", helium)
+        self.assertEqual((Path(self.tmp.name) / "helium-input.log").read_text(), "simple\n")
         preferences = json.loads((profile / "Default" / "Preferences").read_text())
         self.assertTrue(preferences["protocol_handler"]["allowed_origin_protocol_pairs"]["https://account.example.org"]["io.element.desktop"])
         self.assertIn("opening the sign-in page at account.example.org in Helium", output)

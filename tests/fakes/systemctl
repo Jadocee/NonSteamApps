@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Stand-in for systemctl: records each call, one JSON array of its arguments per line, in FAKE_SYSTEMCTL_LOG.
+
+It reaches no systemd, so the sandbox cannot start, stop or restart a real user's services.
+``is-enabled`` and ``is-active`` answer that nothing is; every other command succeeds.
+"""
+
+import json
+import os
+import sys
+
+log = os.environ.get("FAKE_SYSTEMCTL_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(sys.argv[1:]) + "\n")
+if any(argument in ("is-enabled", "is-active") for argument in sys.argv[1:]):
+    print("disabled" if "is-enabled" in sys.argv[1:] else "inactive")
+    sys.exit(1)

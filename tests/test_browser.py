@@ -20,6 +20,12 @@ class PreferencesTests(unittest.TestCase):
     def read(self):
         return json.loads(self.preferences.read_text())
 
+    def test_steams_input_method_gives_way_to_gtks_simple_one_and_others_stay(self):
+        for given, used, changed in (("Steam", "simple", True), ("steam", "simple", True), ("ibus", "ibus", False), (None, None, False)):
+            environ = {} if given is None else {"GTK_IM_MODULE": given}
+            self.assertEqual(browser.single_keystrokes(environ), changed, given)
+            self.assertEqual(environ.get("GTK_IM_MODULE"), used, given)
+
     def test_new_full_screen_profiles_skip_onboarding_and_prompts(self):
         browser.write_preferences(self.profile, services=True, kiosk=True)
         data = self.read()

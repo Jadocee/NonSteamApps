@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
-# fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall,
+# fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall, a
+# stand-in systemctl that reaches no real service,
 # stand-in Helium and KytyPS5 releases and two Steam accounts, launches through the
 # links Steam runs, an update that keeps what the
 # user changed, an install that puts it back, and uninstall.sh. Needs bash,
@@ -19,7 +20,7 @@ run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
-        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" "$@"
+        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" "$@"
 }
 
 check() {
@@ -104,6 +105,7 @@ ln -s "$ROOT/tests/fakes/steam" "$WORK/bin/steam"
 ln -s "$ROOT/tests/fakes/firewall-cmd" "$WORK/bin/firewall-cmd"
 ln -s "$ROOT/tests/fakes/sudo" "$WORK/bin/sudo"
 ln -s "$ROOT/tests/fakes/dolphin" "$WORK/bin/dolphin"
+ln -s "$ROOT/tests/fakes/systemctl" "$WORK/bin/systemctl"
 echo '{"running": true, "default": "public", "active": ["public"], "runtime": {}, "permanent": {}}' >"$WORK/firewall.json"
 printf '%s\n' '"users"' '{' \
     '  "76561197960265839" { "AccountName" "alpha" "PersonaName" "Alpha" "MostRecent" "1" }' \

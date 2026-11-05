@@ -136,7 +136,7 @@ WEB_BROWSER = [
     ("joystick", "dpad", {"dpad_north": ["mouse_wheel SCROLL_UP, ⏫"], "dpad_south": ["mouse_wheel SCROLL_DOWN, ⏬"]}),
     ("left_trackpad", "dpad", {}, False),
     ("left_trackpad", "scrollwheel", {"scroll_clockwise": ["mouse_wheel SCROLL_UP"]}),
-    ("right_trackpad", "absolute_mouse", {"click": ["mouse_button LEFT"]}),
+    ("right_trackpad", "absolute_mouse", {"click": ("Soft_Press", ["mouse_button LEFT"])}),
     ("left_trigger", "trigger", {"edge": ["mouse_button RIGHT"]}),
     ("right_trigger", "trigger", {"edge": ["mouse_button LEFT"]}),
     ("gyro", "mouse_joystick", {}, False),
@@ -164,7 +164,7 @@ WASD = [
         "button_y": ["key_press F"],
     }),
     ("left_trackpad", "dpad", {"dpad_north": ["key_press 1"]}),
-    ("right_trackpad", "absolute_mouse", {"click": ["mouse_button LEFT"]}),
+    ("right_trackpad", "absolute_mouse", {"click": ("Soft_Press", ["mouse_button LEFT"])}),
     ("joystick", "dpad", {"dpad_north": ["key_press W"], "dpad_west": ["key_press A"], "click": ["key_press LEFT_SHIFT"]}),
     ("left_trigger", "trigger", {"edge": ["mouse_button RIGHT"]}),
     ("right_trigger", "trigger", {"edge": ["mouse_button LEFT"]}),
@@ -189,7 +189,11 @@ def gamepad_groups(switch_inputs, trackpads=False):
 
 
 def controller_layout(kind, title, groups, settings=(("left_trackpad_mode", "0"),)):
-    """A layout in Valve's format; each group is ``(source, mode, {input: [binding…]}[, active])``."""
+    """A layout in Valve's format; each group is ``(source, mode, {input: [binding…]}[, active])``.
+
+    An input's bindings are on a full press, or on the activator named first, as ``("Soft_Press", [binding…])``,
+    as Valve binds a trackpad's press.
+    """
     mappings = [
         ("version", "3"),
         ("title", "#Title"),
@@ -199,8 +203,8 @@ def controller_layout(kind, title, groups, settings=(("left_trackpad_mode", "0")
     sources = []
     for index, (source, mode, inputs, *active) in enumerate(groups):
         pairs = [
-            (name, [("activators", [("Full_Press", [("bindings", [("binding", binding) for binding in bindings])])])])
-            for name, bindings in inputs.items()
+            (name, [("activators", [(activator, [("bindings", [("binding", binding) for binding in bindings])])])])
+            for name, (activator, bindings) in ((name, value if isinstance(value, tuple) else ("Full_Press", value)) for name, value in inputs.items())
         ]
         mappings.append(("group", [("id", str(index)), ("mode", mode), ("inputs", pairs), ("settings", [("requires_click", "0")])]))
         sources.append((str(index), f"{source} {'active' if not active or active[0] else 'inactive'}"))
@@ -228,7 +232,7 @@ def add_controller_templates(root: Path) -> Path:
         controller_layout("controller_neptune", "Gamepad with Mouse Trackpad", [
             *gamepad_groups(DECK_SWITCH),
             ("left_trackpad", "dpad", {"dpad_north": ["xinput_button dpad_up"]}),
-            ("right_trackpad", "absolute_mouse", {"click": ["xinput_button JOYSTICK_RIGHT"]}),
+            ("right_trackpad", "absolute_mouse", {"click": ("Soft_Press", ["xinput_button JOYSTICK_RIGHT"])}),
         ]), encoding="utf-8"
     )
     (folder / "controller_xboxone_gamepad_joystick.vdf").write_text(
@@ -383,7 +387,8 @@ Exec=helium --incognito
 
 
 def make_helium_archive(directory: Path, version: str = "0.0.0.1", own_entry: bool = True) -> Path:
-    """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG and its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG.
+    """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG, its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG
+    and its GTK_IM_MODULE in $FAKE_HELIUM_INPUT_LOG.
 
     With $FAKE_HELIUM_OPEN, the wrapper then opens that link with xdg-open from its PATH, as a page sending a
     sign-in back to an app would, and stays open until it is ended. With ``own_entry``, it ships Helium's
@@ -399,6 +404,8 @@ def make_helium_archive(directory: Path, version: str = "0.0.0.1", own_entry: bo
         'if log:\n    open(log, "a").write(json.dumps(sys.argv[1:]) + "\\n")\n'
         'env_log = os.environ.get("FAKE_HELIUM_ENV_LOG")\n'
         'if env_log:\n    open(env_log, "a").write(os.environ.get("LD_PRELOAD", "<unset>") + "\\n")\n'
+        'input_log = os.environ.get("FAKE_HELIUM_INPUT_LOG")\n'
+        'if input_log:\n    open(input_log, "a").write(os.environ.get("GTK_IM_MODULE", "<unset>") + "\\n")\n'
         'if os.environ.get("FAKE_HELIUM_OPEN"):\n'
         '    import subprocess, time\n'
         '    subprocess.run(["xdg-open", os.environ["FAKE_HELIUM_OPEN"]], check=True)\n'

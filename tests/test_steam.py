@@ -351,7 +351,7 @@ class ShortcutTests(unittest.TestCase):
         self.assertFalse((grid / f"{result.appid}p.jpg").exists())
         self.assertIn("BottomLeft", (grid / f"{result.appid}.json").read_text())
 
-    def test_a_refresh_keeps_the_users_name_icon_options_and_overlay(self):
+    def test_a_refresh_keeps_the_users_name_icon_and_options_but_not_the_overlay(self):
         [first] = self.add()
         shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
         entry = shortcuts.find(EXE)[0]
@@ -364,7 +364,7 @@ class ShortcutTests(unittest.TestCase):
         self.assertEqual(kept.name, "My Tube")
         self.assertEqual(
             (entry.get("icon"), entry.get("LaunchOptions"), entry.get("AllowOverlay")),
-            ("/home/deck/icons/tube.png", "--debug-gpu", 1),
+            ("/home/deck/icons/tube.png", "--debug-gpu", 0),
         )
         self.add()
         entry = self.load_entries().get("0")

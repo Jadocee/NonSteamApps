@@ -19,8 +19,9 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
-- **Emulator**, for KytyPS5 and Eden, starts from Gamepad with Mouse Trackpad, whose right trackpad moves the
-  pointer but whose press is the right stick's click. It presses the left mouse button instead; the rest is a
+- **Emulator**, for KytyPS5, Eden and Eden-NX2, starts from Gamepad with Mouse Trackpad, whose right trackpad moves
+  the pointer but whose press, on a soft press like Valve's mouse layouts, is the right stick's click. It presses
+  the left mouse button instead; the rest is a
   gamepad for the game. Holding View shifts the right stick and the face buttons into Web Browser's for every
   controller, for the emulators' own windows: the stick points (its click clicks), A clicks, B is Escape,
   Y is Enter and X the on-screen keyboard. Valve does not let a mode shift change triggers or bumpers.
@@ -61,11 +62,19 @@ def _find(pairs: vdf.Pairs, key: str):
     return next((value for name, value in pairs if name == key), None)
 
 
+def _press(value: vdf.Pairs) -> vdf.Pairs:
+    """The activator of an input's press: its full press, or else the one Valve gives it, such as a trackpad's soft press."""
+    activators = _find(value, "activators") or []
+    full = _find(activators, "Full_Press")
+    if isinstance(full, list):
+        return full
+    return next((activator for _, activator in activators if isinstance(activator, list)), [])
+
+
 def _bind(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
     for name, value in _find(group, "inputs") or []:
         if name == button:
-            activator = _find(_find(value, "activators") or [], "Full_Press") or []
-            pairs = _find(activator, "bindings")
+            pairs = _find(_press(value), "bindings")
             if isinstance(pairs, list):
                 pairs[:] = [("binding", binding) for binding in bindings]
 
@@ -267,7 +276,7 @@ EMULATOR = Layout(
     description="Steam's Gamepad layout for games; hold View for the emulator's own windows: right stick to point, A to click, B for Escape, Y for Enter, X for the keyboard",
     base="controller_neptune_gamepad+mouse.vdf",
     change=_emulator,
-    revision="2",
+    revision="3",
     replaces=("kytyps5",),
     shift=Shift("button_escape", "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
 )
@@ -341,8 +350,7 @@ def _inputs(group: vdf.Pairs) -> List[str]:
 def _add(group: vdf.Pairs, button: str, bindings: List[str]) -> bool:
     for name, value in _find(group, "inputs") or []:
         if name == button:
-            activator = _find(_find(value, "activators") or [], "Full_Press") or []
-            pairs = _find(activator, "bindings")
+            pairs = _find(_press(value), "bindings")
             if isinstance(pairs, list):
                 pairs.extend(("binding", binding) for binding in bindings)
                 return True

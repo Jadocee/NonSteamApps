@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
-# fake flatpak, a running fake firewall, stand-in Helium and KytyPS5 releases and two Steam
-# accounts, launches through the links Steam runs, an update that keeps what the
+# fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall,
+# stand-in Helium and KytyPS5 releases and two Steam accounts, launches through the
+# links Steam runs, an update that keeps what the
 # user changed, an install that puts it back, and uninstall.sh. Needs bash,
 # python3 and xz.
 set -Eeuo pipefail
@@ -99,6 +100,8 @@ printf '%s\n' '"libraryfolders"' '{' "\"0\" { \"path\" \"$STEAM\" }" "\"1\" { \"
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
 KYTY_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_kyty_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
+NX2_COMMIT=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes; print(_fakes.NX2_COMMIT)' "$ROOT/tests")
+NX2_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import nx2; print(nx2.APP_ID)' "$ROOT/src/lib")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
 YOUTUBE_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import steam; print(steam.shortcut_appid(steam.quote(sys.argv[2]), "YouTube"))' "$ROOT/src/lib" "$PROGRAM/apps/youtube")
 printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"' '{' '"CompatToolMapping"' '{' \
@@ -114,17 +117,21 @@ if pgrep -u "$(id -u)" -x plasmashell >/dev/null 2>&1; then
 fi
 
 echo "==> install.sh"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --eden-nx2-commit "$NX2_COMMIT" \
+    --skip-verify >"$WORK/install.log" 2>&1 || {
     cat "$WORK/install.log"
     exit 1
 }
-everything="Bitwarden Disney+ Eden Element Files HBO Max Helium Jellyfin KytyPS5 LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 19
+everything="Bitwarden Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 20
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 19
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 20
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
 check "KytyPS5 was unpacked and made current" test -x "$PROGRAM/kytyps5/current/kyty_launcher"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "19 19"
+check "Eden-NX2 was built from its source in the SDK" grep -qF "\"git\", \"-C\", \"/run/nonsteamapps/source\", \"fetch\", \"-q\", \"--depth\", \"1\", \"https://git.eden-emu.dev/Takoroka/eden-nx2.git\", \"$NX2_COMMIT\"]" "$WORK/flatpak.log"
+check "Eden-NX2 was installed from NonSteamApps' own repository" grep -qF "[\"install\", \"--user\", \"--noninteractive\", \"-y\", \"nonsteamapps\", \"$NX2_ID\"]" "$WORK/flatpak.log"
+check "Eden-NX2's build files and staging folder were cleared, its caches kept" test ! -e "$PROGRAM/eden-nx2/build" -a ! -e "$PROGRAM/eden-nx2/app" -a -d "$PROGRAM/eden-nx2/cpm"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "20 20"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
@@ -172,6 +179,10 @@ check "Eden started full screen, portable and on X11, in the account's folder, w
 check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden shares the keys, firmware and installed games" test "$(readlink "$EDEN/eden-steam-222/user/keys")" == "../../eden/keys" -a -d "$EDEN/eden/nand/user/Contents/registered"
+NX2="$HOME_DIR/.var/app/$NX2_ID/data"
+run "$PROGRAM/apps/edennx2" --steam-account 222
+check "Eden-NX2 started as Eden does, from its own Flatpak, with its own games folder" grep -qF "[\"run\", \"--cwd=$NX2/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch2:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"$NX2_ID\", \"-f\"]" "$WORK/flatpak.log"
+check "Eden-NX2 lists ~/Games/Switch2 among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$NX2/eden-steam-222/user/config/qt-config.ini"
 run "$PROGRAM/apps/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"
@@ -209,12 +220,14 @@ run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/
     exit 1
 }
 check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
-check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 19
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 20
+check "update kept the Eden-NX2 build it could not compare with its branch" grep -qF "could not update Eden-NX2, so the build installed stays" "$WORK/update.log"
 check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
 check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"
 
 echo "==> installing again puts NonSteamApps' set-up back"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --skip-verify >"$WORK/reinstall.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --eden-nx2-commit "$NX2_COMMIT" \
+    --skip-verify >"$WORK/reinstall.log" 2>&1 || {
     cat "$WORK/reinstall.log"
     exit 1
 }
@@ -230,6 +243,7 @@ check "only the app profiles remain" test "$(ls "$PROGRAM")" == "profiles"
 check "KytyPS5's save stayed, without its programs" test -d "$KYTY_HOME/_SaveData/PPSA00000" -a ! -e "$KYTY_HOME/kyty_launcher"
 check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 222)"
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
+check "Eden-NX2's repository was forgotten" grep -qF '["remote-delete", "--user", "--force", "nonsteamapps"]' "$WORK/flatpak.log"
 check "Helium left the applications menu" test ! -e "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
 if [ "$PLASMA_HERE" = 0 ]; then
     check "Helium left the taskbar" test "$(grep -c nonsteamapps-helium "$LAYOUT")" -eq 0

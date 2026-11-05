@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Stand-in for the flatpak command: records every call and keeps installed apps in a JSON file.
 
-FAKE_FLATPAK_STATE  JSON file of installed apps ({"apps": {id: {"version", "installation"}}})
+FAKE_FLATPAK_STATE  JSON file of installed apps ({"apps": {id: {"version", "installation"[, "commit"]}}}),
+                    installed runtimes ("runtimes": [ref…]) and the newest commit of a local repository
 FAKE_FLATPAK_LOG    file that receives one JSON array of arguments per call
 FAKE_FLATPAK_FAIL   a subcommand (for example "install") that should fail
+FAKE_FLATPAK_BUILD_FAIL  the start of a command (for example "cmake --build") that fails in "flatpak build"
+FAKE_FLATPAK_GIT_HEAD    the commit git reports checked out, in place of the one fetched
 FAKE_FLATPAK_OPEN   a link that "flatpak run" opens with xdg-open from the PATH given with --env, as an app
                     in its sandbox would; it then waits for FAKE_FLATPAK_DONE, which a later run creates
                     when it is handed one of the --env NONSTEAMAPPS_SCHEMES links, as the app's second
                     instance would
+
+"flatpak build" acts as Eden's build would in the SDK: git reports the commit it fetched, Ninja counts
+its steps and "cmake --install" installs an eden program, its menu entry and its icon. "build-export"
+gives each export a new commit in the repository, which "install" from that repository installs.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -44,20 +52,105 @@ def act_as_app(argv):
         time.sleep(0.05)
 
 
+def positional(arguments):
+    return [argument for argument in arguments if not argument.startswith("-")]
+
+
+EDEN_FILES = {
+    "bin/eden": "#!/bin/sh\n",
+    "share/applications/dev.eden_emu.eden.desktop": "[Desktop Entry]\nName=Eden\nName[de]=Eden\nExec=eden %f\nIcon=dev.eden_emu.eden\n",
+    "share/icons/hicolor/scalable/apps/dev.eden_emu.eden.svg": "<svg/>",
+    "share/metainfo/dev.eden_emu.eden.metainfo.xml": "<component/>",
+    "share/mime/packages/dev.eden_emu.eden.xml": "<mime-info/>",
+}
+
+
+def build(state, arguments):
+    """One command in the build sandbox of the folder that "build-init" started."""
+    folder, *command = positional(arguments)[:1] + arguments[arguments.index(positional(arguments)[0]) + 1:]
+    failing = os.environ.get("FAKE_FLATPAK_BUILD_FAIL")
+    if failing and " ".join(command).startswith(failing):
+        print("ninja: build stopped: subcommand failed.")
+        return 1
+    if command[:1] == ["git"] and "fetch" in command:
+        state["fetched"] = command[-1]
+    elif command[:1] == ["git"] and "log" in command:
+        head = os.environ.get("FAKE_FLATPAK_GIT_HEAD", state.get("fetched", ""))
+        print(f"{head}\0{os.environ.get('FAKE_NX2_DATE', '2026-10-29T19:23:21-04:00')}\0nx2: a change")
+    elif command[:2] == ["cmake", "--build"]:
+        print("[0/2] Re-checking globbed directories...")
+        for step in range(1, 5):
+            print(f"[{step}/4] Building CXX object part{step}.o")
+    elif command[:2] == ["cmake", "--install"]:
+        for name, text in EDEN_FILES.items():
+            path = Path(folder) / "files" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (Path(folder) / "files" / "bin" / "eden").chmod(0o755)
+    return 0
+
+
 def main(argv):
     with open(os.environ["FAKE_FLATPAK_LOG"], "a", encoding="utf-8") as log:
         log.write(json.dumps(argv) + "\n")
     state_file = Path(os.environ["FAKE_FLATPAK_STATE"])
     state = json.loads(state_file.read_text()) if state_file.exists() else {"apps": {}}
+    state.setdefault("runtimes", [])
     command = argv[0] if argv else ""
     if command == os.environ.get("FAKE_FLATPAK_FAIL"):
         print(f"error: {command} failed", file=sys.stderr)
         return 1
+    status = 0
     if command == "list":
         for app_id, info in state["apps"].items():
             print(f"{app_id}\t{info['version']}\t{info['installation']}")
     elif command == "install":
-        state["apps"][argv[-1]] = {"version": "1.0.0", "installation": "user"}
+        refs = positional(argv[1:])
+        remote, names = (refs[0], refs[1:]) if len(refs) > 1 else ("", refs)
+        for name in names:
+            if "//" in name:
+                state["runtimes"].append(name)
+            else:
+                state["apps"][name] = {"version": "1.0.0", "installation": "user"}
+                if remote == "nonsteamapps":
+                    state["apps"][name]["commit"] = state["repo_head"]
+    elif command == "info" and "--show-commit" in argv:
+        found = state["apps"].get(argv[-1], {})
+        if "commit" in found:
+            print(found["commit"])
+        else:
+            print(f"error: {argv[-1]} not installed", file=sys.stderr)
+            status = 1
+    elif command == "info":
+        status = 0 if argv[-1] in state["runtimes"] or argv[-1] in state["apps"] else 1
+    elif command == "--default-arch":
+        print("x86_64")
+    elif command == "build-init":
+        folder, app_id = positional(argv[1:])[:2]
+        (Path(folder) / "files").mkdir(parents=True)
+        (Path(folder) / "var").mkdir()
+        (Path(folder) / "metadata").write_text(f"[Application]\nname={app_id}\n")
+    elif command == "build":
+        status = build(state, argv[1:])
+    elif command == "build-finish":
+        (Path(positional(argv[1:])[0]) / "finished").write_text(json.dumps(argv[2:]))
+    elif command == "build-export":
+        repo, folder, branch = positional(argv[1:])[:3]
+        app_id = (Path(folder) / "metadata").read_text().split("name=", 1)[1].splitlines()[0]
+        state["exports"] = state.get("exports", 0) + 1
+        state["repo_head"] = hashlib.sha256(str(state["exports"]).encode()).hexdigest()
+        ref = Path(repo) / "refs" / "heads" / "app" / app_id / "x86_64" / branch
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text(state["repo_head"] + "\n")
+    elif command == "update" and any(argument.startswith("--commit=") for argument in argv):
+        commit = next(argument for argument in argv if argument.startswith("--commit="))[len("--commit="):]
+        for name in positional(argv[1:]):
+            if name in state["apps"]:
+                state["apps"][name]["commit"] = commit
+    elif command == "mask":
+        masked = set(state.get("masked", []))
+        masked = masked - set(positional(argv[1:])) if "--remove" in argv else masked | set(positional(argv[1:]))
+        state["masked"] = sorted(masked)
     elif command == "uninstall" and "--unused" not in argv:
         if state["apps"].pop(argv[-1], None) is None:
             print(f"error: {argv[-1]} not installed", file=sys.stderr)
@@ -70,7 +163,7 @@ def main(argv):
         folder.mkdir(parents=True)
         (folder / "profile.json").write_text(json.dumps({"name": name}))
     state_file.write_text(json.dumps(state))
-    return 0
+    return status
 
 
 if __name__ == "__main__":

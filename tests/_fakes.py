@@ -31,6 +31,9 @@ class FakeFlatpak:
     def apps(self):
         return json.loads(self.state.read_text())["apps"]
 
+    def state_value(self, key):
+        return json.loads(self.state.read_text()).get(key)
+
 
 class FakeFirewall:
     """firewalld as seen through tests/fakes/firewall-cmd, with tests/fakes/sudo in front of changes."""
@@ -261,6 +264,8 @@ def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "F
 
 
 KYTY_TAG = "KytyPS5-2026-11-02-dfec14a"
+NX2_COMMIT = "50fa86bbbc403ad565eb44fcc281f16f77c69e15"
+NX2_NEWER = "c0ffee00d15ea5e0123456789abcdef012345678"
 
 
 def make_kyty_build(directory: Path) -> Path:

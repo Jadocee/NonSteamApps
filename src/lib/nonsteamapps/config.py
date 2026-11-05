@@ -83,6 +83,11 @@ class Paths:
         return self.program / "kytyps5"
 
     @property
+    def nx2(self) -> Path:
+        """Eden-NX2's source, the repository of its builds and their caches; its data is in its Flatpak's folder."""
+        return self.program / "eden-nx2"
+
+    @property
     def focus_extension(self) -> Path:
         """The Helium extension that outlines the link or button the arrow keys reach."""
         return self.extension("focus")

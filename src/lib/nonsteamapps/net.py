@@ -1,4 +1,4 @@
-"""Downloads for Helium's releases and NonSteamApps' own updates, sent with NonSteamApps' user agent."""
+"""Downloads for Helium's and KytyPS5's releases, Eden-NX2's branch and NonSteamApps' own updates, sent with NonSteamApps' user agent."""
 
 from __future__ import annotations
 
@@ -17,9 +17,13 @@ def request(url: str, accept: str = "") -> urllib.request.Request:
     return urllib.request.Request(url, headers=headers)
 
 
-def fetch_text(url: str, accept: str = "") -> str:
+def fetch_bytes(url: str, accept: str = "") -> bytes:
     with urllib.request.urlopen(request(url, accept), timeout=TIMEOUT) as response:
-        return response.read().decode("utf-8")
+        return response.read()
+
+
+def fetch_text(url: str, accept: str = "") -> str:
+    return fetch_bytes(url, accept).decode("utf-8")
 
 
 def final_url(url: str) -> str:

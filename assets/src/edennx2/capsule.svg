@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900" viewBox="0 0 600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17171D"/>
+      <stop offset="1" stop-color="#08080A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="300" cy="330" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7B4DFF" stop-opacity="0.45"/>
+      <stop offset="0.5" stop-color="#7B4DFF" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#7B4DFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="420" cy="560" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF9F6B" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#FF9F6B" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#FF9F6B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A2A33"/>
+      <stop offset="1" stop-color="#18181E"/>
+    </linearGradient>
+    <linearGradient id="p0" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B2A5C"/><stop offset="1" stop-color="#1C1530"/></linearGradient>
+    <linearGradient id="p1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F3A4D"/><stop offset="1" stop-color="#10202B"/></linearGradient>
+    <linearGradient id="p2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4A2F22"/><stop offset="1" stop-color="#22150F"/></linearGradient>
+    <linearGradient id="p3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2B2350"/><stop offset="1" stop-color="#140F27"/></linearGradient>
+    <linearGradient id="p4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2E2A4F"/><stop offset="1" stop-color="#161427"/></linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#08080A" stop-opacity="0"/>
+      <stop offset="1" stop-color="#08080A" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B48CFF"/>
+      <stop offset="1" stop-color="#2B1B5C"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <symbol id="emblem" viewBox="0 0 240 204">
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#screen)"/>
+      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#gloss)"/>
+      <path d="M120 134 C120 110 119 86 116 58" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+      <path d="M118 108 C94 112 72 100 64 76 C90 70 112 84 118 108 Z" fill="#FFFFFF"/>
+      <path d="M121 116 C131 88 153 74 181 74 C181 102 159 120 121 116 Z" fill="#FFFFFF"/>
+      <path d="M116 66 C101 63 88 51 84 32 C103 32 114 46 116 66 Z" fill="#FFFFFF"/>
+      <path d="M117 62 C124 42 140 30 160 30 C158 52 141 64 117 62 Z" fill="#FFFFFF"/>
+      <path d="M121 116 C139 100 155 89 172 81" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="5" stroke-linecap="round"/>
+      <path d="M118 108 C102 98 86 88 74 80" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="5" stroke-linecap="round"/>
+      <path d="M117 62 C128 52 140 44 152 37" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>
+      <path d="M116 66 C106 56 97 48 90 38" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>
+      <rect x="90" y="138" width="60" height="11" rx="5.5" fill="#FF9F6B"/>
+      <rect x="76" y="182" width="88" height="16" rx="8" fill="#B48CFF"/>
+    </symbol>
+  </defs>
+  <rect width="600" height="900" fill="url(#bg)"/>
+  <rect width="600" height="900" fill="url(#glow)"/>
+  <rect width="600" height="900" fill="url(#glow2)"/>
+  <g>
+    <rect x="-40" y="676" width="120" height="180" rx="14" fill="url(#p2)"/>
+    <rect x="96" y="676" width="120" height="180" rx="14" fill="url(#p2)"/>
+    <rect x="232" y="676" width="120" height="180" rx="14" fill="url(#p0)"/>
+    <rect x="368" y="676" width="120" height="180" rx="14" fill="url(#p0)"/>
+    <rect x="504" y="676" width="120" height="180" rx="14" fill="url(#p2)"/>
+    <rect x="-100" y="872" width="120" height="180" rx="14" fill="url(#p3)"/>
+    <rect x="36" y="872" width="120" height="180" rx="14" fill="url(#p0)"/>
+    <rect x="172" y="872" width="120" height="180" rx="14" fill="url(#p0)"/>
+    <rect x="308" y="872" width="120" height="180" rx="14" fill="url(#p3)"/>
+    <rect x="444" y="872" width="120" height="180" rx="14" fill="url(#p2)"/>
+    <rect x="580" y="872" width="120" height="180" rx="14" fill="url(#p3)"/>
+  </g>
+  <rect y="640" width="600" height="260" fill="url(#fade)"/>
+  <use href="#emblem" x="170" y="140" width="260" height="221" filter="url(#shadow)"/>
+  <text x="300" y="490" text-anchor="middle" font-family="Inter Display" font-weight="900" font-size="112" letter-spacing="-4" fill="#FFFFFF">Eden</text>
+  <rect x="196" y="516" width="208" height="88" rx="26" fill="#FF9F6B"/>
+  <text x="300" y="587" text-anchor="middle" font-family="Inter Display" font-weight="900" font-size="72" letter-spacing="-2" fill="#1A1033">NX2</text>
+  <text x="306" y="650" text-anchor="middle" font-family="Inter" font-weight="600" font-size="25" letter-spacing="8" fill="#B8B8C4">EXPERIMENTAL EMULATOR</text>
+</svg>

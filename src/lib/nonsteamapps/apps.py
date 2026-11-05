@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
+from . import nx2
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
 from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
@@ -727,7 +728,9 @@ class DesktopEntry:
 @dataclass(frozen=True)
 class App:
     """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
-    (``system``), or one it downloads from its project's releases (``release``).
+    (``system``), one it downloads from its project's releases (``release``), or a Flatpak it builds on this machine
+    from its project's source (``from_source``), as it does for Eden-NX2 (see :mod:`nx2`), which then runs as
+    a Flathub app does.
 
     ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
     :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
@@ -788,6 +791,7 @@ class App:
     games: str = ""
     console_mode: bool = False
     desktop: Optional[DesktopEntry] = None
+    from_source: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -802,6 +806,22 @@ class App:
         """Options for ``flatpak run`` itself, before the app ID."""
         return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
 
+
+EDEN_PROFILE = PortableProfile(
+    "data/eden-steam-{account}",
+    "",
+    shared="data/eden",
+    settings=(EDEN_SETTINGS,),
+    shared_settings=(EDEN_SHARED_SETTINGS,),
+    shared_links=(
+        ("user/keys", "keys"),
+        ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
+        ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
+        ("user/load", "load"),
+        ("user/shader", "shader"),
+    ),
+    carried=(("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\")),
+)
 
 APPS: Tuple[App, ...] = (
     App(
@@ -936,21 +956,7 @@ APPS: Tuple[App, ...] = (
         flatpak="dev.eden_emu.eden",
         summary="Nintendo Switch games you own, through the Eden emulator, set up for a TV and a controller",
         args=("-f",),
-        profile=PortableProfile(
-            "data/eden-steam-{account}",
-            "",
-            shared="data/eden",
-            settings=(EDEN_SETTINGS,),
-            shared_settings=(EDEN_SHARED_SETTINGS,),
-            shared_links=(
-                ("user/keys", "keys"),
-                ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
-                ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
-                ("user/load", "load"),
-                ("user/shader", "shader"),
-            ),
-            carried=(("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\")),
-        ),
+        profile=EDEN_PROFILE,
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
@@ -960,6 +966,26 @@ APPS: Tuple[App, ...] = (
         games="Games/Switch",
         console_mode=True,
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
+    ),
+    App(
+        id="edennx2",
+        name="Eden-NX2",
+        client="Eden-NX2",
+        flatpak=nx2.APP_ID,
+        from_source=True,
+        summary="Switch 2 games you own, through Eden-NX2's early Switch 2 support, built here from its official source and set up for a TV and a controller",
+        args=("-f",),
+        profile=EDEN_PROFILE,
+        controller=EMULATOR.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        env=(("QT_QPA_PLATFORM", "xcb"),),
+        x11=True,
+        qt_window=True,
+        games="Games/Switch2",
+        console_mode=True,
+        notice="Eden-NX2 is early work, and few Switch 2 games start: copy each one you own, dumped as a folder holding its exefs and romfs, "
+               "into ~/Games/Switch2. It is built here, so nonsteamapps update builds its newest source, which can take an hour",
     ),
     App(
         id="kytyps5",

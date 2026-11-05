@@ -15,8 +15,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "kytyps5", "protonup", "protontricks", "files",
-             "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
+             "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -74,7 +74,8 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "kytyps5", "protonup", "protontricks", "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
+             "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -153,9 +154,20 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((eden.arguments(HOME, 111), eden.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
         self.assertEqual((eden.arguments(HOME, None), eden.run_options(HOME, None)), (["-f"], []))
         self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, ()))
-        self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [("eden", (("QT_QPA_PLATFORM", "xcb"),))])
+        self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [(name, (("QT_QPA_PLATFORM", "xcb"),)) for name in ("eden", "edennx2")])
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
-        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden"])
+        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden", "edennx2"])
+
+    def test_eden_nx2_is_eden_built_here_with_a_games_folder_of_its_own(self):
+        eden, nx2 = apps.by_id("eden"), apps.by_id("edennx2")
+        self.assertEqual((nx2.flatpak, nx2.from_source, nx2.release), ("io.github.jadocee.nonsteamapps.EdenNX2", True, None))
+        self.assertEqual([app.id for app in apps.APPS if app.from_source], ["edennx2"])
+        folder = HOME / ".var/app/io.github.jadocee.nonsteamapps.EdenNX2/data/eden-steam-111"
+        self.assertEqual((nx2.arguments(HOME, 111), nx2.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
+        self.assertIs(nx2.profile, eden.profile)
+        self.assertEqual((nx2.games, eden.games), ("Games/Switch2", "Games/Switch"))
+        same = ("controller", "tv_scale", "env", "x11", "qt_window", "console_mode", "logo_position", "args")
+        self.assertEqual([getattr(nx2, name) for name in same], [getattr(eden, name) for name in same])
 
     def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
         self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])

@@ -178,6 +178,24 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
         self.assertEqual(bindings(switch, "button_escape"), ["key_press ESCAPE"])
 
+    def test_jellyfin_gets_its_own_keys_and_b_never_holds_escape(self):
+        for pad in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
+            found = groups(layouts.build(layouts.JELLYFIN, self.read(layouts.JELLYFIN.base), self.read(pad)))
+            diamond, switch = found["button_diamond"], found["switch"]
+            self.assertEqual(
+                [bindings(diamond, button) for button in ("button_a", "button_b", "button_x", "button_y")],
+                [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"],
+                 ["key_press LEFT_CONTROL, Search", "key_press F"]],
+            )
+            self.assertEqual(bindings(diamond, "button_b", "Long_Press"), ["key_press H, Home"])
+            self.assertEqual(
+                [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+                [["key_press SPACE, Play or pause"], ["key_press H, Home"], ["key_press PAGE_UP, Rewind"], ["key_press PAGE_DOWN, Fast forward"]],
+            )
+            self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+            self.assertEqual((find(found["joystick"], "mode"), bindings(found["joystick"], "dpad_west")), ("dpad", ["key_press LEFT_ARROW, ⏪"]))
+            self.assertEqual(bindings(found["dpad"], "dpad_north"), ["key_press UP_ARROW, ⏫"])
+
     def test_bitwarden_keeps_the_tools_controls_and_reaches_what_its_hidden_menu_holds(self):
         found = groups(layouts.build(layouts.BITWARDEN, self.read(layouts.BITWARDEN.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
         tools = groups(layouts.build(layouts.TOOLS, self.read(layouts.TOOLS.base), self.read("controller_xboxone_gamepad_joystick.vdf")))

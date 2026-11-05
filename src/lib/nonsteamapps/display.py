@@ -9,6 +9,7 @@ import subprocess
 from typing import Optional, Tuple
 
 TV_HEIGHT = 720
+TV_SIZED = 1000
 _SCREEN = re.compile(r"current (\d+) x (\d+)")
 
 
@@ -31,6 +32,11 @@ def screen_height() -> Optional[int]:
     return size[1] if size else None
 
 
+def tv_sized(height: Optional[int]) -> bool:
+    """Whether a screen ``height`` pixels tall is a TV's size, 1000 pixels or more, as at 1080p and above."""
+    return bool(height and height >= TV_SIZED)
+
+
 def window_size(factor: Optional[float]) -> Optional[Tuple[int, int]]:
     """The window size that fills the screen exactly, in the units of an app scaled by ``factor``."""
     size = screen_size()
@@ -51,7 +57,7 @@ def scale(setting: str, game_mode: bool, height: Optional[int] = None, layout: i
     if not game_mode:
         return None
     height = screen_height() if height is None else height
-    if not height or height < 1000:
+    if not tv_sized(height):
         return None
     factor = round(height / layout * 4) / 4
     return factor if factor > 1 else None

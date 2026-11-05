@@ -394,11 +394,12 @@ class LaunchTests(CliTestCase):
             "-qwindowgeometry", "1280x720+0+0",
         ])
 
-    def test_eden_starts_in_each_accounts_folder_full_screen_and_scaled_for_a_tv(self):
+    def test_eden_starts_in_each_accounts_folder_full_screen_on_x11_and_scaled_for_a_tv(self):
         folder = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}"
         games = self.home / "Games" / "Switch"
+        x11 = ["--socket=x11", "--nosocket=fallback-x11", "--env=QT_QPA_PLATFORM=xcb"]
         argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
-        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", *x11, "dev.eden_emu.eden", "-f"])
         settings = (folder / "user/config/qt-config.ini").read_text()
         self.assertIn(f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n", settings)
         self.assertTrue(games.is_dir())
@@ -407,15 +408,36 @@ class LaunchTests(CliTestCase):
                 mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)):
             argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
         self.assertEqual(argv, [
-            self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--env=QT_SCALE_FACTOR=3", "--env=QT_QPA_PLATFORM=xcb",
+            self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--env=QT_SCALE_FACTOR=3", *x11,
             "dev.eden_emu.eden", "-f", "-qwindowgeometry", "1280x720+0+0",
         ])
         self.assertEqual((folder / "user/config/qt-config.ini").read_text().count(str(games)), 1)
         self.install("eden")
         config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
         argv, _ = self.launch("eden", "--steam-account", str(ALPHA))
-        self.assertEqual(argv[2:], [f"--filesystem={games}:ro", "dev.eden_emu.eden", "-f"])
+        self.assertEqual(argv[2:], [f"--filesystem={games}:ro", *x11, "dev.eden_emu.eden", "-f"])
         self.assertIn(f"path={games}\n", (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
+
+    def test_eden_runs_docked_at_a_tvs_size_and_handheld_below_it_in_game_mode(self):
+        settings = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+
+        def mode(game_mode=False, size=(3840, 2160)):
+            with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                    mock.patch("nonsteamapps.display.screen_size", return_value=size):
+                self.launch("eden", "--steam-account", str(ALPHA))
+            text = settings.read_text()
+            return text[text.index("[System]"):] if "[System]" in text else None
+
+        self.install("eden")
+        self.assertIsNone(mode())
+        self.assertEqual(mode(True, (1280, 800)), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=1\n")
+        self.assertEqual(mode(True, None), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=1\n")
+        config.set_setting(self.paths.settings, cli.EDEN_CONSOLE_MODE, "handheld")
+        self.assertEqual(mode(), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        config.set_setting(self.paths.settings, cli.EDEN_CONSOLE_MODE, "off")
+        self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        self.assertIn("[UI]\n", settings.read_text())
 
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
@@ -905,13 +927,16 @@ class KytyTests(CliTestCase):
         settings = (home / "Kyty.ini").read_text()
         for line in ("check_updates_on_startup=false", "theme=1", "grid_view=true", "grid_icon_width=256"):
             self.assertIn(line + "\n", settings)
-        self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0"]})
+        self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0", "2.25.0"]})
+        self.assertIn('\nhost_input_mapping="Pad:Cross=South", ', settings)
+        self.assertIn('"Pad:TouchPad=Touchpad", "Pad:TouchPadRight=Back"\n', settings)
+        self.assertIn("\nscreen_resolution=1920x1080\n", settings)
         self.assertNotIn("RESOURCE_NAME", environ)
         watch.assert_not_called()
         argv, environ, _, watch = self.launch_kyty(game_mode=True)
         watch.assert_called_once_with("nonsteamapps-kytyps5", os.getpid())
-        self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "QT_SCALE_FACTOR")],
-                         ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "1.5"])
+        self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "SDL_VIDEO_DRIVER", "QT_SCALE_FACTOR")],
+                         ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "x11", "1.5"])
         games = self.home / "Games" / "PS5"
         self.assertIn(f"game_dirs={games}\n", (home / "Kyty.ini").read_text())
         self.assertTrue(games.is_dir())

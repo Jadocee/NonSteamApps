@@ -11,7 +11,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
+from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -183,6 +183,15 @@ def add_game_folder(settings_file: Path, folder: Path) -> bool:
     return bool(IniSettings(Path(settings_file).name, tuple(values)).apply(Path(settings_file).parent))
 
 
+def set_console_mode(settings_file: Path, docked: bool) -> bool:
+    """Run Eden's console docked or handheld, in ``settings_file``; return whether that changed.
+
+    A game's own console mode, in its properties, still takes precedence.
+    """
+    values = _eden_setting("System", "use_docked_mode", "1" if docked else "0")
+    return bool(IniSettings(Path(settings_file).name, values).apply(Path(settings_file).parent))
+
+
 def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
     """Make each change not yet recorded in ``folder``'s ``nonsteamapps.json`` once; return the names made now.
 
@@ -219,7 +228,49 @@ def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
     return found
 
 
-Settings = Union[JsonSettings, IniSettings]
+KYTY_GLOBAL = "GlobalConfiguration"
+KYTY_PAD = tuple(f"Pad:{control}={source}" for control, source in (
+    ("Cross", "South"), ("Circle", "East"), ("Square", "West"), ("Triangle", "North"), ("Options", "Start"),
+    ("L3", "LeftStick"), ("R3", "RightStick"), ("L1", "LeftShoulder"), ("R1", "RightShoulder"),
+    ("L2", "LeftTrigger"), ("R2", "RightTrigger"), ("Up", "DpadUp"), ("Down", "DpadDown"),
+    ("Left", "DpadLeft"), ("Right", "DpadRight"), ("TouchPad", "Touchpad"), ("TouchPadRight", "Back"),
+))
+KYTY_GLOBAL_DEFAULTS = (
+    ("present_mode", "Mailbox"), ("trophy_duration_seconds", "6"), ("shader_optimization_type", "Performance"),
+    ("shader_log_folder", "_Shaders"), ("command_buffer_dump_folder", "_Buffers"), ("printf_output_file", "_kyty.txt"),
+)
+
+
+@dataclass(frozen=True)
+class KytyGlobal:
+    """Values for KytyPS5's global game settings in ``Kyty.ini``, each written while it is missing or still KytyPS5's default.
+
+    ``values`` are ``(key, value, defaults)``, where ``defaults`` are how the launcher writes the key's default; an
+    empty value counts as one too. The launcher reads its ``[GlobalConfiguration]`` group whole once it holds a key,
+    and a key missing there becomes zero, so the defaults that are not zero go in with them.
+    """
+
+    values: Tuple[Tuple[str, str, Tuple[str, ...]], ...]
+    file: str = "Kyty.ini"
+
+    def target(self, folder: Path) -> Path:
+        return Path(folder) / self.file
+
+    def apply(self, folder: Path) -> Optional[bool]:
+        """Write the values the user has not changed; return whether the file changed, or ``None`` if it cannot be read."""
+        entries = dict(ini_entries(self.target(folder), KYTY_GLOBAL, ""))
+        wanted = [(KYTY_GLOBAL, key, value) for key, value, defaults in self.values if entries.get(key, "").strip() in ("", *defaults)]
+        if not wanted:
+            return False
+        values = [(KYTY_GLOBAL, key, value) for key, value in KYTY_GLOBAL_DEFAULTS if key not in entries]
+        return IniSettings(self.file, (*values, *wanted)).apply(folder)
+
+
+KYTY_GAMES = KytyGlobal((
+    ("host_input_mapping", ", ".join(f'"{entry}"' for entry in KYTY_PAD), ("@Invalid()",)),
+    ("screen_resolution", "1920x1080", ("1280x720",)),
+))
+Settings = Union[JsonSettings, IniSettings, KytyGlobal]
 VACUUMTUBE_TV = JsonSettings(
     "config.json",
     (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
@@ -676,8 +727,10 @@ class App:
     the firewall, when one is running, so other devices can reach the app.
 
     For a Flathub app, ``env`` is set for every start from Steam and ``game_mode_env`` for starts in Game
-    Mode. ``settings`` are NonSteamApps' TV set-up in the app's own folder, for an app without data per
-    account: written when missing and put back by every install. ``libraries`` gives the app's sandbox
+    Mode. An ``x11`` app is given X11 for every start from Steam, even where Flatpak would give it only
+    Wayland (see :func:`flatpak.x11_options`); its ``env`` chooses X11 for its toolkit. ``settings`` are
+    NonSteamApps' TV set-up in the app's own folder, for an app without data per account: written when
+    missing and put back by every install. ``libraries`` gives the app's sandbox
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
@@ -690,6 +743,8 @@ class App:
     the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` is a
     folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
     for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
+    A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
+    (see :func:`set_console_mode`).
     """
 
     id: str
@@ -711,6 +766,7 @@ class App:
     ports: Tuple[str, ...] = ()
     env: Tuple[Tuple[str, str], ...] = ()
     game_mode_env: Tuple[Tuple[str, str], ...] = ()
+    x11: bool = False
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
@@ -719,6 +775,7 @@ class App:
     hide_menu_bar: bool = False
     userstyles: Tuple[str, ...] = ()
     games: str = ""
+    console_mode: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -824,6 +881,7 @@ APPS: Tuple[App, ...] = (
         summary="Your Jellyfin media server's films, shows and music, in its TV layout",
         args=("--tv", "--fullscreen"),
         profile=JellyfinProfile(),
+        controller=JELLYFIN.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(argument="--scale-factor={factor}"),
     ),
@@ -884,9 +942,11 @@ APPS: Tuple[App, ...] = (
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
-        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        env=(("QT_QPA_PLATFORM", "xcb"),),
+        x11=True,
         qt_window=True,
         games="Games/Switch",
+        console_mode=True,
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
     ),
     App(
@@ -894,11 +954,11 @@ APPS: Tuple[App, ...] = (
         name="KytyPS5",
         client="KytyPS5",
         summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
-        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV),)),
+        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV), ("2.25.0", KYTY_GAMES))),
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
-        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"), ("SDL_VIDEO_DRIVER", "x11")),
         fullscreen_class="nonsteamapps-kytyps5",
         notice="KytyPS5 plays only games you own, copied from your own console; it updates with `nonsteamapps update`, not every week",
     ),

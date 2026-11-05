@@ -65,7 +65,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(apps.by_id("netflix").browser.start_url(111), "https://www.netflix.com/")
         self.assertEqual(apps.by_id("localsend").controller, "LocalSend (NonSteamApps)")
         self.assertEqual(apps.by_id("youtube").controller, "YouTube (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if not app.controller], ["jellyfin"])
+        self.assertEqual(apps.by_id("jellyfin").controller, "Jellyfin (NonSteamApps)")
+        self.assertEqual([app.id for app in apps.APPS if not app.controller], [])
 
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
@@ -137,7 +138,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((app.flatpak, app.browser, app.system), ("", None, None))
         tv = (("MainDialog", "theme", "1"), ("Launcher", "grid_view", "true"), ("Launcher", "grid_icon_width", "256"))
         self.assertEqual(app.release.settings, (apps.IniSettings("Kyty.ini", (("MainDialog", "check_updates_on_startup", "false"), *tv)),))
-        self.assertEqual(app.release.changes, (("2.23.0", apps.IniSettings("Kyty.ini", tv)),))
+        self.assertEqual(app.release.changes, (("2.23.0", apps.IniSettings("Kyty.ini", tv)), ("2.25.0", apps.KYTY_GAMES)))
+        self.assertEqual(app.game_mode_env, (("QT_QPA_PLATFORM", "xcb"), ("SDL_VIDEO_DRIVER", "x11")))
         self.assertEqual((app.controller, app.fullscreen_class), ("Emulator (NonSteamApps)", "nonsteamapps-kytyps5"))
         self.assertEqual(app.tv_scale.variables(1.5), {"QT_SCALE_FACTOR": "1.5"})
         self.assertEqual([candidate.id for candidate in apps.APPS if candidate.release], ["kytyps5"])
@@ -147,7 +149,8 @@ class ArgumentTests(unittest.TestCase):
         folder = HOME / ".var/app/dev.eden_emu.eden/data/eden-steam-111"
         self.assertEqual((eden.arguments(HOME, 111), eden.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
         self.assertEqual((eden.arguments(HOME, None), eden.run_options(HOME, None)), (["-f"], []))
-        self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, ()))
+        self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [("eden", (("QT_QPA_PLATFORM", "xcb"),))])
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
         self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden"])
 
@@ -541,6 +544,31 @@ class IniSettingsTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_kytyps5_gets_steams_gamepad_and_1080p_only_where_the_user_kept_its_defaults(self):
+        path = self.folder / "Kyty.ini"
+        mapping = ", ".join(f'"{entry}"' for entry in apps.KYTY_PAD)
+        defaults = ("trophy_duration_seconds=6\nshader_optimization_type=Performance\nshader_log_folder=_Shaders\n"
+                    "command_buffer_dump_folder=_Buffers\nprintf_output_file=_kyty.txt\n")
+        self.assertEqual(len(apps.KYTY_PAD), 17)
+        self.assertNotIn("Pad:GyroToggle=Back", apps.KYTY_PAD)
+        path.write_text("[MainDialog]\ntheme=1\n")
+        self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
+        self.assertEqual(path.read_text(), "[MainDialog]\ntheme=1\n\n[GlobalConfiguration]\npresent_mode=Mailbox\n"
+                                           f"{defaults}host_input_mapping={mapping}\nscreen_resolution=1920x1080\n")
+        path.write_text("[GlobalConfiguration]\npresent_mode=Fifo\nscreen_resolution=1280x720\nhost_input_mapping=@Invalid()\n")
+        self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
+        self.assertEqual(path.read_text(), "[GlobalConfiguration]\npresent_mode=Fifo\nscreen_resolution=1920x1080\n"
+                                           f"host_input_mapping={mapping}\n{defaults}")
+        path.write_text("[GlobalConfiguration]\nhost_input_mapping=Cross=Space\nscreen_resolution=1280x720\n")
+        self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
+        self.assertIn("host_input_mapping=Cross=Space\nscreen_resolution=1920x1080\n", path.read_text())
+        own = "[GlobalConfiguration]\nhost_input_mapping=Cross=Space\nscreen_resolution=2560x1440\n"
+        path.write_text(own)
+        self.assertFalse(apps.KYTY_GAMES.apply(self.folder))
+        self.assertEqual(path.read_text(), own)
+        path.write_bytes(b"\xff\xfe")
+        self.assertIsNone(apps.KYTY_GAMES.apply(self.folder))
 
     def test_values_go_into_their_groups_and_everything_else_stays(self):
         settings = apps.IniSettings("app.ini", (("General", "Theme", "dark"), ("Window", "Bar", "off"), ("General", "Scale", "2")))

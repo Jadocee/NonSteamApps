@@ -21,7 +21,7 @@ from . import (
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
-from .flatpak import Flatpak, FlatpakError, Installed
+from .flatpak import Flatpak, FlatpakError, Installed, x11_options
 from .helium import HeliumError, Runtime
 
 EXIT_ERROR = 1
@@ -31,6 +31,7 @@ HELIUM_SERVICES = "HELIUM_SERVICES"
 TV_SCALE = "TV_SCALE"
 HELIUM_SCALE = "HELIUM_SCALE"
 GAME_MODE_SANDBOX = "GAME_MODE_SANDBOX"
+EDEN_CONSOLE_MODE = "EDEN_CONSOLE_MODE"
 COLLECTION = "STEAM_COLLECTION"
 DEFAULT_COLLECTION = "NonSteamApps"
 RESOLUTION_HINT = "⚙ ▸ Properties ▸ Shortcut ▸ Maximum Game Resolution ▸ Native"
@@ -593,6 +594,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     _place_userstyles(paths, app, account)
     games = _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
+    _console_mode(paths, app, account, settings, game_mode)
     factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
     required = app.tv_scale.requires if app.tv_scale and factor else None
@@ -632,6 +634,29 @@ def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
     if settings and apps.add_game_folder(settings, games):
         print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
     return [f"--filesystem={games}:ro"]
+
+
+def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict[str, str], game_mode: bool) -> None:
+    """Run the emulated console docked or handheld, as ``EDEN_CONSOLE_MODE`` says.
+
+    With ``auto``, it runs docked in Game Mode when Steam runs it at a TV's size, and handheld below that, as on a
+    Steam Deck's screen; outside Game Mode, the emulator keeps its own choice.
+    """
+    if not app.console_mode or not isinstance(app.profile, apps.PortableProfile):
+        return
+    choice = (settings.get(EDEN_CONSOLE_MODE) or "auto").strip().lower()
+    if choice == "auto":
+        height = display.screen_height() if game_mode else None
+        if not height:
+            return
+        docked, reason = display.tv_sized(height), f"Steam runs it {height} pixels tall"
+    elif choice in ("docked", "handheld"):
+        docked, reason = choice == "docked", f"{EDEN_CONSOLE_MODE}={choice}"
+    else:
+        return
+    settings_file = app.profile.settings_file(app.home(paths.home), account)
+    if settings_file and apps.set_console_mode(settings_file, docked):
+        print(f"  {app.client} runs {'docked' if docked else 'handheld'}: {reason}", flush=True)
 
 
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
@@ -715,8 +740,9 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
 
 
 def _environment(app: App, game_mode: bool) -> List[str]:
-    """``flatpak run`` options for the variables the app is started with from Steam."""
-    return [f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ()))]
+    """``flatpak run`` options for the display and the variables the app is started with from Steam."""
+    display_options = x11_options() if app.x11 else []
+    return [*display_options, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
 
 
 def _libraries(app: App) -> List[str]:

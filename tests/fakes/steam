@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Stand-in for the steam command: records each call, one JSON array of its arguments per line, in FAKE_STEAM_LOG.
+
+It reaches no Steam client, so tests and the sandbox cannot change a real account's status.
+"""
+
+import json
+import os
+import sys
+
+log = os.environ.get("FAKE_STEAM_LOG")
+if log:
+    with open(log, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(sys.argv[1:]) + "\n")

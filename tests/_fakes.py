@@ -1,9 +1,10 @@
-"""Test doubles: fake flatpak, firewall-cmd and sudo commands, and a throwaway home with Steam and a NonSteamApps program folder."""
+"""Test doubles: fake flatpak, steam, firewall-cmd and sudo commands, and a throwaway home with Steam and a NonSteamApps program folder."""
 
 import json
 import os
 import shutil
 import subprocess
+import time
 from typing import Optional
 from pathlib import Path
 
@@ -30,6 +31,30 @@ class FakeFlatpak:
 
     def apps(self):
         return json.loads(self.state.read_text())["apps"]
+
+    def state_value(self, key):
+        return json.loads(self.state.read_text()).get(key)
+
+
+class FakeSteam:
+    """The steam command as tests/fakes/steam stands in for it, recording what is sent to a running Steam."""
+
+    def __init__(self, directory: Path):
+        self.log = directory / "steam.log"
+        self.command = str(FAKES / "steam")
+        self.env = {"FAKE_STEAM_LOG": str(self.log)}
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def statuses(self, timeout: float = 5.0, count: int = 0):
+        """The ``steam://friends/status`` commands sent so far, waiting up to ``timeout`` for ``count`` of them."""
+        deadline = time.monotonic() + timeout
+        while True:
+            found = [call[-1].rsplit("/", 1)[-1] for call in self.calls() if call and call[-1].startswith("steam://friends/status/")]
+            if len(found) >= count or time.monotonic() > deadline:
+                return found
+            time.sleep(0.05)
 
 
 class FakeFirewall:
@@ -261,6 +286,8 @@ def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "F
 
 
 KYTY_TAG = "KytyPS5-2026-11-02-dfec14a"
+NX2_COMMIT = "50fa86bbbc403ad565eb44fcc281f16f77c69e15"
+NX2_NEWER = "c0ffee00d15ea5e0123456789abcdef012345678"
 
 
 def make_kyty_build(directory: Path) -> Path:

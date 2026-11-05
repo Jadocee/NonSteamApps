@@ -10,7 +10,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, cli, collection, compat, config, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, cli, collection, compat, config, nx2, presence, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -36,8 +36,10 @@ class CliTestCase(unittest.TestCase):
         (Path(self.tmp.name) / "release").mkdir()
         self.helium_archive = _fakes.make_helium_archive(Path(self.tmp.name) / "release")
         self.kyty_archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "release")
+        self.steam_command = _fakes.FakeSteam(Path(self.tmp.name))
         patches = [
-            mock.patch.dict(os.environ, _fakes.environment(self.home, self.fake, wall=self.wall), clear=True),
+            mock.patch.dict(os.environ, {**_fakes.environment(self.home, self.fake, wall=self.wall), **self.steam_command.env}, clear=True),
+            mock.patch("nonsteamapps.steamclient.command", return_value=self.steam_command.command),
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
         ]
@@ -47,6 +49,11 @@ class CliTestCase(unittest.TestCase):
         patches.append(self.watch)
         patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
         patches.append(mock.patch("nonsteamapps.desktop.plasma_running", return_value=False))
+        self.branch = _fakes.NX2_COMMIT
+        patches.append(mock.patch("nonsteamapps.nx2.remote_refs", side_effect=lambda repository, fetch=None: {"refs/heads/eden-nx2": self.branch}))
+        patches.append(mock.patch.multiple("nonsteamapps.nx2", BUILD_SPACE=0, SDK_SPACE=0))
+        self.status_watch = mock.patch("nonsteamapps.presence.Presence.watch")
+        patches.append(self.status_watch)
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -102,7 +109,7 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
-            ["rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
+            ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
              "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2",
              "com.github.Matoking.protontricks"],
         )
@@ -110,7 +117,7 @@ class InstallTests(CliTestCase):
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "protonup", "protontricks"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -143,7 +150,9 @@ class InstallTests(CliTestCase):
         self.install("youtube")
         hero, settings = self.customise()
         self.install()
-        self.assertEqual([call[-1] for call in self.fake.calls("install")], [app.flatpak for app in apps.APPS if app.flatpak])
+        self.assertEqual([call[-1] for call in self.fake.calls("install")],
+                         ["rocks.shy.VacuumTube", "org.kde.Platform//6.11", nx2.APP_ID,
+                          *[app.flatpak for app in apps.APPS[1:] if app.flatpak and not app.from_source]])
         entries = self.entries(ALPHA)
         self.assertEqual(sorted(entries), sorted(app.name for app in apps.APPS))
         self.assertEqual(entries["YouTube"].get("LaunchOptions"), f"--steam-account {ALPHA}")
@@ -234,6 +243,30 @@ class MigrationTests(CliTestCase):
 
 
 class LaunchTests(CliTestCase):
+    def test_an_app_steam_starts_hides_the_account_from_friends_as_the_setting_says(self):
+        watch = presence.Presence.watch
+        record = self.paths.state / "presence.json"
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_args.args, (os.getpid(), True))
+        self.assertEqual({key: value for key, value in json.loads(record.read_text()).items() if key != "apps"}, {"previous": None, "changed": True})
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_args.args, (os.getpid(), False))
+        record.unlink()
+        (steam.config_dir(self.root, ALPHA) / "localconfig.vdf").write_text('"UserLocalConfigStore" { "friends" { "PersonaStateDesired" "7" } }')
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual((watch.call_args.args, json.loads(record.read_text())["previous"]), ((os.getpid(), False), 7))
+        calls = watch.call_count
+        self.launch("youtube")
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text(f"{presence.SETTING}=off\n")
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.paths.settings.write_text(f"{presence.SETTING}=eden kytyps5\n")
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_count, calls)
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(watch.call_count, calls + 1)
+        self.assertEqual(self.steam_command.calls(), [])
+
     def test_each_account_gets_its_own_vacuumtube_folder(self):
         self.install("youtube")
         argv, redirect = self.launch("youtube", "--steam-account", str(BETA), "--", "--debug-gpu")
@@ -1058,6 +1091,73 @@ class KytyTests(CliTestCase):
             self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
             self.assertNotEqual(self.run_cli("install", "kytyps5", "--yes", "--no-auto-update"), 0)
         self.assertIn("could not read KytyPS5's releases from GitHub: offline", self.errors)
+
+
+class EdenNX2Tests(CliTestCase):
+    def builds(self):
+        return len(self.fake.calls("build-init"))
+
+    def test_eden_nx2_is_built_here_installed_as_a_flatpak_and_started_like_eden(self):
+        self.install("edennx2")
+        self.assertIn(f"Installed Eden-NX2 {_fakes.NX2_COMMIT[:8]} (2026-10-29)", self.errors)
+        self.assertIn(f"Building Eden-NX2 from its source, the eden-nx2 branch of {nx2.REPOSITORY}", self.errors)
+        self.assertEqual((self.fake.apps()[nx2.APP_ID]["installation"], self.builds()), ("user", 1))
+        self.assertTrue(config.Record.load(self.paths.record).owns_flatpak("edennx2"))
+        self.assertEqual(sorted(self.entries(BETA)), ["Eden-NX2"])
+        folder = self.home / f".var/app/{nx2.APP_ID}/data/eden-steam-{ALPHA}"
+        games = self.home / "Games" / "Switch2"
+        argv, _ = self.launch("edennx2", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", f"--cwd={folder}", f"--filesystem={games}:ro", "--socket=x11", "--nosocket=fallback-x11",
+                                "--env=QT_QPA_PLATFORM=xcb", nx2.APP_ID, "-f"])
+        self.assertIn(f"Paths\\gamedirs\\4\\path={games}\n", (folder / "user/config/qt-config.ini").read_text())
+        self.install("edennx2")
+        self.assertIn(f"Eden-NX2 {_fakes.NX2_COMMIT[:8]} (2026-10-29) is installed; {self.paths.launcher} update builds its newest source", self.errors)
+        self.assertEqual(self.builds(), 1)
+
+    def test_a_manual_update_builds_the_branchs_newest_commit_and_rollback_switches_back(self):
+        self.install("edennx2", "youtube")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("Eden-NX2 is up to date", self.errors)
+        self.branch = _fakes.NX2_NEWER
+        self.assertEqual(self.run_cli("update", "--apps-only", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertEqual(self.builds(), 1)
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("Updated Eden-NX2 to c0ffee00 (2026-10-29)", self.errors)
+        self.assertEqual(self.builds(), 2)
+        self.assertNotIn(nx2.APP_ID, [argument for call in self.fake.calls("update") if not any("--commit=" in a for a in call) for argument in call])
+        self.assertEqual(self.run_cli("rollback", "edennx2"), 0, self.errors)
+        self.assertIn(f"Switched Eden-NX2 back to {_fakes.NX2_COMMIT[:8]} (2026-10-29); {self.paths.launcher} update switches", self.errors)
+        self.assertEqual(cli._nx2(self.paths, self.flatpak).current().commit, _fakes.NX2_COMMIT)
+        self.assertEqual(self.run_cli("list"), 0)
+        self.assertIn(f"edennx2   in use     Eden-NX2 {_fakes.NX2_COMMIT[:8]} (2026-10-29), built here from its source (user installation)", self.output)
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"Eden-NX2   {_fakes.NX2_COMMIT[:8]} (2026-10-29) (also c0ffee00 (2026-10-29)); build log {self.paths.nx2 / 'build.log'}", self.output)
+
+    def test_a_failed_build_leaves_eden_nx2_out_and_says_what_failed(self):
+        with mock.patch.dict(os.environ, {"FAKE_FLATPAK_BUILD_FAIL": "cmake --build"}):
+            self.install("localsend", "edennx2")
+            self.assertIn("Eden-NX2 was not installed, so it is left out: cmake --build failed with exit status 1", self.errors)
+            self.assertIn("ninja: build stopped: subcommand failed.", self.errors)
+            self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
+            self.assertEqual(sorted(self.entries(ALPHA)), ["LocalSend"])
+            self.assertEqual(self.run_cli("install", "edennx2", "--yes", "--no-auto-update"), 1)
+        self.assertIn("error: Eden-NX2 was not installed", self.errors)
+        self.assertNotIn(nx2.APP_ID, self.fake.apps())
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"Eden-NX2   not installed; the last build's log is {self.paths.nx2 / 'build.log'}", self.output)
+
+    def test_removing_eden_nx2_uninstalls_it_and_deletes_its_source_and_builds(self):
+        self.install("edennx2", "eden")
+        self.assertEqual(self.run_cli("remove", "edennx2", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("Removed Eden-NX2's source, builds and build caches", self.errors)
+        self.assertNotIn(nx2.APP_ID, self.fake.apps())
+        self.assertIn("dev.eden_emu.eden", self.fake.apps())
+        self.assertFalse(self.paths.nx2.exists())
+        self.assertEqual(self.fake.calls("remote-delete"), [["remote-delete", "--user", "--force", "nonsteamapps"]])
+        self.install("edennx2")
+        self.assertEqual(self.run_cli("uninstall", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertEqual(self.fake.apps(), {})
+        self.assertEqual(len(self.fake.calls("remote-delete")), 2)
 
 
 class UpdateTests(CliTestCase):

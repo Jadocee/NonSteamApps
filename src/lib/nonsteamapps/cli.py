@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, selfupdate,
-    steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, nx2,
+    presence, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -74,6 +74,10 @@ def _runtime(paths: Paths) -> Runtime:
 
 def _kyty(paths: Paths) -> kyty.Runtime:
     return kyty.Runtime(paths.kyty)
+
+
+def _nx2(paths: Paths, flatpak: Flatpak) -> nx2.Builder:
+    return nx2.Builder(paths.nx2, flatpak.command)
 
 
 def _firewall() -> Firewall:
@@ -333,6 +337,17 @@ def _install_kyty(paths: Paths, archive: Optional[str], verify: bool) -> None:
     ui.ok(f"Installed KytyPS5 {kyty.describe(tag)}")
 
 
+def _install_nx2(paths: Paths, flatpak: Flatpak, commit: Optional[str]) -> None:
+    builder = _nx2(paths, flatpak)
+    current = builder.current()
+    if current and (not commit or commit == current.commit):
+        ui.ok(f"Eden-NX2 {nx2.describe(current)} is installed; {paths.launcher} update builds its newest source")
+        return
+    ui.log("Building Eden-NX2 from its source, " + (f"commit {commit}" if commit else f"the {nx2.BRANCH} branch") + f" of {nx2.REPOSITORY}")
+    build = builder.build(commit or builder.latest())
+    ui.ok(f"Installed Eden-NX2 {nx2.describe(build)}")
+
+
 def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found: Optional[Installed]) -> None:
     if app.system:
         command = shutil.which(app.system.command)
@@ -343,6 +358,8 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
         record.add(app.id, installed_flatpak=False)
     elif app.browser or app.release:
         record.add(app.id, installed_flatpak=False)
+    elif app.from_source:
+        record.add(app.id, installed_flatpak=True)
     elif found:
         version = f" {found.version}" if found.version else ""
         ui.ok(f"{app.client}{version} is already installed ({found.installation} installation)")
@@ -425,6 +442,8 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     if not chosen:
         chosen = list(apps.APPS)
         question = f"Install {_listing(chosen)}?"
+        if not any(app.from_source and app.id in record.apps for app in chosen):
+            question += " Eden-NX2 is built here from its source, which can take an hour."
         if record.managed():
             question += " The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept."
         if not ui.confirm(question, default=True):
@@ -458,6 +477,14 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
                 raise ui.Abort(f"KytyPS5 was not installed: {exc}") from exc
             ui.warn(f"KytyPS5 was not installed, so it is left out: {exc}")
             chosen = [app for app in chosen if not app.release]
+    if any(app.from_source for app in chosen):
+        try:
+            _install_nx2(paths, flatpak, args.eden_nx2_commit)
+        except (nx2.NX2Error, OSError) as exc:
+            if all(app.from_source for app in chosen):
+                raise ui.Abort(f"Eden-NX2 was not installed: {exc}") from exc
+            ui.warn(f"Eden-NX2 was not installed, so it is left out: {exc}")
+            chosen = [app for app in chosen if not app.from_source]
     installed = flatpak.installed() if any(app.flatpak for app in chosen) else {}
     for app in chosen:
         _install_app(paths, flatpak, record, app, installed.get(app.flatpak))
@@ -517,6 +544,9 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
         _kyty(paths).remove()
         kept = (paths.profiles / "kytyps5").is_dir()
         ui.ok("Removed KytyPS5's builds" + (f"; each Steam account's saves and settings stay in {paths.profiles / 'kytyps5'}" if kept else ""))
+    if not args.keep_app and not any(app.from_source for app in _managed(record)) and paths.nx2.exists():
+        _nx2(paths, flatpak).remove()
+        ui.ok("Removed Eden-NX2's source, builds and build caches")
     ui.ok(f"Removed {_listing(chosen)}")
     return 0
 
@@ -605,6 +635,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     print(f"nonsteamapps {__version__}: starting {_listing([app])} for {f'Steam account {account}' if account else 'all accounts'}")
     if steamclient.leave_steam_environment(os.environ):
         print("  without Steam's overlay library and Steam Runtime paths")
+    _hide_from_friends(paths, app, settings, hint)
     if app.browser:
         return _launch_helium(paths, app, account, extra)
     if app.system:
@@ -648,6 +679,24 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: Optional[str]) -> None:
+    """Keep an app that Steam started out of the status friends see, as ``INVISIBLE_WHILE_RUNNING`` says (see :mod:`presence`).
+
+    Steam's shortcuts pass ``--steam-account``; an app started from elsewhere, such as the applications menu,
+    is not one Steam shows, so the status stays as it is.
+    """
+    if not hint or not presence.applies(settings.get(presence.SETTING), app.id):
+        return
+    root = _steam_root()
+    account = steam.launch_account(root, hint) if root else None
+    localconfig = steam.config_dir(root, account) / "localconfig.vdf" if root and account else None
+    keeper = presence.Presence(paths.state, localconfig)
+    invisible, message = keeper.hide(os.getpid())
+    if message:
+        print(f"  {message}", flush=True)
+    keeper.watch(os.getpid(), invisible)
 
 
 def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
@@ -923,16 +972,23 @@ def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequen
             ui.warn(f"could not update KytyPS5: {exc}")
         else:
             ui.ok(f"Updated KytyPS5 to {kyty.describe(tag)}" if tag else "KytyPS5 is up to date")
+    if manual and any(app.from_source for app in managed):
+        try:
+            build = _nx2(paths, flatpak).update()
+        except (nx2.NX2Error, OSError) as exc:
+            ui.warn(f"could not update Eden-NX2, so the build installed stays: {exc}")
+        else:
+            ui.ok(f"Updated Eden-NX2 to {nx2.describe(build)}" if build else "Eden-NX2 is up to date")
     installed = flatpak.installed() if any(app.flatpak for app in managed) else {}
     ours = [
         app for app in managed
-        if app.flatpak and record.owns_flatpak(app.id) and getattr(installed.get(app.flatpak), "installation", "") == "user"
+        if app.flatpak and not app.from_source and record.owns_flatpak(app.id) and getattr(installed.get(app.flatpak), "installation", "") == "user"
     ]
     if ours:
         ui.log(f"Updating {_listing(ours)}")
         flatpak.update([app.flatpak for app in ours], quiet=ui.quiet)
         ui.ok("Apps are up to date")
-    elif not any(app.browser or app.release for app in managed):
+    elif not any(app.browser or app.release or app.from_source for app in managed):
         ui.info("NonSteamApps installed no apps to update; Discover updates the rest")
 
 
@@ -963,6 +1019,10 @@ def cmd_rollback(args, paths: Paths, flatpak: Flatpak) -> int:
         tag = _kyty(paths).rollback()
         ui.ok(f"Switched KytyPS5 back to {kyty.describe(tag)}")
         return 0
+    if args.app == "edennx2":
+        build = _nx2(paths, flatpak).rollback()
+        ui.ok(f"Switched Eden-NX2 back to {nx2.describe(build)}; {paths.launcher} update switches to its newest source again")
+        return 0
     version = _runtime(paths).rollback()
     ui.ok(f"Switched Helium back to {version}")
     return 0
@@ -992,9 +1052,12 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
     return 0
 
 
-def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None, build: Optional[str] = None) -> str:
+def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None, build: Optional[str] = None,
+              built: Optional[nx2.Build] = None) -> str:
     if app.release:
         return f"KytyPS5 {kyty.describe(build)}" if build else "not installed"
+    if app.from_source:
+        return f"{app.client} {nx2.describe(built)}, built here from its source ({found.installation} installation)" if found else "not installed"
     if app.system:
         command = shutil.which(app.system.command)
         return f"{app.client} from the system ({command})" if command else f"not found ({app.system.command})"
@@ -1012,9 +1075,10 @@ def cmd_list(args, paths: Paths, flatpak: Flatpak) -> int:
     installed = flatpak.installed() if flatpak.available() else {}
     helium = _runtime(paths).current()
     build = _kyty(paths).current()
+    built = _nx2(paths, flatpak).current() if nx2.APP_ID in installed else None
     for app in apps.APPS:
         managed = app.id in record.apps
-        status = _describe(app, record, installed.get(app.flatpak), helium if managed else None, build if managed else None)
+        status = _describe(app, record, installed.get(app.flatpak), helium if managed else None, build if managed else None, built)
         managed = "in use" if app.id in record.apps else "available"
         print(f"{app.id:<10}{managed:<11}{status}")
         print(f"{'':<21}{app.summary}")
@@ -1052,6 +1116,16 @@ def _kyty_status(paths: Paths) -> str:
     return kyty.describe(current) + (f" (also {', '.join(others)})" if others else "") + f"; newer builds with: {paths.launcher} update"
 
 
+def _nx2_status(paths: Paths, flatpak: Flatpak) -> str:
+    builder = _nx2(paths, flatpak)
+    current = builder.current()
+    if not current:
+        return "not installed" + (f"; the last build's log is {builder.log}" if builder.log.is_file() else "")
+    others = [nx2.describe(build) for build in builder.builds() if build.flatpak != current.flatpak]
+    return (nx2.describe(current) + (f" (also {', '.join(others)})" if others else "")
+            + f"; build log {builder.log}; its newest source with: {paths.launcher} update")
+
+
 def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
     try:
         release = dict(
@@ -1071,6 +1145,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         ("Flatpak", "available" if flatpak.available() else "not installed"),
         ("Helium", _helium_status(paths, settings)),
         ("KytyPS5", _kyty_status(paths)),
+        ("Eden-NX2", _nx2_status(paths, flatpak)),
         ("Firewall", _firewall_status(Record.load(paths.record))),
         ("TV scale", f"{_scale_setting(settings)} (Helium apps, {_names([app for app in apps.APPS if app.tv_scale])})"),
         ("Updates", timer.status(paths)),
@@ -1086,10 +1161,11 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
     print(ui.bold("Apps"))
     helium = _runtime(paths).current()
     build = _kyty(paths).current()
+    built = _nx2(paths, flatpak).current() if nx2.APP_ID in installed else None
     for app in apps.APPS:
         if app.id not in record.apps and (not app.flatpak or app.flatpak not in installed):
             continue
-        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build)}")
+        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build, built)}")
         if root:
             results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
             for result in results:
@@ -1133,6 +1209,8 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
     if not args.keep_apps:
         _close_ports(record, managed)
         _uninstall_flatpaks(flatpak, record, managed)
+    if paths.nx2.exists():
+        _nx2(paths, flatpak).remove()
     timer.remove(paths)
     shutil.rmtree(paths.state, ignore_errors=True)
     _unlink_kyty_homes(paths)
@@ -1182,6 +1260,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--helium-archive", metavar="FILE", help="install Helium from a release archive (its .asc signature beside it)")
     sub.add_argument("--kytyps5-archive", metavar="FILE",
                      help="install KytyPS5 from a Linux build archive, named as its releases name them (KytyPS5-DATE-COMMIT-Linux-x86_64.tar.gz)")
+    sub.add_argument("--eden-nx2-commit", metavar="COMMIT",
+                     help="build Eden-NX2 from this commit of its source, all 40 characters, rather than its branch's newest")
     sub.add_argument("--skip-verify", action="store_true",
                      help="install Helium without checking its signature, or KytyPS5 without checking it against GitHub (not recommended)")
     restart(sub)
@@ -1200,13 +1280,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub.set_defaults(func=cmd_list)
 
     sub = commands.add_parser("update", help="update NonSteamApps and the apps it installed, keeping your apps and their settings")
-    sub.add_argument("--apps-only", action="store_true", help="update only the apps and Helium, as the weekly timer does; KytyPS5 stays as it is")
+    sub.add_argument("--apps-only", action="store_true",
+                     help="update only the apps and Helium, as the weekly timer does; KytyPS5 and Eden-NX2 stay as they are")
     restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_update)
 
-    sub = commands.add_parser("rollback", help="switch Helium, or KytyPS5, back to the version installed before")
-    sub.add_argument("app", nargs="?", choices=("helium", "kytyps5"), default="helium")
+    sub = commands.add_parser("rollback", help="switch Helium, KytyPS5 or Eden-NX2 back to the version installed before")
+    sub.add_argument("app", nargs="?", choices=("helium", "kytyps5", "edennx2"), default="helium")
     common(sub)
     sub.set_defaults(func=cmd_rollback)
 
@@ -1246,7 +1327,7 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[Paths] = None, fl
         return args.func(args, paths, flatpak)
     except ui.Abort as exc:
         ui.error(str(exc))
-    except (steam.SteamError, FlatpakError, HeliumError, kyty.KytyError, OSError) as exc:
+    except (steam.SteamError, FlatpakError, HeliumError, kyty.KytyError, nx2.NX2Error, OSError) as exc:
         ui.error(str(exc))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED

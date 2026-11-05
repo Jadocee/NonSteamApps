@@ -228,7 +228,45 @@ def ini_entries(path: Path, group: str, prefix: str) -> List[Tuple[str, str]]:
     return found
 
 
-Settings = Union[JsonSettings, IniSettings]
+KYTY_GLOBAL = "GlobalConfiguration"
+KYTY_PAD = tuple(f"Pad:{control}={source}" for control, source in (
+    ("Cross", "South"), ("Circle", "East"), ("Square", "West"), ("Triangle", "North"), ("Options", "Start"),
+    ("L3", "LeftStick"), ("R3", "RightStick"), ("L1", "LeftShoulder"), ("R1", "RightShoulder"),
+    ("L2", "LeftTrigger"), ("R2", "RightTrigger"), ("Up", "DpadUp"), ("Down", "DpadDown"),
+    ("Left", "DpadLeft"), ("Right", "DpadRight"), ("TouchPad", "Touchpad"), ("TouchPadRight", "Back"),
+))
+KYTY_GLOBAL_DEFAULTS = (
+    ("present_mode", "Mailbox"), ("trophy_duration_seconds", "6"), ("shader_optimization_type", "Performance"),
+    ("shader_log_folder", "_Shaders"), ("command_buffer_dump_folder", "_Buffers"), ("printf_output_file", "_kyty.txt"),
+)
+
+
+@dataclass(frozen=True)
+class KytyPad:
+    """KytyPS5's controller mapping for Steam's virtual gamepad, written into ``Kyty.ini`` unless the user has one.
+
+    KytyPS5 maps a gamepad's Back button, which is View, to its gyro emulation, which turns the right stick into
+    tilt, and the touchpad's click to a button Steam's virtual gamepad lacks. This mapping keeps KytyPS5's others
+    and makes View click the touchpad's right half. The launcher reads its ``[GlobalConfiguration]`` group whole
+    once it holds a key, and a key missing there becomes zero, so the defaults that are not zero go in with it.
+    """
+
+    file: str = "Kyty.ini"
+
+    def target(self, folder: Path) -> Path:
+        return Path(folder) / self.file
+
+    def apply(self, folder: Path) -> Optional[bool]:
+        """Write the mapping while the user has none; return whether the file changed, or ``None`` if it cannot be read."""
+        entries = dict(ini_entries(self.target(folder), KYTY_GLOBAL, ""))
+        if entries.get("host_input_mapping", "").strip() not in ("", "@Invalid()"):
+            return False
+        values = [(KYTY_GLOBAL, key, value) for key, value in KYTY_GLOBAL_DEFAULTS if key not in entries]
+        values.append((KYTY_GLOBAL, "host_input_mapping", ", ".join(f'"{entry}"' for entry in KYTY_PAD)))
+        return IniSettings(self.file, tuple(values)).apply(folder)
+
+
+Settings = Union[JsonSettings, IniSettings, KytyPad]
 VACUUMTUBE_TV = JsonSettings(
     "config.json",
     (("fullscreen", True), ("no_window_decorations", True), ("disabled_tabs", ("shorts", "podcasts"))),
@@ -911,11 +949,11 @@ APPS: Tuple[App, ...] = (
         name="KytyPS5",
         client="KytyPS5",
         summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
-        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV),)),
+        release=Release(settings=(KYTY_SETTINGS,), changes=(("2.23.0", KYTY_TV), ("2.25.0", KytyPad()))),
         controller=EMULATOR.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
-        game_mode_env=(("QT_QPA_PLATFORM", "xcb"),),
+        game_mode_env=(("QT_QPA_PLATFORM", "xcb"), ("SDL_VIDEO_DRIVER", "x11")),
         fullscreen_class="nonsteamapps-kytyps5",
         notice="KytyPS5 plays only games you own, copied from your own console; it updates with `nonsteamapps update`, not every week",
     ),

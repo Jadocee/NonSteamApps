@@ -927,13 +927,15 @@ class KytyTests(CliTestCase):
         settings = (home / "Kyty.ini").read_text()
         for line in ("check_updates_on_startup=false", "theme=1", "grid_view=true", "grid_icon_width=256"):
             self.assertIn(line + "\n", settings)
-        self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0"]})
+        self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0", "2.25.0"]})
+        self.assertIn('\nhost_input_mapping="Pad:Cross=South", ', settings)
+        self.assertIn('"Pad:TouchPad=Touchpad", "Pad:TouchPadRight=Back"\n', settings)
         self.assertNotIn("RESOURCE_NAME", environ)
         watch.assert_not_called()
         argv, environ, _, watch = self.launch_kyty(game_mode=True)
         watch.assert_called_once_with("nonsteamapps-kytyps5", os.getpid())
-        self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "QT_SCALE_FACTOR")],
-                         ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "1.5"])
+        self.assertEqual([environ[name] for name in ("RESOURCE_NAME", "SDL_APP_ID", "QT_QPA_PLATFORM", "SDL_VIDEO_DRIVER", "QT_SCALE_FACTOR")],
+                         ["nonsteamapps-kytyps5", "nonsteamapps-kytyps5", "xcb", "x11", "1.5"])
         games = self.home / "Games" / "PS5"
         self.assertIn(f"game_dirs={games}\n", (home / "Kyty.ini").read_text())
         self.assertTrue(games.is_dir())

@@ -930,6 +930,7 @@ class KytyTests(CliTestCase):
         self.assertEqual(json.loads((home / "nonsteamapps.json").read_text()), {"changes": ["2.23.0", "2.25.0"]})
         self.assertIn('\nhost_input_mapping="Pad:Cross=South", ', settings)
         self.assertIn('"Pad:TouchPad=Touchpad", "Pad:TouchPadRight=Back"\n', settings)
+        self.assertIn("\nscreen_resolution=1920x1080\n", settings)
         self.assertNotIn("RESOURCE_NAME", environ)
         watch.assert_not_called()
         argv, environ, _, watch = self.launch_kyty(game_mode=True)

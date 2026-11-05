@@ -210,9 +210,10 @@ def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:
 
 
 def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None,
-          extension: Optional[Path] = None) -> List[str]:
+          extensions: Sequence[Path] = ()) -> List[str]:
     """Helium's arguments. ``window`` is the size, in device-independent pixels, that a browser window takes instead of
-    being maximised: gamescope ignores maximising. ``extension`` is the folder of the focus outline, loaded when present.
+    being maximised: gamescope ignores maximising. ``extensions`` are folders of NonSteamApps' extensions, such as the
+    focus outline, each loaded when present.
     """
     arguments = [
         f"--user-data-dir={profile}",
@@ -230,8 +231,9 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
     ]
     if factor:
         arguments.append(f"--force-device-scale-factor={factor:g}")
-    if extension and (Path(extension) / "manifest.json").is_file():
-        arguments.append(f"--load-extension={extension}")
+    present = [str(folder) for folder in extensions if (Path(folder) / "manifest.json").is_file()]
+    if present:
+        arguments.append(f"--load-extension={','.join(present)}")
     if kiosk:
         arguments += [
             "--kiosk",

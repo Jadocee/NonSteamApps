@@ -80,7 +80,7 @@ class JsonSettings:
         return True
 
 
-def _set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
+def set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
     """Set ``key`` in ``[group]`` of an INI file's lines; return whether they changed."""
     header, wanted = f"[{group}]", f"{key}={value}"
     start = next((index for index, line in enumerate(lines) if line.strip() == header), None)
@@ -130,7 +130,7 @@ class IniSettings:
         except (OSError, UnicodeDecodeError):
             return None
         wanted = [*self.values, *(self.new if fresh else ())]
-        if not any([_set_ini(lines, group, key, value) for group, key, value in wanted]):
+        if not any([set_ini(lines, group, key, value) for group, key, value in wanted]):
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
         return True
@@ -661,11 +661,13 @@ class Browser:
     """An app that runs in NonSteamApps' own Helium: the browser itself, or one site full screen (kiosk).
 
     ``account_url``, with ``{steam_id}`` in it, opens in place of ``url`` when Steam starts the app for an account.
+    ``extensions`` are folders of NonSteamApps' ``share/extensions`` that the app loads beside the focus outline.
     """
 
     url: str = ""
     kiosk: bool = False
     account_url: str = ""
+    extensions: Tuple[str, ...] = ()
 
     def start_url(self, account: Optional[int]) -> str:
         """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
@@ -715,6 +717,14 @@ CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
 
 
 @dataclass(frozen=True)
+class DesktopEntry:
+    """How an app appears in Desktop Mode's applications menu, where an install also pins it to Plasma's taskbar (see :mod:`desktop`)."""
+
+    generic: str = ""
+    categories: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class App:
     """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
     (``system``), or one it downloads from its project's releases (``release``).
@@ -744,7 +754,8 @@ class App:
     folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
     for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
     A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
-    (see :func:`set_console_mode`).
+    (see :func:`set_console_mode`). An app with a ``desktop`` entry is added to Desktop Mode's applications menu
+    and its taskbar at install, for use outside Game Mode.
     """
 
     id: str
@@ -776,6 +787,7 @@ class App:
     userstyles: Tuple[str, ...] = ()
     games: str = ""
     console_mode: bool = False
+    desktop: Optional[DesktopEntry] = None
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -1026,6 +1038,7 @@ APPS: Tuple[App, ...] = (
         summary="A private, ad-blocking web browser, set up for a TV and a controller",
         browser=Browser(),
         controller=BROWSER.title,
+        desktop=DesktopEntry(generic="Web Browser", categories=("Network", "WebBrowser")),
         logo_position="BottomLeft:44:56",
     ),
     App(
@@ -1069,7 +1082,12 @@ APPS: Tuple[App, ...] = (
         name="ProtonDB",
         client="Helium",
         summary="Player reports on how well games run with Proton, full screen in Helium",
-        browser=Browser(url="https://www.protondb.com/", kiosk=True, account_url="https://www.protondb.com/dashboard/{steam_id}"),
+        browser=Browser(
+            url="https://www.protondb.com/",
+            kiosk=True,
+            account_url="https://www.protondb.com/dashboard/{steam_id}?nonsteamapps=library",
+            extensions=("protondb",),
+        ),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

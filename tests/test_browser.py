@@ -180,12 +180,15 @@ class FlagTests(unittest.TestCase):
     def test_the_focus_outline_loads_when_it_is_installed_and_full_screen_hints_stay_hidden(self):
         with tempfile.TemporaryDirectory() as tmp:
             extension = Path(tmp) / "focus"
-            missing = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extension=extension)
+            missing = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extensions=[extension])
             self.assertFalse(any(flag.startswith("--load-extension") for flag in missing))
             extension.mkdir()
             (extension / "manifest.json").write_text("{}")
-            arguments = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extension=extension)
-            self.assertIn(f"--load-extension={extension}", arguments)
+            other = Path(tmp) / "protondb"
+            other.mkdir()
+            (other / "manifest.json").write_text("{}")
+            arguments = browser.flags(Path("/p"), "https://example.org/", True, True, None, "nonsteamapps-netflix", extensions=[extension, other, Path(tmp) / "gone"])
+            self.assertIn(f"--load-extension={extension},{other}", arguments)
             self.assertIn("--hide-fullscreen-exit-ui", arguments)
             self.assertEqual(arguments[-1], "https://example.org/")
 

@@ -46,6 +46,7 @@ class CliTestCase(unittest.TestCase):
         self.watch = mock.patch("nonsteamapps.cli.x11.watch")
         patches.append(self.watch)
         patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
+        patches.append(mock.patch("nonsteamapps.desktop.plasma_running", return_value=False))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -805,10 +806,39 @@ class HeliumAppTests(CliTestCase):
         self.assertEqual((profile / "WidevineCdm").resolve(), runtime.widevine.resolve())
         redirect.assert_called_once_with(self.paths.log("primevideo"))
 
+    def test_helium_joins_desktop_modes_menu_and_taskbar_and_leaves_them_when_removed(self):
+        layout = self.paths.plasma_layout
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        self.install("helium")
+        entry = self.paths.desktop_entry("helium")
+        self.assertEqual(entry, self.home / ".local/share/applications/nonsteamapps-helium.desktop")
+        text = entry.read_text()
+        for line in (f'Exec="{self.paths.app_link("helium")}" %U', f"Icon={self.paths.artwork('helium') / 'icon.png'}",
+                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser"):
+            self.assertIn(line + "\n", text)
+        self.assertIn("Added Helium to Desktop Mode's applications menu and taskbar", self.errors)
+        pinned = ("[Containments][1][Applets][2][Configuration][General]\nlaunchers=applications:systemsettings.desktop,"
+                  "applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop\n")
+        self.assertIn(pinned, layout.read_text())
+        self.install("helium")
+        self.assertEqual(layout.read_text().count("nonsteamapps-helium"), 1)
+        self.assertEqual(self.run_cli("remove", "helium", "--yes"), 0, self.errors)
+        self.assertFalse(entry.exists())
+        self.assertNotIn("nonsteamapps-helium", layout.read_text())
+        self.assertIn("Took Helium off Desktop Mode's taskbar", self.errors)
+        layout.unlink()
+        self.install("helium")
+        self.assertIn("Plasma's taskbar could not be changed, so pin it from the menu", self.errors)
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertFalse(entry.exists())
+
     def test_protondb_opens_the_library_of_the_account_that_starts_it(self):
         self.install("protondb")
         argv, _ = self.launch("protondb", "--steam-account", str(BETA))
-        self.assertEqual(argv[-1], f"https://www.protondb.com/dashboard/{76561197960265728 + BETA}")
+        self.assertEqual(argv[-1], f"https://www.protondb.com/dashboard/{76561197960265728 + BETA}?nonsteamapps=library")
+        self.assertIn(f"--load-extension={self.paths.focus_extension},{self.paths.extension('protondb')}", argv)
+        self.assertTrue((self.paths.extension("protondb") / "library.js").is_file())
         self.assertIn("--kiosk", argv)
         config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
         argv, _ = self.launch("protondb", "--steam-account", str(BETA))

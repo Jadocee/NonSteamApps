@@ -105,6 +105,14 @@ printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"
     "\"$YOUTUBE_ID\" { \"name\" \"proton_experimental\" \"config\" \"\" \"priority\" \"250\" }" \
     '"1245620" { "name" "proton_9" "config" "" "priority" "250" }' '}' '}' '}' '}' '}' >"$STEAM/config/config.vdf"
 
+LAYOUT="$HOME_DIR/.config/plasma-org.kde.plasma.desktop-appletsrc"
+mkdir -p "$HOME_DIR/.config"
+printf '%s\n' '[Containments][1]' 'plugin=org.kde.panel' '' '[Containments][1][Applets][2]' 'plugin=org.kde.plasma.icontasks' >"$LAYOUT"
+PLASMA_HERE=0
+if pgrep -u "$(id -u)" -x plasmashell >/dev/null 2>&1; then
+    PLASMA_HERE=1
+fi
+
 echo "==> install.sh"
 run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --skip-verify >"$WORK/install.log" 2>&1 || {
     cat "$WORK/install.log"
@@ -122,6 +130,10 @@ check "Files got its own controller layout for each controller" test "$(find "$T
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
 check "Jellyfin got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_jellyfin.vdf' | wc -l)" -eq 2
+check "Helium joined the applications menu" grep -qxF "Exec=\"$PROGRAM/apps/helium\" %U" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+if [ "$PLASMA_HERE" = 0 ]; then
+    check "Helium joined the taskbar, after Plasma's own launchers" grep -qxF "launchers=applications:systemsettings.desktop,applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop" "$LAYOUT"
+fi
 check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
@@ -218,6 +230,10 @@ check "only the app profiles remain" test "$(ls "$PROGRAM")" == "profiles"
 check "KytyPS5's save stayed, without its programs" test -d "$KYTY_HOME/_SaveData/PPSA00000" -a ! -e "$KYTY_HOME/kyty_launcher"
 check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 222)"
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
+check "Helium left the applications menu" test ! -e "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+if [ "$PLASMA_HERE" = 0 ]; then
+    check "Helium left the taskbar" test "$(grep -c nonsteamapps-helium "$LAYOUT")" -eq 0
+fi
 check "the collection was removed" test "$(collection_size 111) $(collection_size 222)" == "0 0"
 check "LocalSend's port was closed again" grep -qF '"permanent": {"public": []}' "$WORK/firewall.json"
 check "NonSteamApps' controller layouts were removed" test -z "$(find "$TEMPLATES" -name '*_nonsteamapps_*')"

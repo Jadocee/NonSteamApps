@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "NonSteamApps ProtonDB library",
+  "version": "1",
+  "description": "Opens ProtonDB's list of the Steam library's games once ProtonDB has looked the Steam account up.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.protondb.com/dashboard/*"],
+      "js": ["library.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

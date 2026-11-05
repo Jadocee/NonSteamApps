@@ -31,6 +31,7 @@ class Paths:
     config: Path
     state: Path
     systemd: Path
+    applications: Path
 
     @classmethod
     def detect(cls, program: Optional[Path] = None, environ: Optional[Mapping[str, str]] = None) -> "Paths":
@@ -43,6 +44,7 @@ class Paths:
             config=config_home / NAME,
             state=xdg_dir(environ, "XDG_STATE_HOME", home, ".local/state") / NAME,
             systemd=config_home / "systemd" / "user",
+            applications=xdg_dir(environ, "XDG_DATA_HOME", home, ".local/share") / "applications",
         )
 
     @property
@@ -83,7 +85,11 @@ class Paths:
     @property
     def focus_extension(self) -> Path:
         """The Helium extension that outlines the link or button the arrow keys reach."""
-        return self.program / "share" / "extensions" / "focus"
+        return self.extension("focus")
+
+    def extension(self, name: str) -> Path:
+        """One of NonSteamApps' Helium extensions (see :attr:`apps.Browser.extensions`)."""
+        return self.program / "share" / "extensions" / name
 
     @property
     def userstyles(self) -> Path:
@@ -103,6 +109,15 @@ class Paths:
 
     def artwork(self, app_id: str) -> Path:
         return self.program / "artwork" / app_id
+
+    def desktop_entry(self, app_id: str) -> Path:
+        """The app's entry in Desktop Mode's applications menu, named as its windows' class is."""
+        return self.applications / f"{NAME}-{app_id}.desktop"
+
+    @property
+    def plasma_layout(self) -> Path:
+        """Plasma's panels and their widgets, which it reads when it starts."""
+        return self.config.parent / "plasma-org.kde.plasma.desktop-appletsrc"
 
     def log(self, app_id: str) -> Path:
         return self.state / f"{app_id}.log"

@@ -719,10 +719,17 @@ CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
 
 @dataclass(frozen=True)
 class DesktopEntry:
-    """How an app appears in Desktop Mode's applications menu, where an install also pins it to Plasma's taskbar (see :mod:`desktop`)."""
+    """How an app appears in Desktop Mode's applications menu, where an install also pins it to Plasma's taskbar (see :mod:`desktop`).
+
+    A Helium app with an ``own`` entry gets the desktop file of that name in Helium's release, with the release's
+    ``icon``, so that Desktop Mode starts Helium itself, as Helium's own entry does, rather than NonSteamApps'
+    launcher. ``generic`` and ``categories`` describe the entry NonSteamApps writes otherwise.
+    """
 
     generic: str = ""
     categories: Tuple[str, ...] = ()
+    own: str = ""
+    icon: str = ""
 
 
 @dataclass(frozen=True)
@@ -1064,7 +1071,7 @@ APPS: Tuple[App, ...] = (
         summary="A private, ad-blocking web browser, set up for a TV and a controller",
         browser=Browser(),
         controller=BROWSER.title,
-        desktop=DesktopEntry(generic="Web Browser", categories=("Network", "WebBrowser")),
+        desktop=DesktopEntry(generic="Web Browser", categories=("Network", "WebBrowser"), own="helium.desktop", icon="product_logo_256.png"),
         logo_position="BottomLeft:44:56",
     ),
     App(

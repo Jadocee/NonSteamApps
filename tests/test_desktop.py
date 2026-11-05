@@ -37,6 +37,30 @@ class EntryTests(unittest.TestCase):
             self.assertEqual([desktop.write_entry(path, text), desktop.write_entry(path, text)], [True, False])
             self.assertEqual(path.read_text(), text)
 
+    def test_arguments_come_before_the_links(self):
+        text = desktop.entry_text("Helium", "A browser", Path("/p/helium/current/helium-wrapper"), Path("/p/icon.png"), "nonsteamapps-helium",
+                                  arguments=("--class=nonsteamapps-helium",))
+        self.assertIn('Exec="/p/helium/current/helium-wrapper" --class=nonsteamapps-helium %U\n', text)
+
+    def test_a_programs_own_entry_starts_it_where_it_is_installed_with_its_icon_and_window_class(self):
+        shipped = (
+            "[Desktop Entry]\nVersion=1.0\nName=Helium\n\n# A comment = kept\nGenericName[de]=Web-Browser\nExec=helium %U\n"
+            "TryExec=helium\nIcon=helium\nStartupWMClass=helium\nMimeType=text/html;x-scheme-handler/https;\n"
+            "Actions=new-window;new-private-window;\n\n"
+            "[Desktop Action new-window]\nName=New Window\nExec=helium\n\n"
+            "[Desktop Action new-private-window]\nName=New Incognito Window\nExec = helium --incognito\n"
+        )
+        text = desktop.program_entry(shipped, Path("/p/helium/current/helium-wrapper"), Path("/p/helium/current/product_logo_256.png"),
+                                     "nonsteamapps-helium")
+        self.assertEqual(text, (
+            "[Desktop Entry]\nStartupWMClass=nonsteamapps-helium\nVersion=1.0\nName=Helium\n\n# A comment = kept\nGenericName[de]=Web-Browser\n"
+            'Exec="/p/helium/current/helium-wrapper" --class=nonsteamapps-helium %U\n'
+            "Icon=/p/helium/current/product_logo_256.png\nMimeType=text/html;x-scheme-handler/https;\n"
+            "Actions=new-window;new-private-window;\n\n"
+            '[Desktop Action new-window]\nName=New Window\nExec="/p/helium/current/helium-wrapper" --class=nonsteamapps-helium\n\n'
+            '[Desktop Action new-private-window]\nName=New Incognito Window\n'
+            'Exec="/p/helium/current/helium-wrapper" --class=nonsteamapps-helium --incognito\n'))
+
     def test_kconfig_lists_keep_escaped_commas(self):
         self.assertEqual(desktop.split_list("a,b\\,c,d\\\\"), ["a", "b,c", "d\\"])
         self.assertEqual(desktop.join_list(["a", "b,c", "d\\"]), "a,b\\,c,d\\\\")

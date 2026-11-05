@@ -355,11 +355,39 @@ def kyty_release(archive: Path, tag: str = KYTY_TAG, published: str = "2026-11-0
     }
 
 
-def make_helium_archive(directory: Path, version: str = "0.0.0.1") -> Path:
+HELIUM_DESKTOP = """[Desktop Entry]
+Version=1.0
+Name=Helium
+
+# Only KDE 4 seems to use GenericName, so we reuse the KDE strings.
+GenericName=Web Browser
+GenericName[de]=Web-Browser
+Comment=Access the Internet
+Exec=helium %U
+StartupNotify=true
+Terminal=false
+Icon=helium
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+Actions=new-window;new-private-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=helium
+
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=helium --incognito
+"""
+
+
+def make_helium_archive(directory: Path, version: str = "0.0.0.1", own_entry: bool = True) -> Path:
     """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG and its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG.
 
     With $FAKE_HELIUM_OPEN, the wrapper then opens that link with xdg-open from its PATH, as a page sending a
-    sign-in back to an app would, and stays open until it is ended.
+    sign-in back to an app would, and stays open until it is ended. With ``own_entry``, it ships Helium's
+    desktop file and icon, as Helium's releases do.
     """
     staging = directory / f"build-{version}"
     inner = staging / f"helium-{version}-x86_64_linux"
@@ -378,6 +406,9 @@ def make_helium_archive(directory: Path, version: str = "0.0.0.1") -> Path:
     )
     for name in ("helium", "helium-wrapper"):
         (inner / name).chmod(0o755)
+    if own_entry:
+        (inner / "helium.desktop").write_text(HELIUM_DESKTOP)
+        (inner / "product_logo_256.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     archive = directory / f"helium-{version}-x86_64_linux.tar.xz"
     subprocess.run(["tar", "-cJf", str(archive), "-C", str(staging), inner.name], check=True)
     return archive

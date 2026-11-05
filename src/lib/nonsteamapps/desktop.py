@@ -15,7 +15,7 @@ import os
 import re
 import struct
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import appmenu
 from .apps import set_ini
@@ -33,21 +33,50 @@ DEFAULT_LAUNCHERS = (
 _APPLET = re.compile(r"Containments\]\[\d+\]\[Applets\]\[\d+")
 
 
-def entry_text(name: str, comment: str, command: Path, icon: Path, wm_class: str, generic: str = "", categories: Tuple[str, ...] = ()) -> str:
-    """A desktop file that runs ``command`` with the files or links it is given."""
+def entry_text(name: str, comment: str, command: Path, icon: Path, wm_class: str, generic: str = "", categories: Tuple[str, ...] = (),
+               arguments: Sequence[str] = ()) -> str:
+    """A desktop file that runs ``command``, with ``arguments``, on the files or links it is given."""
     lines = [
         "[Desktop Entry]",
         "Type=Application",
         f"Name={name}",
         *([f"GenericName={generic}"] if generic else []),
         f"Comment={comment}",
-        f'Exec="{command}" %U',
+        f'Exec="{command}" ' + "".join(f"{argument} " for argument in arguments) + "%U",
         f"Icon={icon}",
         "Terminal=false",
         *([f"Categories={';'.join(categories)};"] if categories else []),
         f"StartupWMClass={wm_class}",
         "StartupNotify=true",
     ]
+    return "\n".join(lines) + "\n"
+
+
+def program_entry(text: str, program: Path, icon: Path, wm_class: str) -> str:
+    """The desktop file a program ships, ``text``, made to start ``program`` where it is installed, with ``icon``.
+
+    Every ``Exec``, its actions' too, runs ``program`` with what it gave the program's name, and with the window
+    class ``wm_class``, which ``StartupWMClass`` repeats, so that Plasma counts the program's windows as the
+    entry's. A ``TryExec`` goes, as the name it gives is not on the path.
+    """
+    lines: List[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        key, separator, value = stripped.partition("=")
+        key = key.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            lines.append(line)
+            if stripped == "[Desktop Entry]":
+                lines.append(f"StartupWMClass={wm_class}")
+        elif stripped.startswith("#") or not separator:
+            lines.append(line)
+        elif key == "Exec":
+            rest = value.strip().split(None, 1)[1:]
+            lines.append(f'Exec="{program}" --class={wm_class}' + (f" {rest[0]}" if rest else ""))
+        elif key == "Icon":
+            lines.append(f"Icon={icon}")
+        elif key not in ("TryExec", "StartupWMClass"):
+            lines.append(line)
     return "\n".join(lines) + "\n"
 
 

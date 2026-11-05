@@ -551,11 +551,41 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     return 0
 
 
+def _desktop_text(paths: Paths, app: App, entry: Path) -> str:
+    """The app's desktop file: for a Helium app with an ``own`` entry, Helium's, starting the Helium that is installed.
+
+    Helium's release ships its menu entry and icon; without them, NonSteamApps writes an entry that still starts
+    Helium itself. Any other app's entry starts NonSteamApps' launcher.
+    """
+    if not app.desktop.own:
+        return desktop.entry_text(app.name, app.summary, paths.app_link(app.id), paths.artwork(app.id) / "icon.png", entry.stem,
+                                  app.desktop.generic, app.desktop.categories)
+    program = _runtime(paths).executable
+    shipped = program.parent / app.desktop.icon
+    icon = shipped if app.desktop.icon and shipped.is_file() else paths.artwork(app.id) / "icon.png"
+    try:
+        return desktop.program_entry((program.parent / app.desktop.own).read_text(encoding="utf-8"), program, icon, entry.stem)
+    except (OSError, UnicodeDecodeError):
+        return desktop.entry_text(app.name, app.summary, program, icon, entry.stem, app.desktop.generic, app.desktop.categories,
+                                  arguments=(f"--class={entry.stem}",))
+
+
+def _refresh_desktop(paths: Paths, app: App) -> None:
+    """Write the app's menu entry again where it is, as the release it starts may have changed, leaving the taskbar as it is."""
+    entry = paths.desktop_entry(app.id)
+    if not entry.is_file():
+        return
+    try:
+        if desktop.write_entry(entry, _desktop_text(paths, app, entry)):
+            ui.ok(f"Refreshed {app.name}'s entry in Desktop Mode's applications menu")
+    except OSError as exc:
+        ui.warn(f"could not refresh {app.name}'s entry in Desktop Mode's applications menu: {exc}")
+
+
 def _add_to_desktop(paths: Paths, app: App) -> None:
     """Add the app to Desktop Mode's applications menu and pin it to Plasma's taskbar (see :mod:`desktop`)."""
     entry = paths.desktop_entry(app.id)
-    text = desktop.entry_text(app.name, app.summary, paths.app_link(app.id), paths.artwork(app.id) / "icon.png", entry.stem,
-                              app.desktop.generic, app.desktop.categories)
+    text = _desktop_text(paths, app, entry)
     try:
         desktop.write_entry(entry, text)
     except OSError as exc:
@@ -1007,6 +1037,8 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
     timer.refresh(paths)
     for app in managed:
         _link(paths, app)
+        if app.desktop:
+            _refresh_desktop(paths, app)
     try:
         steam_add(paths, managed, "all", args.restart_steam, overwrite=False)
     except ui.Abort as exc:

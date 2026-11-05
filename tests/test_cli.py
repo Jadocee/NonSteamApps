@@ -847,9 +847,15 @@ class HeliumAppTests(CliTestCase):
         entry = self.paths.desktop_entry("helium")
         self.assertEqual(entry, self.home / ".local/share/applications/nonsteamapps-helium.desktop")
         text = entry.read_text()
-        for line in (f'Exec="{self.paths.app_link("helium")}" %U', f"Icon={self.paths.artwork('helium') / 'icon.png'}",
-                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser"):
+        wrapper = cli._runtime(self.paths).executable
+        self.assertEqual(wrapper, self.paths.helium / "current" / "helium-wrapper")
+        for line in (f'Exec="{wrapper}" --class=nonsteamapps-helium %U', f'Exec="{wrapper}" --class=nonsteamapps-helium',
+                     f'Exec="{wrapper}" --class=nonsteamapps-helium --incognito', f"Icon={self.paths.helium / 'current' / 'product_logo_256.png'}",
+                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser", "GenericName[de]=Web-Browser",
+                     "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;", "Name=New Incognito Window"):
             self.assertIn(line + "\n", text)
+        self.assertNotIn("Exec=helium", text)
+        self.assertNotIn(str(self.paths.app_link("helium")), text)
         self.assertIn("Added Helium to Desktop Mode's applications menu and taskbar", self.errors)
         pinned = ("[Containments][1][Applets][2][Configuration][General]\nlaunchers=applications:systemsettings.desktop,"
                   "applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop\n")
@@ -864,6 +870,36 @@ class HeliumAppTests(CliTestCase):
         self.install("helium")
         self.assertIn("Plasma's taskbar could not be changed, so pin it from the menu", self.errors)
         self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertFalse(entry.exists())
+
+    def test_without_heliums_own_entry_desktop_mode_still_starts_helium_itself(self):
+        bare = Path(self.tmp.name) / "bare"
+        bare.mkdir()
+        self.helium_archive = _fakes.make_helium_archive(bare, own_entry=False)
+        self.install("helium")
+        text = self.paths.desktop_entry("helium").read_text()
+        for line in (f'Exec="{cli._runtime(self.paths).executable}" --class=nonsteamapps-helium %U', f"Icon={self.paths.artwork('helium') / 'icon.png'}",
+                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser", "Categories=Network;WebBrowser;"):
+            self.assertIn(line + "\n", text)
+
+    def test_update_rewrites_an_earlier_entry_but_brings_back_none_the_user_removed(self):
+        layout = self.paths.plasma_layout
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        self.install("helium")
+        entry = self.paths.desktop_entry("helium")
+        current = entry.read_text()
+        entry.write_text(f'[Desktop Entry]\nType=Application\nName=Helium\nExec="{self.paths.app_link("helium")}" %U\nStartupWMClass=nonsteamapps-helium\n')
+        pinned = layout.read_text()
+        with mock.patch.object(cli.Runtime, "update", return_value=None):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertEqual(entry.read_text(), current)
+            self.assertIn("Refreshed Helium's entry in Desktop Mode's applications menu", self.errors)
+            self.assertEqual(layout.read_text(), pinned)
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertNotIn("Refreshed Helium's entry", self.errors)
+            entry.unlink()
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
         self.assertFalse(entry.exists())
 
     def test_protondb_opens_the_library_of_the_account_that_starts_it(self):

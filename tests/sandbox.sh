@@ -150,7 +150,8 @@ check "Files got its own controller layout for each controller" test "$(find "$T
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
 check "Jellyfin got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_jellyfin.vdf' | wc -l)" -eq 2
-check "Helium joined the applications menu" grep -qxF "Exec=\"$PROGRAM/apps/helium\" %U" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+check "Helium joined the applications menu, starting Helium itself" grep -qxF "Exec=\"$PROGRAM/helium/current/helium-wrapper\" --class=nonsteamapps-helium %U" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+check "Helium's entry has Helium's own icon" grep -qxF "Icon=$PROGRAM/helium/current/product_logo_256.png" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
 if [ "$PLASMA_HERE" = 0 ]; then
     check "Helium joined the taskbar, after Plasma's own launchers" grep -qxF "launchers=applications:systemsettings.desktop,applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop" "$LAYOUT"
 fi

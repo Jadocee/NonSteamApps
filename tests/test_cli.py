@@ -418,6 +418,27 @@ class LaunchTests(CliTestCase):
         self.assertEqual(argv[2:], [f"--filesystem={games}:ro", *x11, "dev.eden_emu.eden", "-f"])
         self.assertIn(f"path={games}\n", (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
 
+    def test_eden_runs_docked_at_a_tvs_size_and_handheld_below_it_in_game_mode(self):
+        settings = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+
+        def mode(game_mode=False, size=(3840, 2160)):
+            with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                    mock.patch("nonsteamapps.display.screen_size", return_value=size):
+                self.launch("eden", "--steam-account", str(ALPHA))
+            text = settings.read_text()
+            return text[text.index("[System]"):] if "[System]" in text else None
+
+        self.install("eden")
+        self.assertIsNone(mode())
+        self.assertEqual(mode(True, (1280, 800)), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=1\n")
+        self.assertEqual(mode(True, None), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=1\n")
+        config.set_setting(self.paths.settings, cli.EDEN_CONSOLE_MODE, "handheld")
+        self.assertEqual(mode(), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        config.set_setting(self.paths.settings, cli.EDEN_CONSOLE_MODE, "off")
+        self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
+        self.assertIn("[UI]\n", settings.read_text())
+
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
         library.mkdir()

@@ -16,6 +16,9 @@ class ScaleTests(unittest.TestCase):
         self.assertIsNone(display.scale("1", True))
         self.assertIsNone(display.scale("big", True))
 
+    def test_a_tvs_size_starts_at_1000_pixels_tall(self):
+        self.assertEqual([display.tv_sized(height) for height in (None, 0, 800, 999, 1000, 2160)], [False, False, False, False, True, True])
+
     def test_auto_scale_can_fit_a_1080p_layout_instead(self):
         self.assertEqual([display.scale("auto", True, h, layout=1080) for h in (1080, 1200, 1440, 2160)], [None, None, 1.25, 2.0])
         self.assertEqual(display.scale("1.5", True, 2160, layout=1080), 1.5)

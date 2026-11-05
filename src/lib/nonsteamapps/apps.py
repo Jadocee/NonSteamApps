@@ -183,6 +183,15 @@ def add_game_folder(settings_file: Path, folder: Path) -> bool:
     return bool(IniSettings(Path(settings_file).name, tuple(values)).apply(Path(settings_file).parent))
 
 
+def set_console_mode(settings_file: Path, docked: bool) -> bool:
+    """Run Eden's console docked or handheld, in ``settings_file``; return whether that changed.
+
+    A game's own console mode, in its properties, still takes precedence.
+    """
+    values = _eden_setting("System", "use_docked_mode", "1" if docked else "0")
+    return bool(IniSettings(Path(settings_file).name, values).apply(Path(settings_file).parent))
+
+
 def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
     """Make each change not yet recorded in ``folder``'s ``nonsteamapps.json`` once; return the names made now.
 
@@ -692,6 +701,8 @@ class App:
     the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` is a
     folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
     for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
+    A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
+    (see :func:`set_console_mode`).
     """
 
     id: str
@@ -722,6 +733,7 @@ class App:
     hide_menu_bar: bool = False
     userstyles: Tuple[str, ...] = ()
     games: str = ""
+    console_mode: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -891,6 +903,7 @@ APPS: Tuple[App, ...] = (
         x11=True,
         qt_window=True,
         games="Games/Switch",
+        console_mode=True,
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
     ),
     App(

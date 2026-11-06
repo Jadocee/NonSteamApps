@@ -54,7 +54,8 @@ class FilesLayoutTests(unittest.TestCase):
             [name for name, _ in find(found["switch"], "inputs")],
             ["button_escape", "button_menu", "left_bumper", "right_bumper", "button_back_left", "button_back_right", "always_on_action"],
         )
-        self.assertEqual(bindings(found["switch"], "button_menu"), ["key_press LEFT_CONTROL, ⛔", "key_press W"])
+        self.assertEqual((bindings(found["switch"], layouts.MENU), bindings(found["switch"], layouts.VIEW)),
+                         (["key_press LEFT_CONTROL, Close tab", "key_press W"], ["key_press ESCAPE, Escape"]))
         self.assertEqual(find(mappings, "settings"), [("left_trackpad_mode", "0")])
         ids = [find(group, "id") for name, group in mappings if name == "group"]
         self.assertEqual(ids, [str(index) for index in range(len(ids))])
@@ -82,7 +83,7 @@ class FilesLayoutTests(unittest.TestCase):
             [["key_press SPACE"], ["key_press E"], ["key_press Q, Drop"], ["key_press F"]],
         )
         self.assertEqual(
-            [bindings(found["switch"], button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+            [bindings(found["switch"], button) for button in (layouts.MENU, layouts.VIEW, "left_bumper", "right_bumper")],
             [["key_press ESCAPE, Pause"], ["key_press TAB, Players"], ["mouse_wheel SCROLL_UP"], ["mouse_wheel SCROLL_DOWN"]],
         )
         self.assertEqual(bindings(found["joystick"], "click"), ["key_press LEFT_CONTROL, Sprint"])
@@ -147,14 +148,25 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(find(found["joystick"], "mode"), "dpad")
         self.assertEqual(bindings(found["joystick"], "dpad_north"), ["mouse_wheel SCROLL_UP, ⏫"])
 
+    def test_menu_and_view_are_the_buttons_valves_layouts_press_start_and_select_and_escape_and_tab_with(self):
+        for template, menu, view in (("controller_neptune_gamepad_joystick.vdf", ["xinput_button start"], ["xinput_button select"]),
+                                     ("controller_xboxone_gamepad_joystick.vdf", ["xinput_button start"], ["xinput_button select"]),
+                                     ("controller_neptune_wasd.vdf", ["key_press ESCAPE"], ["key_press TAB"]),
+                                     ("controller_neptune_webbrowser.vdf", ["key_press ESCAPE"], ["key_press LEFT_CONTROL, ⛔", "key_press W"])):
+            with self.subTest(template=template):
+                switch = groups(self.read(template))["switch"]
+                self.assertEqual((bindings(switch, layouts.MENU), bindings(switch, layouts.VIEW)), (menu, view))
+
     def test_holding_menu_quits_helium_and_files_and_a_short_press_still_closes_the_tab(self):
         for layout, quit_keys in ((layouts.BROWSER, ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]),
                                   (layouts.FILES, ["key_press LEFT_CONTROL, Quit", "key_press Q"])):
             built = layouts.build(layout, self.read(layout.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
             switch = groups(built)["switch"]
-            self.assertEqual(bindings(switch, "button_menu"), ["key_press LEFT_CONTROL, ⛔", "key_press W"])
-            self.assertEqual(bindings(switch, "button_menu", "Long_Press"), quit_keys)
-            full = find(find(find(find(switch, "inputs"), "button_menu"), "activators"), "Full_Press")
+            self.assertEqual(bindings(switch, layouts.MENU), ["key_press LEFT_CONTROL, Close tab", "key_press W"])
+            self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), quit_keys)
+            self.assertEqual(bindings(switch, layouts.VIEW), ["key_press ESCAPE, Escape"])
+            self.assertEqual([kind for kind, _ in find(find(find(switch, "inputs"), layouts.VIEW), "activators")], ["Full_Press"])
+            full = find(find(find(find(switch, "inputs"), layouts.MENU), "activators"), "Full_Press")
             self.assertEqual(find(full, "settings"), [("interruptable", "1")])
         found = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(bindings(found["button_diamond"], "button_a"), ["key_press RETURN, ⏯️", "key_press SPACE"])
@@ -172,11 +184,11 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(found["dpad"], "dpad_west"), ["key_press LEFT_ARROW, ⏪"])
         switch = found["switch"]
         self.assertEqual(
-            [bindings(switch, button) for button in ("left_bumper", "right_bumper", "button_menu")],
-            [["key_press LEFT_SHIFT", "key_press TAB, Previous"], ["key_press TAB, Next"], ["key_press LEFT_CONTROL, ⛔", "key_press W"]],
+            [bindings(switch, button) for button in ("left_bumper", "right_bumper", layouts.MENU)],
+            [["key_press LEFT_SHIFT", "key_press TAB, Previous"], ["key_press TAB, Next"], ["key_press ESCAPE"]],
         )
-        self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
-        self.assertEqual(bindings(switch, "button_escape"), ["key_press ESCAPE"])
+        self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        self.assertEqual(bindings(switch, layouts.VIEW), ["key_press LEFT_CONTROL, ⛔", "key_press W"])
 
     def test_jellyfin_gets_its_own_keys_and_b_never_holds_escape(self):
         for pad in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
@@ -189,10 +201,10 @@ class FilesLayoutTests(unittest.TestCase):
             )
             self.assertEqual(bindings(diamond, "button_b", "Long_Press"), ["key_press H, Home"])
             self.assertEqual(
-                [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+                [bindings(switch, button) for button in (layouts.MENU, layouts.VIEW, "left_bumper", "right_bumper")],
                 [["key_press SPACE, Play or pause"], ["key_press H, Home"], ["key_press PAGE_UP, Rewind"], ["key_press PAGE_DOWN, Fast forward"]],
             )
-            self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+            self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
             self.assertEqual((find(found["joystick"], "mode"), bindings(found["joystick"], "dpad_west")), ("dpad", ["key_press LEFT_ARROW, ⏪"]))
             self.assertEqual(bindings(found["dpad"], "dpad_north"), ["key_press UP_ARROW, ⏫"])
 
@@ -206,11 +218,33 @@ class FilesLayoutTests(unittest.TestCase):
                          [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"], ["key_press SPACE, Tick"]])
         switch = found["switch"]
         self.assertEqual(
-            [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],
+            [bindings(switch, button) for button in (layouts.MENU, layouts.VIEW, "left_bumper", "right_bumper")],
             [["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Lock", "key_press L"],
              ["key_press LEFT_CONTROL, Search", "key_press F"], ["key_press LEFT_CONTROL, Generator", "key_press G"]],
         )
-        self.assertEqual(bindings(switch, "button_menu", "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+
+    def test_element_and_signal_move_with_the_d_pad_and_left_stick_and_change_room_with_the_bumpers(self):
+        arrows = [["key_press UP_ARROW, ⏫"], ["key_press DOWN_ARROW, ⏬"], ["key_press RIGHT_ARROW, ⏩"], ["key_press LEFT_ARROW, ⏪"]]
+        menus = {
+            layouts.ELEMENT: (["key_press LEFT_CONTROL, User menu", "key_press BACK_TICK"], ["key_press LEFT_CONTROL, Jump to room", "key_press K"],
+                              ["key_press F6, Next area"], ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]),
+            layouts.SIGNAL: (["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Search", "key_press F"],
+                             ["key_press LEFT_CONTROL, Next section", "key_press T"], ["key_press LEFT_CONTROL, Quit", "key_press Q"]),
+        }
+        for layout, (menu, view, held_view, held_menu) in menus.items():
+            with self.subTest(layout=layout.slug):
+                found = groups(layouts.build(layout, self.read(layout.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+                for source in ("dpad", "joystick"):
+                    self.assertEqual([bindings(found[source], f"dpad_{way}") for way in ("north", "south", "east", "west")], arrows, source)
+                self.assertEqual([bindings(found["button_diamond"], f"button_{key}") for key in "abxy"],
+                                 [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"], ["key_press SPACE, Tick"]])
+                switch = found["switch"]
+                self.assertEqual([bindings(switch, "left_bumper"), bindings(switch, "right_bumper")],
+                                 [["key_press LEFT_ALT, Previous", "key_press UP_ARROW"], ["key_press LEFT_ALT, Next", "key_press DOWN_ARROW"]])
+                self.assertEqual((bindings(switch, layouts.MENU), bindings(switch, layouts.VIEW)), (menu, view))
+                self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), held_menu)
+                self.assertEqual(bindings(switch, layouts.VIEW, "Long_Press"), held_view)
 
     def test_emulators_play_with_a_gamepad_and_the_trackpad_clicks_in_their_menus(self):
         deck = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_neptune_gamepad_joystick.vdf")))
@@ -218,7 +252,7 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(deck["right_trackpad"], "click", "Soft_Press"), ["mouse_button LEFT"])
         self.assertNotIn("JOYSTICK_RIGHT", vdf.dumps_pairs([("group", deck["right_trackpad"])]))
         self.assertEqual(bindings(deck["button_diamond"], "button_a"), ["xinput_button A"])
-        self.assertEqual(bindings(deck["switch"], "button_menu"), ["xinput_button button_menu"])
+        self.assertEqual((bindings(deck["switch"], layouts.MENU), bindings(deck["switch"], layouts.VIEW)), (["xinput_button start"], ["xinput_button select"]))
         xbox = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
         self.assertNotIn("right_trackpad", xbox)
         self.assertEqual(bindings(xbox["button_diamond"], "button_y"), ["xinput_button Y"])
@@ -235,9 +269,10 @@ class FilesLayoutTests(unittest.TestCase):
                 active = {binding.split()[0]: by_id[group_id] for group_id, binding in bound if binding.endswith(" active")}
                 self.assertEqual(sorted(shifted), ["button_diamond", "right_joystick"])
                 ids = {binding.split()[0]: group_id for group_id, binding in bound if binding.endswith("active modeshift")}
-                self.assertEqual(bindings(active["switch"], "button_escape"),
-                                 ["xinput_button button_escape", f"mode_shift right_joystick {ids['right_joystick']}",
+                self.assertEqual(bindings(active["switch"], layouts.VIEW),
+                                 ["xinput_button select", f"mode_shift right_joystick {ids['right_joystick']}",
                                   f"mode_shift button_diamond {ids['button_diamond']}"])
+                self.assertEqual(bindings(active["switch"], layouts.MENU), ["xinput_button start"])
                 self.assertEqual(find(shifted["right_joystick"], "mode"), "joystick_mouse")
                 self.assertEqual(bindings(shifted["right_joystick"], "click"), ["mouse_button LEFT"])
                 self.assertEqual([bindings(shifted["button_diamond"], button) for button in ("button_a", "button_b", "button_x", "button_y")],
@@ -245,7 +280,7 @@ class FilesLayoutTests(unittest.TestCase):
                                   ["key_press RETURN, OK"]])
                 self.assertEqual(bindings(active["button_diamond"], "button_a"), ["xinput_button A"])
                 self.assertEqual(find(active["right_joystick"], "mode"), "joystick_move")
-                self.assertEqual(find(mappings, "revision"), "3")
+                self.assertEqual(find(mappings, "revision"), "4")
         alone = layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
         self.assertFalse(any(binding.endswith("modeshift") for _, binding in find(find(find(alone, "controller_mappings"), "preset"), "group_source_bindings")))
         (self.folder / layouts.EMULATOR.shift.template).unlink()
@@ -256,11 +291,12 @@ class FilesLayoutTests(unittest.TestCase):
             with self.subTest(template=template):
                 found = groups(layouts.build(layouts.YOUTUBE, self.read(layouts.YOUTUBE.base), self.read(template)))
                 switch = found["switch"]
-                self.assertEqual(bindings(switch, "button_escape"), ["xinput_button button_escape"])
-                self.assertEqual(bindings(switch, "button_escape", "Long_Press"), ["key_press LEFT_CONTROL, Reload", "key_press R"])
-                full = find(find(find(find(switch, "inputs"), "button_escape"), "activators"), "Full_Press")
+                self.assertEqual(bindings(switch, layouts.VIEW), ["xinput_button select"])
+                self.assertEqual(bindings(switch, layouts.VIEW, "Long_Press"), ["key_press LEFT_CONTROL, Reload", "key_press R"])
+                full = find(find(find(find(switch, "inputs"), layouts.VIEW), "activators"), "Full_Press")
                 self.assertEqual(find(full, "settings"), [("interruptable", "1")])
-                self.assertEqual(bindings(switch, "button_menu"), ["xinput_button button_menu"])
+                self.assertEqual(bindings(switch, layouts.MENU), ["xinput_button start"])
+                self.assertEqual([kind for kind, _ in find(find(find(switch, "inputs"), layouts.MENU), "activators")], ["Full_Press"])
                 self.assertEqual(bindings(found["button_diamond"], "button_a"), ["xinput_button A"])
 
     def test_apps_find_the_layouts_they_ask_for(self):

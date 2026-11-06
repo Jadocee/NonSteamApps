@@ -5,13 +5,19 @@ and changes only what its app needs. It is written for every controller type Val
 for, keeping only the inputs that controller has, into ``controller_base/templates``, where Steam lists
 layouts, and then assigned like Valve's own (see :mod:`controllers`).
 
-- **Browser**, for the Helium apps, is Web Browser with long presses added. Holding Menu quits: it sends
-  Ctrl+Shift+W, which closes the window with all its tabs, together with Ctrl+Shift+Q, Helium's Exit, which
-  a full-screen page cannot intercept (see :mod:`browser`). Holding L1 or R1 goes to the previous or next tab
-  (Ctrl+Page Up and Ctrl+Page Down). Short presses still close the tab and go back and forward.
+Steam's layouts name the Menu button (≡, Start) ``button_escape`` and the View button (⧉, Select)
+``button_menu``: Valve's Gamepad layouts press the gamepad's Start and Select with them, and its keyboard
+layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` name them as the controller does.
+
+- **Browser**, for the Helium apps, is Web Browser with long presses added. Menu closes the tab (Ctrl+W) and
+  View is Escape, which Valve's layout puts the other way round, so that holding the button that closes a tab
+  quits: it sends Ctrl+Shift+W, which closes the window with all its tabs, together with Ctrl+Shift+Q, Helium's
+  Exit, which a full-screen page cannot intercept (see :mod:`browser`). Holding L1 or R1 goes to the previous or
+  next tab (Ctrl+Page Up and Ctrl+Page Down); short presses still go back and forward.
 - **Files** starts from Web Browser. A presses only Enter (Valve's also presses Space, which toggles
   Dolphin's selection mode), Y only goes forward (Valve's also types S, which jumps to a file), the
-  left stick moves the selection like the D-pad instead of scrolling, and holding Menu quits (Ctrl+Q).
+  left stick moves the selection like the D-pad instead of scrolling, Menu closes the tab and View cancels, as
+  in Browser, and holding Menu quits (Ctrl+Q).
 - **Minecraft** starts from Keyboard (WASD) and Mouse, whose buttons already match Minecraft's keys. X drops
   the held item (Q), Menu pauses (Escape) and View shows the players (Tab), the stick clicks sprint
   (Ctrl) and sneak (Shift), and the bumpers step left and right along the hotbar.
@@ -19,7 +25,7 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
-- **Emulator**, for KytyPS5, Eden and Eden-NX2, starts from Gamepad with Mouse Trackpad, whose right trackpad moves
+- **Emulator**, for KytyPS5, Eden, Eden-NX2 and Lichii, starts from Gamepad with Mouse Trackpad, whose right trackpad moves
   the pointer but whose press, on a soft press like Valve's mouse layouts, is the right stick's click. It presses
   the left mouse button instead; the rest is a
   gamepad for the game. Holding View shifts the right stick and the face buttons into Web Browser's for every
@@ -36,11 +42,19 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   presses Space, which would press a button twice. Bitwarden's shortcuts stand in for what its menu bar holds,
   which Game Mode hides (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L),
   L1 searches it (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
+- **Element** and **Signal** start from Web Browser, for chat apps that move between controls with the arrow keys
+  by where they are on screen (spatial navigation, see :mod:`apps`), as Bitwarden does: the D-pad and the left stick
+  send them, A is Enter, B is Escape and Y is Space, and the bumpers go to the previous and next room or chat
+  (Alt+Up and Alt+Down, in both). In Element, View jumps to a room (Ctrl+K) and, held, moves to the next area of the
+  window (F6, its landmarks), Menu opens the user menu, with the settings (Ctrl+`), and holding it sends Browser's
+  quit: Element takes Ctrl+Shift+Q as its Ctrl+Q, and a Helium window Element opened for a link closes.
+  In Signal, View searches (Ctrl+F) and, held, moves to the next section (Ctrl+T), Menu opens the settings
+  (Ctrl+,), and holding it quits (Ctrl+Q).
 - **Jellyfin** starts from Web Browser and sends Jellyfin Desktop's keys, as its Flatpak cannot reach a
   controller itself: the D-pad and the left stick move (arrow keys), A selects (Enter), B goes back
   (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
   Down), Menu plays or pauses (Space), held, quits (Ctrl+Q), and View goes home. B's short press waits for
-  its release, as Jellyfin quits when Escape is held for half a second; Valve's Menu, Ctrl+W, would quit at once.
+  its release, as Jellyfin quits when Escape is held for half a second; Valve's View, Ctrl+W, would quit at once.
 - **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
   the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
   home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down.
@@ -57,7 +71,10 @@ from . import controllers, vdf
 from .fsutil import atomic_write_bytes
 
 PREFIX = "nonsteamapps_"
+MENU = "button_escape"
+VIEW = "button_menu"
 _ALWAYS_ON = "always_on_action"
+_QUIT_HELIUM = ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]
 
 Change = Callable[[str, vdf.Pairs, Dict[str, vdf.Pairs]], vdf.Pairs]
 
@@ -104,9 +121,16 @@ def _hold(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
         activators.append(("Long_Press", [("bindings", [("binding", binding) for binding in bindings])]))
 
 
+def _menu_closes(group: vdf.Pairs) -> None:
+    """Menu closes the tab (Ctrl+W) and View is Escape, the other way round from Valve's Web Browser layout."""
+    _bind(group, MENU, ["key_press LEFT_CONTROL, Close tab", "key_press W"])
+    _bind(group, VIEW, ["key_press ESCAPE, Escape"])
+
+
 def _browser(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "switch":
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"])
+        _menu_closes(group)
+        _hold(group, MENU, _QUIT_HELIUM)
         _hold(group, "left_bumper", ["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"])
         _hold(group, "right_bumper", ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"])
     return group
@@ -126,7 +150,8 @@ def _files(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
         _bind(group, "button_a", ["key_press RETURN, Open"])
         _bind(group, "button_y", ["mouse_button FORWARD, ▶️"])
     elif source == "switch":
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _menu_closes(group)
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
     return group
 
 
@@ -134,8 +159,8 @@ def _minecraft(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     if source == "button_diamond":
         _bind(group, "button_x", ["key_press Q, Drop"])
     elif source == "switch":
-        _bind(group, "button_menu", ["key_press ESCAPE, Pause"])
-        _bind(group, "button_escape", ["key_press TAB, Players"])
+        _bind(group, MENU, ["key_press ESCAPE, Pause"])
+        _bind(group, VIEW, ["key_press TAB, Players"])
         _bind(group, "left_bumper", ["mouse_wheel SCROLL_UP"])
         _bind(group, "right_bumper", ["mouse_wheel SCROLL_DOWN"])
     elif source == "joystick":
@@ -153,7 +178,7 @@ def _localsend(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
     elif source == "switch":
         _bind(group, "left_bumper", ["key_press LEFT_SHIFT", "key_press TAB, Previous"])
         _bind(group, "right_bumper", ["key_press TAB, Next"])
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
     return group
 
 
@@ -166,9 +191,9 @@ def _jellyfin(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.
         _hold(group, "button_b", ["key_press H, Home"])
         _bind(group, "button_y", ["key_press LEFT_CONTROL, Search", "key_press F"])
     elif source == "switch":
-        _bind(group, "button_menu", ["key_press SPACE, Play or pause"])
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
-        _bind(group, "button_escape", ["key_press H, Home"])
+        _bind(group, MENU, ["key_press SPACE, Play or pause"])
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, VIEW, ["key_press H, Home"])
         _bind(group, "left_bumper", ["key_press PAGE_UP, Rewind"])
         _bind(group, "right_bumper", ["key_press PAGE_DOWN, Fast forward"])
     return group
@@ -201,7 +226,7 @@ def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
 
 def _youtube(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "switch":
-        _hold(group, "button_escape", ["key_press LEFT_CONTROL, Reload", "key_press R"])
+        _hold(group, VIEW, ["key_press LEFT_CONTROL, Reload", "key_press R"])
     return group
 
 
@@ -213,11 +238,45 @@ def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf
         _bind(group, "button_b", ["key_press ESCAPE, Back"])
         _bind(group, "button_y", ["key_press SPACE, Tick"])
     elif source == "switch":
-        _bind(group, "button_menu", ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
-        _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
-        _bind(group, "button_escape", ["key_press LEFT_CONTROL, Lock", "key_press L"])
+        _bind(group, MENU, ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, VIEW, ["key_press LEFT_CONTROL, Lock", "key_press L"])
         _bind(group, "left_bumper", ["key_press LEFT_CONTROL, Search", "key_press F"])
         _bind(group, "right_bumper", ["key_press LEFT_CONTROL, Generator", "key_press G"])
+    return group
+
+
+def _chat(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    """What Element's and Signal's layouts share: arrow keys from the D-pad and the stick, Enter, Escape and Space, and the rooms or chats on the bumpers."""
+    if source == "joystick" and "dpad" in base:
+        group = _stick_as_dpad(group, base)
+    elif source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press SPACE, Tick"])
+    elif source == "switch":
+        _bind(group, "left_bumper", ["key_press LEFT_ALT, Previous", "key_press UP_ARROW"])
+        _bind(group, "right_bumper", ["key_press LEFT_ALT, Next", "key_press DOWN_ARROW"])
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+    return group
+
+
+def _element(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    group = _chat(source, group, base)
+    if source == "switch":
+        _bind(group, MENU, ["key_press LEFT_CONTROL, User menu", "key_press BACK_TICK"])
+        _hold(group, MENU, _QUIT_HELIUM)
+        _bind(group, VIEW, ["key_press LEFT_CONTROL, Jump to room", "key_press K"])
+        _hold(group, VIEW, ["key_press F6, Next area"])
+    return group
+
+
+def _signal(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    group = _chat(source, group, base)
+    if source == "switch":
+        _bind(group, MENU, ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
+        _bind(group, VIEW, ["key_press LEFT_CONTROL, Search", "key_press F"])
+        _hold(group, VIEW, ["key_press LEFT_CONTROL, Next section", "key_press T"])
     return group
 
 
@@ -259,25 +318,26 @@ class Layout:
 BROWSER = Layout(
     slug="browser",
     title="Browser (NonSteamApps)",
-    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Start to close the tab, hold Start to quit, hold L1 or R1 to change tabs",
+    description="Steam's Web Browser layout: trackpads or right stick to point, R2 to click, B to go back, X for the keyboard, Menu to close the tab, hold Menu to quit, View for Escape, hold L1 or R1 to change tabs",
     base="controller_neptune_webbrowser.vdf",
     change=_browser,
-    revision="2",
+    revision="3",
 )
 FILES = Layout(
     slug="files",
     title="Files (NonSteamApps)",
-    description="D-pad or left stick to move, A to open, B to go back, X for the keyboard, Start to close the tab, hold Start to quit",
+    description="D-pad or left stick to move, A to open, B to go back, X for the keyboard, Menu to close the tab, hold Menu to quit, View to cancel",
     base="controller_neptune_webbrowser.vdf",
     change=_files,
-    revision="2",
+    revision="3",
 )
 MINECRAFT = Layout(
     slug="minecraft",
     title="Minecraft (NonSteamApps)",
-    description="Left stick to move, right stick to look, A to jump, B for the inventory, X to drop, triggers to use and attack, Start to pause",
+    description="Left stick to move, right stick to look, A to jump, B for the inventory, X to drop, triggers to use and attack, Menu to pause, View for the players",
     base="controller_neptune_wasd.vdf",
     change=_minecraft,
+    revision="2",
 )
 EMULATOR = Layout(
     slug="emulator",
@@ -285,23 +345,25 @@ EMULATOR = Layout(
     description="Steam's Gamepad layout for games; hold View for the emulator's own windows: right stick to point, A to click, B for Escape, Y for Enter, X for the keyboard",
     base="controller_neptune_gamepad+mouse.vdf",
     change=_emulator,
-    revision="3",
+    revision="4",
     replaces=("kytyps5",),
-    shift=Shift("button_escape", "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
+    shift=Shift(VIEW, "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
 )
 JELLYFIN = Layout(
     slug="jellyfin",
     title="Jellyfin (NonSteamApps)",
-    description="D-pad or left stick to move, A to select, B to go back (hold for home), Y to search, L1 and R1 to rewind and fast forward, Start to play or pause, hold Start to quit, View for home, X for the keyboard",
+    description="D-pad or left stick to move, A to select, B to go back (hold for home), Y to search, L1 and R1 to rewind and fast forward, Menu to play or pause, hold Menu to quit, View for home, X for the keyboard",
     base="controller_neptune_webbrowser.vdf",
     change=_jellyfin,
+    revision="2",
 )
 LOCALSEND = Layout(
     slug="localsend",
     title="LocalSend (NonSteamApps)",
-    description="D-pad to move, A to select, B to go back, Y to paste, bumpers for the previous and next control, X for the keyboard, hold Start to quit",
+    description="D-pad to move, A to select, B to go back, Y to paste, bumpers for the previous and next control, X for the keyboard, hold Menu to quit",
     base="controller_neptune_webbrowser.vdf",
     change=_localsend,
+    revision="2",
 )
 TOOLS = Layout(
     slug="tools",
@@ -313,10 +375,24 @@ TOOLS = Layout(
 BITWARDEN = Layout(
     slug="bitwarden",
     title="Bitwarden (NonSteamApps)",
-    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, Start for settings, View to lock, L1 to search, R1 for the generator, hold Start to quit",
+    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, Menu for settings, View to lock, L1 to search, R1 for the generator, hold Menu to quit",
     base="controller_neptune_webbrowser.vdf",
     change=_bitwarden,
-    revision="2",
+    revision="3",
+)
+ELEMENT = Layout(
+    slug="element",
+    title="Element (NonSteamApps)",
+    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, L1 and R1 for the previous and next room, View to jump to a room (hold for the next area), Menu for the user menu, hold Menu to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_element,
+)
+SIGNAL = Layout(
+    slug="signal",
+    title="Signal (NonSteamApps)",
+    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, L1 and R1 for the previous and next chat, View to search (hold for the next section), Menu for settings, hold Menu to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_signal,
 )
 YOUTUBE = Layout(
     slug="youtube",
@@ -324,8 +400,9 @@ YOUTUBE = Layout(
     description="Steam's Gamepad layout, which VacuumTube reads as a controller, with View held to reload YouTube and refresh its home screen",
     base="controller_neptune_gamepad_joystick.vdf",
     change=_youtube,
+    revision="2",
 )
-LAYOUTS = (BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE)
+LAYOUTS = (BITWARDEN, BROWSER, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, YOUTUBE)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

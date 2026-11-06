@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NonSteamApps artwork</title>
+<style>
+@font-face {
+  font-family: "NonSteamApps Display";
+  src: url("InterDisplay-Bold.woff2") format("woff2");
+  font-weight: 700;
+}
+:root {
+  --a: #1a9fff;
+  --b: #66c0f4;
+  --base: #0b1017;
+  --deep: #07090d;
+}
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+.card {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: #fff;
+  font-family: "NonSteamApps Display", "Inter Display", "Inter", sans-serif;
+  font-weight: 700;
+}
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(70% 48% at 50% 36%, color-mix(in srgb, var(--a) 58%, transparent) 0%, transparent 100%),
+    radial-gradient(60% 40% at 88% 96%, color-mix(in srgb, var(--b) 30%, transparent) 0%, transparent 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--a) 26%, var(--base)) 0%, var(--base) 58%, var(--deep) 100%);
+}
+.sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0) 34%);
+}
+.frame {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+.icon {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon img {
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.46));
+}
+.icon img.tile {
+  border-radius: 22%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.10);
+}
+.name {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  line-height: 1.04;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+  overflow-wrap: normal;
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.42);
+}
+.name .word { white-space: nowrap; }
+.capsule .icon { left: 150px; top: 176px; width: 300px; height: 300px; }
+.capsule .name { left: 40px; top: 548px; width: 520px; height: 210px; justify-content: center; text-align: center; }
+.capsule .backdrop::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 22%;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.35));
+}
+.wide .backdrop {
+  background:
+    radial-gradient(48% 78% at 24% 50%, color-mix(in srgb, var(--a) 60%, transparent) 0%, transparent 100%),
+    radial-gradient(40% 70% at 96% 100%, color-mix(in srgb, var(--b) 28%, transparent) 0%, transparent 100%),
+    linear-gradient(100deg, color-mix(in srgb, var(--a) 24%, var(--base)) 0%, var(--base) 62%, var(--deep) 100%);
+}
+.wide .icon { left: 96px; top: 95px; width: 240px; height: 240px; }
+.wide .name { left: 382px; top: 40px; width: 500px; height: 350px; text-align: left; }
+.logo .icon { left: 24px; top: 44px; width: 312px; height: 312px; }
+.logo .name { left: 384px; top: 20px; width: 872px; height: 360px; text-align: left; }
+.logo .name { text-shadow: 0 4px 26px rgba(0, 0, 0, 0.60), 0 1px 3px rgba(0, 0, 0, 0.55); }
+.hero .backdrop {
+  background:
+    radial-gradient(36% 70% at 74% 46%, color-mix(in srgb, var(--a) 50%, transparent) 0%, transparent 100%),
+    radial-gradient(30% 60% at 98% 100%, color-mix(in srgb, var(--b) 26%, transparent) 0%, transparent 100%),
+    linear-gradient(90deg, var(--deep) 0%, color-mix(in srgb, var(--a) 18%, var(--base)) 62%, var(--base) 100%);
+}
+.hero .icon { left: 2140px; top: -180px; width: 1600px; height: 1600px; opacity: 0.28; }
+.hero .icon img { filter: blur(84px) saturate(1.3); }
+.hero .shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.18) 46%, rgba(0, 0, 0, 0) 70%),
+              linear-gradient(0deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0) 45%);
+}
+.icon-only .icon { inset: 0; width: 256px; height: 256px; }
+.icon-only .icon img { filter: none; }
+.art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.art.fitted { object-fit: contain; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.35)); }
+.art.logo-art { object-fit: contain; object-position: left center; }
+.art-backdrop {
+  position: absolute;
+  inset: -10%;
+  background-size: cover;
+  background-position: center;
+  filter: blur(42px) saturate(1.1);
+}
+</style>
+</head>
+<body>
+<div id="card" class="card"></div>
+<script>
+"use strict";
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const slot = params.get("slot") || "capsule";
+  const card = document.getElementById("card");
+  const root = document.documentElement.style;
+  root.setProperty("--a", params.get("a") || "#1a9fff");
+  root.setProperty("--b", params.get("b") || params.get("a") || "#66c0f4");
+  card.classList.add(slot === "icon" ? "icon-only" : slot);
+  const artUrl = params.get("art");
+  if (artUrl) {
+    const art = new Image();
+    const artLoaded = new Promise((resolve) => {
+      art.onload = () => resolve(true);
+      art.onerror = () => resolve(false);
+    });
+    art.src = artUrl;
+    const shown = await artLoaded;
+    if (shown && slot === "logo") {
+      const canvas = document.createElement("canvas");
+      canvas.width = art.naturalWidth;
+      canvas.height = art.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(art, 0, 0);
+      const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+      let top = height, left = width, right = -1, bottom = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (data[(y * width + x) * 4 + 3] > 8) {
+            top = Math.min(top, y);
+            bottom = Math.max(bottom, y);
+            left = Math.min(left, x);
+            right = Math.max(right, x);
+          }
+        }
+      }
+      const trimmed = document.createElement("canvas");
+      trimmed.width = right >= left ? right - left + 1 : width;
+      trimmed.height = bottom >= top ? bottom - top + 1 : height;
+      trimmed.getContext("2d").drawImage(canvas, right >= left ? left : 0, bottom >= top ? top : 0, trimmed.width, trimmed.height,
+        0, 0, trimmed.width, trimmed.height);
+      const logo = new Image();
+      logo.className = "art logo-art";
+      logo.src = trimmed.toDataURL("image/png");
+      await logo.decode();
+      card.appendChild(logo);
+    } else if (shown) {
+      const ratio = art.naturalWidth / art.naturalHeight;
+      const wanted = window.innerWidth / window.innerHeight;
+      if (Math.abs(ratio - wanted) / wanted > 0.12) {
+        const backdrop = document.createElement("div");
+        backdrop.className = "art-backdrop";
+        backdrop.style.backgroundImage = `url("${artUrl}")`;
+        card.appendChild(backdrop);
+        art.classList.add("fitted");
+      }
+      art.classList.add("art");
+      card.appendChild(art);
+    }
+    window.cardReady = { ok: shown, width: art.naturalWidth || 0, height: art.naturalHeight || 0, tile: false };
+    return;
+  }
+  const part = (name) => {
+    const element = document.createElement("div");
+    element.className = name;
+    card.appendChild(element);
+    return element;
+  };
+  if (slot !== "logo" && slot !== "icon") {
+    part("backdrop");
+    if (slot !== "hero") part("sheen");
+  }
+  const box = part("icon");
+  const image = new Image();
+  image.decoding = "sync";
+  box.appendChild(image);
+  if (slot === "hero") part("shade");
+  if (slot === "capsule" || slot === "wide") part("frame");
+  let name = null;
+  if (slot !== "hero" && slot !== "icon") {
+    name = part("name");
+    const text = document.createElement("span");
+    (params.get("name") || "").split(" ").forEach((word, index) => {
+      if (index) text.appendChild(document.createTextNode(" "));
+      const piece = document.createElement("span");
+      piece.className = "word";
+      piece.textContent = word;
+      text.appendChild(piece);
+    });
+    name.appendChild(text);
+  }
+  const loaded = new Promise((resolve) => {
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+  });
+  image.src = params.get("icon") || "";
+  const ok = await loaded;
+  await document.fonts.ready;
+  if (name) {
+    const sizes = { capsule: [88, 40], wide: [100, 44], logo: [168, 64] }[slot];
+    let size = sizes[0];
+    const fits = () => {
+      const height = name.firstChild.offsetHeight;
+      return name.scrollWidth <= name.clientWidth + 1 && height <= name.clientHeight && Math.round(height / (size * 1.04)) <= 2;
+    };
+    name.style.fontSize = `${size}px`;
+    while (size > sizes[1] && !fits()) {
+      size -= 2;
+      name.style.fontSize = `${size}px`;
+    }
+  }
+  let opaque = false;
+  if (ok) {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 64;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0, 64, 64);
+      const corners = [[1, 1], [62, 1], [1, 62], [62, 62]].map(([x, y]) => context.getImageData(x, y, 1, 1).data[3]);
+      opaque = corners.every((alpha) => alpha > 245);
+    } catch (error) {
+      opaque = false;
+    }
+    if (opaque) image.classList.add("tile");
+  }
+  window.cardReady = {
+    ok,
+    width: image.naturalWidth || 0,
+    height: image.naturalHeight || 0,
+    tile: opaque,
+  };
+})();
+</script>
+</body>
+</html>

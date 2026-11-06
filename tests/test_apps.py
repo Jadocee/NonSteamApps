@@ -15,8 +15,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
-             "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
+             "protontricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -42,8 +42,16 @@ class ArgumentTests(unittest.TestCase):
     def test_element_keeps_secrets_the_same_way_in_game_and_desktop_mode(self):
         self.assertEqual(
             apps.by_id("element").arguments(HOME, 222),
-            ["--password-store=basic", "--storage-mode=allow-plaintext", "--profile=steam-222"],
+            ["--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation", "--profile=steam-222"],
         )
+
+    def test_element_and_signal_move_with_the_arrow_keys_fill_the_tv_and_have_layouts_of_their_own(self):
+        element, signal = apps.by_id("element"), apps.by_id("signal")
+        self.assertEqual([app.id for app in apps.APPS if "--enable-spatial-navigation" in app.args], ["element", "signal", "bitwarden"])
+        self.assertEqual((element.controller, signal.controller), ("Element (NonSteamApps)", "Signal (NonSteamApps)"))
+        self.assertEqual((element.fullscreen_class, signal.fullscreen_class), ("element", "signal"))
+        self.assertEqual((element.hide_menu_bar, signal.hide_menu_bar), (True, True))
+        self.assertEqual(element.profile.changes, (("2.34.0", apps.JsonSettings("electron-config.json", (("warnBeforeExit", False), ("autoHideMenuBar", True)))),))
 
     def test_localsend_has_no_sign_in_so_every_account_shares_its_settings(self):
         localsend = apps.by_id("localsend")
@@ -59,7 +67,7 @@ class ArgumentTests(unittest.TestCase):
             app = apps.by_id(app_id)
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
             self.assertEqual(app.controller, "Browser (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal"])
+        self.assertEqual([app.id for app in apps.APPS if app.controller == "Web Browser"], [])
         self.assertEqual(apps.by_id("protondb").browser.start_url(111), "https://www.protondb.com/dashboard/76561197960265839?nonsteamapps=library")
         self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.extensions], ["protondb"])
         self.assertEqual([(app.id, app.desktop) for app in apps.APPS if app.desktop],
@@ -74,8 +82,8 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
-             "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
+             "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -94,10 +102,11 @@ class ArgumentTests(unittest.TestCase):
                 "XDG_CONFIG_HOME=/home/deck/.var/app/org.signal.Signal/config/Signal-steam-111",
                 "SIGNAL_PASSWORD_STORE=basic",
                 "signal-desktop",
+                "--enable-spatial-navigation",
             ],
         )
         self.assertEqual(signal.run_options(HOME, 111), ["--command=env"])
-        self.assertEqual((signal.arguments(HOME, None), signal.run_options(HOME, None)), ([], []))
+        self.assertEqual((signal.arguments(HOME, None), signal.run_options(HOME, None)), (["--enable-spatial-navigation"], []))
         self.assertEqual(apps.by_id("element").run_options(HOME, 111), [])
 
     def test_each_toolkit_takes_the_tv_scale_its_own_way(self):
@@ -134,8 +143,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(bitwarden.run_options(HOME, None), [])
         self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Bitwarden (NonSteamApps)"))
         self.assertEqual((bitwarden.game_mode_env, bitwarden.fullscreen_class, bitwarden.hide_menu_bar), ((("DISPLAY_MODE", "X11"),), "bitwarden", True))
-        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["bitwarden"])
-        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["bitwarden", "kytyps5"])
+        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["element", "signal", "bitwarden"])
+        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["element", "signal", "bitwarden", "kytyps5"])
         self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
 
     def test_kytyps5_is_downloaded_from_its_releases_with_its_own_updater_off(self):
@@ -157,7 +166,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, ()))
         self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [(name, (("QT_QPA_PLATFORM", "xcb"),)) for name in ("eden", "edennx2")])
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
-        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden", "edennx2"])
+        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden", "edennx2", "lichii"])
 
     def test_eden_nx2_is_eden_built_here_with_a_games_folder_of_its_own(self):
         eden, nx2 = apps.by_id("eden"), apps.by_id("edennx2")
@@ -166,17 +175,41 @@ class ArgumentTests(unittest.TestCase):
         folder = HOME / ".var/app/io.github.jadocee.nonsteamapps.EdenNX2/data/eden-steam-111"
         self.assertEqual((nx2.arguments(HOME, 111), nx2.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
         self.assertIs(nx2.profile, eden.profile)
-        self.assertEqual((nx2.games, eden.games), ("Games/Switch2", "Games/Switch"))
+        self.assertEqual((nx2.games, eden.games), (("Games/Switch2",), ("Games/Switch",)))
         same = ("controller", "tv_scale", "env", "x11", "qt_window", "console_mode", "logo_position", "args")
         self.assertEqual([getattr(nx2, name) for name in same], [getattr(eden, name) for name in same])
-        self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden")])
+        self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden"), ("lichii", "eden")])
+
+    def test_lichii_is_an_appimage_that_keeps_edens_layout_in_nonsteamapps_profiles(self):
+        app, eden = apps.by_id("lichii"), apps.by_id("eden")
+        self.assertEqual((app.flatpak, app.release, app.from_source, app.appimage), ("", None, False, True))
+        self.assertEqual([candidate.id for candidate in apps.APPS if candidate.appimage], ["lichii"])
+        home = HOME / ".local/share/nonsteamapps/profiles/lichii"
+        profile = app.profile
+        self.assertEqual(profile.path(home, 111), home / "111")
+        self.assertEqual(profile.settings_file(home, 111), home / "111/user/config/qt-config.ini")
+        self.assertEqual(profile.settings_file(home, None), home / "shared/user/config/qt-config.ini")
+        self.assertEqual(profile.shared_path(home, apps.EDEN_KEYS), home / "shared/user/keys")
+        self.assertEqual(profile.shared_links, eden.profile.shared_links)
+        self.assertIn(("UI", "check_for_updates", "false"), profile.settings[0].values)
+        self.assertEqual(profile.settings[0].new, apps.EDEN_CONTROLS)
+        self.assertEqual((app.games, app.keys_from, app.firmware_from, app.console_mode, app.env),
+                         (("Games/Switch", "Games/Switch2"), "eden", "eden", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual(profile.shared_path(home, apps.EDEN_FIRMWARE), home / "shared/user/nand/system/Contents/registered")
+        self.assertIn(("user/nand/system/Contents/registered", apps.EDEN_FIRMWARE), profile.shared_links)
+        self.assertEqual([candidate.id for candidate in apps.APPS if candidate.firmware_from], ["lichii"])
+        same = ("controller", "tv_scale", "qt_window", "logo_position", "args")
+        self.assertEqual([getattr(app, name) for name in same], [getattr(eden, name) for name in same])
 
     def test_both_emulators_run_on_vulkan_and_eden_nx2_keeps_astc_textures_small(self):
         vulkan = (("Renderer", "backend\\default", "true"), ("Renderer", "backend", "1"),
                   ("Renderer", "vulkan_device\\default", "true"), ("Renderer", "vulkan_device", "0"))
         astc = (("Renderer", "accelerate_astc\\default", "true"), ("Renderer", "accelerate_astc", "1"),
                 ("Renderer", "astc_recompression\\default", "false"), ("Renderer", "astc_recompression", "2"))
-        self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics], [("eden", vulkan), ("edennx2", vulkan + astc)])
+        bc3 = (("Renderer", "accelerate_astc\\default", "true"), ("Renderer", "accelerate_astc", "1"),
+               ("Renderer", "astc_recompression\\default", "true"), ("Renderer", "astc_recompression", "2"))
+        self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics],
+                         [("eden", vulkan), ("edennx2", vulkan + astc), ("lichii", vulkan + bc3)])
 
     def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
         self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])
@@ -326,7 +359,7 @@ class ProfileTests(unittest.TestCase):
         app_home = element.home(self.home)
         element.profile.prepare(app_home, 111, lambda options: 0)
         settings = app_home / "config/Element-steam-111/electron-config.json"
-        self.assertEqual(json.loads(settings.read_text()), {"minimizeToTray": False})
+        self.assertEqual(json.loads(settings.read_text()), {"minimizeToTray": False, "warnBeforeExit": False, "autoHideMenuBar": True})
         settings.write_text('{"minimizeToTray": true}')
         element.profile.prepare(app_home, 111, lambda options: 0)
         self.assertTrue(json.loads(settings.read_text())["minimizeToTray"])
@@ -490,6 +523,26 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
                                             f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
 
+    def test_lichiis_game_list_keeps_the_switch_and_switch_2_folders_beside_any_other(self):
+        settings = self.home / "qt-config.ini"
+        switch, switch2 = self.home / "Games" / "Switch", self.home / "Games" / "Switch2"
+        own = self.home / "SD card"
+        own.mkdir()
+        settings.write_text(f"[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=\"{own}\"\nPaths\\gamedirs\\size=2\n")
+        self.assertFalse(apps.add_game_folder(settings, switch2))
+        self.assertTrue(apps.add_game_folder(settings, switch, always=True))
+        self.assertTrue(apps.add_game_folder(settings, switch2, always=True))
+        for line in (f"Paths\\gamedirs\\2\\path=\"{own}\"", f"Paths\\gamedirs\\3\\path={switch}", "Paths\\gamedirs\\3\\deep_scan=true",
+                     f"Paths\\gamedirs\\4\\path={switch2}", "Paths\\gamedirs\\4\\deep_scan=true", "Paths\\gamedirs\\size=4"):
+            self.assertIn(line + "\n", settings.read_text())
+        self.assertFalse(apps.add_game_folder(settings, switch, always=True))
+        self.assertFalse(apps.add_game_folder(settings, switch2, always=True))
+        lichii = apps.by_id("lichii")
+        self.assertEqual((lichii.games, lichii.games_listed), (("Games/Switch", "Games/Switch2"), True))
+        self.assertEqual(lichii.games, (*apps.by_id("eden").games, *apps.by_id("edennx2").games))
+        self.assertEqual([app.id for app in apps.APPS if app.games_listed], ["lichii"])
+        self.assertTrue(lichii.summary.startswith("Switch and Switch 2 games you own"))
+
     def test_edens_graphics_go_into_its_renderer_settings_and_replace_a_fallback_it_saved(self):
         settings = self.home / "config" / "qt-config.ini"
         settings.parent.mkdir()
@@ -519,6 +572,62 @@ class ProfileTests(unittest.TestCase):
         os.utime(source / "title.keys", ns=(4_000_000_000, 4_000_000_000))
         self.assertEqual(apps.copy_keys(source, target), [])
         self.assertEqual((target / "title.keys").read_text(), "0100 = 33\n")
+
+    def test_edens_firmware_reaches_lichii_whole_and_hard_linked_while_lichii_has_none_of_its_own(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        record = target.parent / apps.FIRMWARE_RECORD
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        source.mkdir(parents=True)
+        (source / "aa.nca").write_bytes(b"first")
+        (source / "bb.nca").mkdir()
+        (source / "bb.nca" / "00").write_bytes(b"part one")
+        (source / "bb.nca" / "01").write_bytes(b"part two")
+        (source / "notes.txt").write_text("not firmware")
+        target.mkdir(parents=True)
+        (target / "keep.txt").write_text("the user's")
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["aa.nca", "bb.nca", "keep.txt"])
+        self.assertEqual((target / "aa.nca").stat().st_ino, (source / "aa.nca").stat().st_ino)
+        self.assertEqual(((target / "bb.nca" / "00").read_bytes(), (target / "bb.nca" / "01").read_bytes()), (b"part one", b"part two"))
+        self.assertEqual(json.loads(record.read_text())["files"], {"aa.nca": 5, "bb.nca": 16})
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual(sorted(path.name for path in target.parent.iterdir()), [apps.FIRMWARE_RECORD, "registered"])
+        (source / "aa.nca").unlink()
+        (source / "cc.nca").write_bytes(b"newer firmware")
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["bb.nca", "cc.nca", "keep.txt"])
+        (target / "dd.nca").write_bytes(b"installed in Lichii")
+        (source / "ee.nca").write_bytes(b"newest")
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["bb.nca", "cc.nca", "dd.nca", "keep.txt"])
+
+    def test_firmware_the_emulator_installed_ncas_singly_into_is_mirrored_too(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        (source / "0000001F").mkdir(parents=True)
+        (source / "0000001F" / "aa.nca").write_bytes(b"single")
+        (source / "yuzu_meta").mkdir()
+        (source / "yuzu_meta" / "SystemProgram_0100000000000809.cnmt").write_bytes(b"meta")
+        (source / "placeholder").mkdir()
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["0000001F", "yuzu_meta"])
+        self.assertEqual((target / "0000001F" / "aa.nca").stat().st_ino, (source / "0000001F" / "aa.nca").stat().st_ino)
+        self.assertEqual(json.loads((target.parent / apps.FIRMWARE_RECORD).read_text())["files"], {"0000001F": 6, "yuzu_meta": 4})
+
+    def test_firmware_is_not_given_to_a_folder_that_holds_its_own_or_is_a_link(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        source.mkdir(parents=True)
+        (source / "aa.nca").write_bytes(b"first")
+        target.mkdir(parents=True)
+        (target / "zz.nca").write_bytes(b"installed in Lichii")
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual([path.name for path in target.iterdir()], ["zz.nca"])
+        elsewhere = self.home / "elsewhere"
+        elsewhere.mkdir()
+        linked = self.home / "linked" / "registered"
+        linked.parent.mkdir()
+        linked.symlink_to(elsewhere)
+        self.assertEqual(apps.share_firmware(source, linked), 0)
+        self.assertEqual(list(elsewhere.iterdir()), [])
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

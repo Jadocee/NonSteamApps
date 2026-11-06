@@ -3,8 +3,10 @@
 On X11, Electron moves an app's menu into the desktop's global menu, and draws no menu bar in the window,
 when a program owns ``com.canonical.AppMenu.Registrar`` on the session bus and libdbusmenu loads. Its
 keyboard shortcuts keep working. Bitwarden has no setting that hides its menu bar, and shows it again
-whenever its window is shown, so in Game Mode NonSteamApps owns that name while Bitwarden runs. It answers
-the two calls an app makes, ``RegisterWindow`` and ``UnregisterWindow``, and shows nothing.
+whenever its window is shown; Signal shows its bar unless told otherwise, and Element's hidden bar opens on
+a lone Alt release, which Element's own Alt shortcuts can leave unpaired. So in Game Mode NonSteamApps owns
+that name while one of them runs. It answers the two calls an app makes, ``RegisterWindow`` and
+``UnregisterWindow``, and shows nothing.
 
 This speaks just enough of the D-Bus wire protocol, with the standard library, to own the name.
 """

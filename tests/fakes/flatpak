@@ -7,6 +7,7 @@ FAKE_FLATPAK_LOG    file that receives one JSON array of arguments per call
 FAKE_FLATPAK_FAIL   a subcommand (for example "install") that should fail
 FAKE_FLATPAK_BUILD_FAIL  the start of a command (for example "cmake --build") that fails in "flatpak build"
 FAKE_FLATPAK_GIT_HEAD    the commit git reports checked out, in place of the one fetched
+FAKE_FLATPAK_ICONS  set to 1 to export an icon for each app installed, as Flatpak exports an app's own icon
 FAKE_FLATPAK_OPEN   a link that "flatpak run" opens with xdg-open from the PATH given with --env, as an app
                     in its sandbox would; it then waits for FAKE_FLATPAK_DONE, which a later run creates
                     when it is handed one of the --env NONSTEAMAPPS_SCHEMES links, as the app's second
@@ -25,6 +26,10 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+
+def exported_icon(app_id):
+    return Path.home() / ".local/share/flatpak/exports/share/icons/hicolor/512x512/apps" / f"{app_id}.png"
 
 
 def sandbox(argv):
@@ -114,6 +119,10 @@ def main(argv):
                 state["apps"][name] = {"version": "1.0.0", "installation": "user"}
                 if remote == "nonsteamapps":
                     state["apps"][name]["commit"] = state["repo_head"]
+                if os.environ.get("FAKE_FLATPAK_ICONS") == "1":
+                    icon = exported_icon(name)
+                    icon.parent.mkdir(parents=True, exist_ok=True)
+                    icon.write_bytes(b"\x89PNG\r\n\x1a\n" + name.encode())
     elif command == "info" and "--show-commit" in argv:
         found = state["apps"].get(argv[-1], {})
         if "commit" in found:
@@ -155,6 +164,7 @@ def main(argv):
         if state["apps"].pop(argv[-1], None) is None:
             print(f"error: {argv[-1]} not installed", file=sys.stderr)
             return 1
+        exported_icon(argv[-1]).unlink(missing_ok=True)
     elif command == "run" and os.environ.get("FAKE_FLATPAK_OPEN"):
         act_as_app(argv)
     elif command == "run" and "--create-profile" in argv:

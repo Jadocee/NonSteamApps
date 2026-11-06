@@ -9,7 +9,7 @@ from unittest import mock
 
 import _fakes
 import _paths  # noqa: F401
-from nonsteamapps import kyty
+from nonsteamapps import builds, kyty
 
 TAG = _fakes.KYTY_TAG
 OLDER = "KytyPS5-2026-10-30-0123abc"
@@ -70,9 +70,9 @@ class RuntimeTests(unittest.TestCase):
         self.archives = {tag: _fakes.make_kyty_archive(self.dir / tag, tag) for tag in (TAG, OLDER)}
         self.releases = [_fakes.kyty_release(self.archives[TAG])]
         patches = [
-            mock.patch("nonsteamapps.kyty.net.fetch_text", side_effect=lambda url, accept="": json.dumps(self.releases)),
-            mock.patch("nonsteamapps.kyty.net.download", side_effect=self.download),
-            mock.patch("nonsteamapps.kyty.platform.machine", return_value="x86_64"),
+            mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=lambda url, accept="": json.dumps(self.releases)),
+            mock.patch("nonsteamapps.builds.net.download", side_effect=self.download),
+            mock.patch("nonsteamapps.builds.platform.machine", return_value="x86_64"),
         ]
         for patch in patches:
             patch.start()
@@ -88,7 +88,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.current(), TAG)
         build = self.runtime.root / TAG
         self.assertTrue(os.access(build / kyty.LAUNCHER, os.X_OK))
-        self.assertEqual(json.loads((build / kyty.BUILD_RECORD).read_text())["published"], "2026-11-02T08:00:00Z")
+        self.assertEqual(json.loads((build / builds.BUILD_RECORD).read_text())["published"], "2026-11-02T08:00:00Z")
         self.assertFalse(self.runtime.downloads.exists())
         self.assertEqual(self.runtime.install(), TAG)
         self.assertEqual(len(self.downloads), 1)
@@ -102,13 +102,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.versions(), [])
 
     def test_a_failed_download_is_reported_as_kytyps5s_own_error(self):
-        with mock.patch("nonsteamapps.kyty.net.download", side_effect=OSError("connection reset")):
+        with mock.patch("nonsteamapps.builds.net.download", side_effect=OSError("connection reset")):
             with self.assertRaisesRegex(kyty.KytyError, "could not download .*connection reset"):
                 self.runtime.install()
         self.assertIsNone(self.runtime.current())
 
     def test_only_x86_64_is_supported(self):
-        with mock.patch("nonsteamapps.kyty.platform.machine", return_value="aarch64"), self.assertRaisesRegex(kyty.KytyError, "x86-64"):
+        with mock.patch("nonsteamapps.builds.platform.machine", return_value="aarch64"), self.assertRaisesRegex(kyty.KytyError, "x86-64"):
             self.runtime.install()
 
     def test_updates_keep_the_build_before_for_a_rollback_and_prune_older_ones(self):
@@ -130,7 +130,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.install(self.archives[TAG]), TAG)
         self.assertEqual(self.downloads, [])
         other = kyty.Runtime(self.dir / "offline")
-        with mock.patch("nonsteamapps.kyty.net.fetch_text", side_effect=OSError("offline")):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
             with self.assertRaisesRegex(kyty.KytyError, "could not read"):
                 other.install(self.archives[TAG])
             self.assertEqual(other.install(self.archives[TAG], verify=False), TAG)

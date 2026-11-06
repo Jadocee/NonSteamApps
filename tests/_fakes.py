@@ -172,10 +172,17 @@ WASD = [
     ("dpad", "dpad", {"dpad_north": ["key_press UP_ARROW"]}),
 ]
 
+GAMEPAD_BUTTONS = {"button_escape": "start", "button_menu": "select"}
+
+
 def gamepad_groups(switch_inputs, trackpads=False):
-    """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs."""
+    """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs.
+
+    As in Valve's, ``button_escape``, the Menu button, presses the gamepad's Start, and ``button_menu``, the View
+    button, its Select.
+    """
     groups = [
-        ("switch", "switches", {name: [f"xinput_button {name}"] for name in switch_inputs}),
+        ("switch", "switches", {name: [f"xinput_button {GAMEPAD_BUTTONS.get(name, name)}"] for name in switch_inputs}),
         ("button_diamond", "four_buttons", {f"button_{key}": [f"xinput_button {key.upper()}"] for key in "abxy"}),
         ("joystick", "joystick_move", {}),
         ("left_trigger", "trigger", {}),
@@ -290,6 +297,7 @@ def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "F
 
 
 KYTY_TAG = "KytyPS5-2026-11-02-dfec14a"
+LICHII_TAG = "build-83"
 NX2_COMMIT = "50fa86bbbc403ad565eb44fcc281f16f77c69e15"
 NX2_NEWER = "c0ffee00d15ea5e0123456789abcdef012345678"
 
@@ -341,6 +349,59 @@ def make_kyty_archive(directory: Path, tag: str = KYTY_TAG) -> Path:
     return archive
 
 
+def appimage_stub(script: Path) -> bytes:
+    """A tiny x86-64 Linux program with the AppImage mark that runs ``script`` with its own arguments, where it was started.
+
+    It stands in for an AppImage: ``lea`` the script's path, then ``execve(path, argv, envp)`` and, if that fails, ``exit(127)``.
+    """
+    import struct
+    path = str(script).encode() + b"\0"
+    code = (bytes.fromhex("488d3d") + struct.pack("<i", 33)
+            + bytes.fromhex("488d742408" "488b0424" "488d54c410" "b83b000000" "0f05" "bf7f000000" "b83c000000" "0f05"))
+    base, start = 0x400000, 64 + 56
+    size = start + len(code) + len(path)
+    ident = b"\x7fELF" + bytes([2, 1, 1, 0]) + b"AI\x02" + bytes(5)
+    header = ident + struct.pack("<HHIQQQIHHHHHH", 2, 0x3E, 1, base + start, 64, 0, 0, 64, 56, 1, 0, 0, 0)
+    program = struct.pack("<IIQQQQQQ", 1, 5, 0, base, base, size, size, 0x1000)
+    return header + program + code + path
+
+
+def make_lichii_appimage(directory: Path, name: str = "lichii-linux-x86_64-pgo.AppImage") -> Path:
+    """A stand-in for Lichii's AppImage that records where and how it was started, as JSON, in $FAKE_LICHII_LOG."""
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / f"{name}.py"
+    script.write_text(
+        "#!/usr/bin/env python3\nimport json, os, sys\n"
+        "record = {\"argv\": sys.argv[1:], \"cwd\": os.getcwd(), \"portable\": os.path.isdir(\"user\"),\n"
+        "          \"env\": {name: os.environ.get(name, \"\") for name in (\"QT_QPA_PLATFORM\", \"QT_SCALE_FACTOR\")}}\n"
+        "log = os.environ.get(\"FAKE_LICHII_LOG\")\n"
+        "if log:\n    open(log, \"a\").write(json.dumps(record) + \"\\n\")\n"
+    )
+    script.chmod(0o755)
+    appimage = directory / name
+    appimage.write_bytes(appimage_stub(script))
+    appimage.chmod(0o755)
+    return appimage
+
+
+def lichii_release(appimage: Path, tag: str = LICHII_TAG, published: str = "2026-11-05T08:00:00Z", digest: Optional[str] = None) -> dict:
+    """GitHub's description of a Lichii prerelease whose PGO AppImage is ``appimage``."""
+    import hashlib
+    base = f"https://github.com/zortos293/Lichii/releases/download/{tag}"
+    name = "lichii-linux-x86_64-pgo.AppImage"
+    return {
+        "tag_name": tag,
+        "draft": False,
+        "prerelease": True,
+        "published_at": published,
+        "assets": [
+            {"name": "lichii-linux-x86_64.AppImage", "browser_download_url": f"{base}/lichii-linux-x86_64.AppImage", "size": 1, "digest": "sha256:" + "0" * 64},
+            {"name": name, "browser_download_url": f"{base}/{name}", "size": appimage.stat().st_size,
+             "digest": digest or "sha256:" + hashlib.sha256(appimage.read_bytes()).hexdigest()},
+        ],
+    }
+
+
 def kyty_release(archive: Path, tag: str = KYTY_TAG, published: str = "2026-11-02T08:00:00Z", digest: Optional[str] = None) -> dict:
     """GitHub's description of a KytyPS5 release whose Linux build is ``archive``."""
     import hashlib
@@ -388,7 +449,7 @@ Exec=helium --incognito
 
 def make_helium_archive(directory: Path, version: str = "0.0.0.1", own_entry: bool = True) -> Path:
     """A Helium-shaped release archive whose wrapper records its arguments in $FAKE_HELIUM_LOG, its LD_PRELOAD in $FAKE_HELIUM_ENV_LOG
-    and its GTK_IM_MODULE in $FAKE_HELIUM_INPUT_LOG.
+    and its GTK_IM_MODULE in $FAKE_HELIUM_INPUT_LOG. Started headless with a DevTools pipe, it is ``fakes/devtools`` instead.
 
     With $FAKE_HELIUM_OPEN, the wrapper then opens that link with xdg-open from its PATH, as a page sending a
     sign-in back to an app would, and stays open until it is ended. With ``own_entry``, it ships Helium's
@@ -398,8 +459,11 @@ def make_helium_archive(directory: Path, version: str = "0.0.0.1", own_entry: bo
     inner = staging / f"helium-{version}-x86_64_linux"
     inner.mkdir(parents=True)
     (inner / "helium").write_text("#!/bin/sh\n")
+    devtools = Path(__file__).resolve().parent / "fakes" / "devtools"
     (inner / "helium-wrapper").write_text(
         '#!/usr/bin/env python3\nimport json, os, sys\n'
+        'if "--remote-debugging-pipe" in sys.argv:\n'
+        f'    os.execv({str(devtools)!r}, [{str(devtools)!r}, *sys.argv[1:]])\n'
         'log = os.environ.get("FAKE_HELIUM_LOG")\n'
         'if log:\n    open(log, "a").write(json.dumps(sys.argv[1:]) + "\\n")\n'
         'env_log = os.environ.get("FAKE_HELIUM_ENV_LOG")\n'

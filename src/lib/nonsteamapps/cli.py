@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, nx2,
-    presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, lichii,
+    links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -34,6 +34,10 @@ GAME_MODE_SANDBOX = "GAME_MODE_SANDBOX"
 EDEN_CONSOLE_MODE = "EDEN_CONSOLE_MODE"
 COLLECTION = "STEAM_COLLECTION"
 DEFAULT_COLLECTION = "NonSteamApps"
+APP_ICONS = "APP_ICONS"
+SYSTEM_FLATPAK = Path("/var/lib/flatpak")
+APPLICATION_DIRS = (Path("/usr/share/applications"), Path("/usr/local/share/applications"))
+ICON_THEMES = (Path("/usr/share/icons/breeze"), Path("/usr/share/icons/hicolor"), Path("/usr/share/pixmaps"))
 RESOLUTION_HINT = "⚙ ▸ Properties ▸ Shortcut ▸ Maximum Game Resolution ▸ Native"
 
 
@@ -76,8 +80,17 @@ def _kyty(paths: Paths) -> kyty.Runtime:
     return kyty.Runtime(paths.kyty)
 
 
+def _lichii(paths: Paths) -> lichii.Runtime:
+    return lichii.Runtime(paths.lichii)
+
+
 def _nx2(paths: Paths, flatpak: Flatpak) -> nx2.Builder:
     return nx2.Builder(paths.nx2, flatpak.command)
+
+
+def _app_home(paths: Paths, app: App) -> Path:
+    """The folder that holds the app's data: its Flatpak's, or for an AppImage its folder among NonSteamApps' profiles."""
+    return paths.profiles / app.id if app.appimage else app.home(paths.home)
 
 
 def _firewall() -> Firewall:
@@ -206,14 +219,87 @@ def _collection_name(paths: Paths) -> str:
 Work = Tuple[App, steam.ShortcutSpec, Dict[str, Path], steam.LogoPosition]
 
 
+def _studio(paths: Paths) -> artwork.Studio:
+    """Where the artwork drawn around the apps' own icons is kept, and the Helium that draws it (see :mod:`artwork`)."""
+    return artwork.Studio(paths.state / "artwork", paths.program / "share" / "artwork", lambda: artwork.Browser(_runtime(paths).executable))
+
+
+def _own_icons(paths: Paths) -> bool:
+    return config.enabled(config.read_settings(paths.settings).get(APP_ICONS), default=True)
+
+
+def _flatpak_installations(paths: Paths) -> List[Path]:
+    user = os.environ.get("FLATPAK_USER_DIR") or str(paths.home / ".local" / "share" / "flatpak")
+    return [Path(user), Path(os.environ.get("FLATPAK_SYSTEM_DIR") or SYSTEM_FLATPAK)]
+
+
+def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
+    """Where the app's own icon is: its Flatpak's, its release's or the icon theme's on this machine, its project's, or its site's."""
+    if app.browser and app.browser.kiosk:
+        return artwork.Source("site", app.browser.url)
+    if app.release or app.appimage:
+        url = (_kyty(paths) if app.release else _lichii(paths)).icon_url()
+        return artwork.Source("url", url) if url else None
+    if app.browser:
+        found: Optional[Path] = _runtime(paths).root / "current" / "product_logo_256.png"
+    elif app.system:
+        found = artwork.desktop_icon(app.system.command, APPLICATION_DIRS, ICON_THEMES)
+    else:
+        found = artwork.flatpak_icon(app.flatpak, _flatpak_installations(paths)) if app.flatpak else None
+    return artwork.Source("file", str(found)) if found and found.is_file() else None
+
+
+def _official_art(paths: Paths, app: App) -> Dict[str, str]:
+    """The artwork for Steam's library that the app's project publishes itself, by slot, at the release installed."""
+    if app.release:
+        return _kyty(paths).library_urls()
+    return _lichii(paths).library_urls() if app.appimage else {}
+
+
+def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool) -> None:
+    """Draw each app's Steam artwork around its own icon, with NonSteamApps' Helium; an app without one keeps NonSteamApps' artwork."""
+    if not chosen or not _own_icons(paths):
+        return
+    if not _runtime(paths).current():
+        ui.info("The apps keep NonSteamApps' artwork: Helium, which draws artwork around each app's own icon, is not installed")
+        return
+    made: List[App] = []
+    without: List[str] = []
+    with _studio(paths) as studio:
+        for app in chosen:
+            source = _icon_source(paths, app)
+            if source is None:
+                without.append(app.name)
+                continue
+            try:
+                if studio.make(app.id, app.name, source, refresh=refresh, official=_official_art(paths, app)) == "made":
+                    made.append(app)
+            except artwork.BrowserError as exc:
+                ui.warn(f"Helium could not draw artwork around the apps' own icons, so the rest keep what they had: {exc}")
+                break
+            except (artwork.ArtworkError, OSError) as exc:
+                kept = "the artwork drawn before" if studio.files(app.id) else "NonSteamApps' artwork"
+                ui.info(f"{app.name} keeps {kept}: {exc}")
+    if made:
+        ui.ok(f"Drew Steam artwork around each app's own icon: {', '.join(app.name for app in made)}")
+    if without:
+        ui.info(f"Kept NonSteamApps' artwork where no icon of the app's own was found: {', '.join(without)}")
+
+
+def _artwork(paths: Paths, app: App) -> Dict[str, Path]:
+    """The artwork Steam gets for the app: drawn around its own icon where that was done, otherwise NonSteamApps' own."""
+    shipped = steam.collect_artwork(paths.artwork(app.id))
+    return {**shipped, **_studio(paths).files(app.id)} if _own_icons(paths) else shipped
+
+
 def _library_changes(root: Path, accounts: Sequence[int], work: Sequence[Work], found: Dict[str, Dict[str, str]], record: steam.ArtworkRecord) -> bool:
     """Whether refreshing the shortcuts already there, keeping what the user changed, would change Steam's own files.
 
     A Steam Play tool forced on one of them counts: none of the apps runs under one (see :mod:`compat`).
     """
     appids = []
-    for app, spec, artwork, logo in work:
-        for result in steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=False, record=record, create=False, dry_run=True):
+    for app, spec, art, logo in work:
+        for result in steam.add_shortcut(root, accounts, spec, art, logo, overwrite=False, record=record, create=False, dry_run=True):
             if result.changed or (app.controller and controllers.pending(root, result.account, result.name, found[app.controller])):
                 return True
             appids.append(result.appid)
@@ -237,16 +323,17 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
         ui.warn(f"no Steam account was found; sign in to Steam once, then run: {paths.launcher} steam add")
         return
     names = steam.account_names(root)
+    _draw_artwork(paths, chosen, refresh=overwrite)
     record = steam.ArtworkRecord(paths.artwork_record)
     for layout in layouts.used_by(app.controller for app in chosen):
         layouts.install(root, layout)
     found_layouts = {title: controllers.find_templates(root, title) for title in dict.fromkeys(app.controller for app in chosen if app.controller)}
     work: List[Work] = [
-        (app, _spec(paths, app), steam.collect_artwork(paths.artwork(app.id)), steam.LogoPosition.parse(app.logo_position)) for app in chosen
+        (app, _spec(paths, app), _artwork(paths, app), steam.LogoPosition.parse(app.logo_position)) for app in chosen
     ]
     if not overwrite and not _library_changes(root, accounts, work, found_layouts, record):
-        for app, spec, artwork, logo in work:
-            steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=False, record=record, create=False, save=False)
+        for app, spec, art, logo in work:
+            steam.add_shortcut(root, accounts, spec, art, logo, overwrite=False, record=record, create=False, save=False)
         record.save()
         ui.ok("The Steam library is up to date")
         return
@@ -257,8 +344,8 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
     waiting: List[str] = []
     name = _collection_name(paths)
     with steamclient.closed(f"{paths.launcher} {'steam add' if overwrite else 'update'}", restart):
-        for app, spec, artwork, logo in work:
-            for result in steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=overwrite, record=record, create=overwrite):
+        for app, spec, art, logo in work:
+            for result in steam.add_shortcut(root, accounts, spec, art, logo, overwrite=overwrite, record=record, create=overwrite):
                 if overwrite or result.changed:
                     ui.ok(_report(result, "added" if result.created else "updated", names))
                 added.setdefault(result.account, []).append(result.appid)
@@ -342,6 +429,17 @@ def _install_kyty(paths: Paths, archive: Optional[str], verify: bool) -> None:
     ui.ok(f"Installed KytyPS5 {kyty.describe(tag)}")
 
 
+def _install_lichii(paths: Paths, archive: Optional[str], verify: bool) -> None:
+    runtime = _lichii(paths)
+    current = runtime.current()
+    if current and not archive:
+        ui.ok(f"Lichii {lichii.describe(current)} is installed; {paths.launcher} update installs a newer build")
+        return
+    ui.log("Installing Lichii" + (f" from {archive}" if archive else " from its GitHub releases"))
+    tag = runtime.install(Path(archive) if archive else None, verify=verify)
+    ui.ok(f"Installed Lichii {lichii.describe(tag)}")
+
+
 def _install_nx2(paths: Paths, flatpak: Flatpak, commit: Optional[str]) -> None:
     builder = _nx2(paths, flatpak)
     current = builder.current()
@@ -361,7 +459,7 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
         else:
             ui.warn(f"{app.client} ({app.system.command}) was not found; SteamOS includes it, other systems install it from their own packages")
         record.add(app.id, installed_flatpak=False)
-    elif app.browser or app.release:
+    elif app.browser or app.release or app.appimage:
         record.add(app.id, installed_flatpak=False)
     elif app.from_source:
         record.add(app.id, installed_flatpak=True)
@@ -386,7 +484,7 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
     if app.release:
         homes = sorted(folder for folder in (paths.profiles / app.id).glob("*") if folder.is_dir() and folder.name != kyty.GAMES)
         return sum(any([wanted.apply(home) for wanted in app.release.settings]) for home in homes)
-    home = app.home(paths.home)
+    home = _app_home(paths, app)
     count = len(app.profile.reset(home, shared=not separate)) if app.profile else 0
     if app.settings and home.is_dir() and any([wanted.apply(home) for wanted in app.settings]):
         count += 1
@@ -394,7 +492,7 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
 
 
 def _purge(paths: Paths, app: App) -> None:
-    if app.browser or app.system or app.release:
+    if app.browser or app.system or app.release or app.appimage:
         folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
     else:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
@@ -482,6 +580,14 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
                 raise ui.Abort(f"KytyPS5 was not installed: {exc}") from exc
             ui.warn(f"KytyPS5 was not installed, so it is left out: {exc}")
             chosen = [app for app in chosen if not app.release]
+    if any(app.appimage for app in chosen):
+        try:
+            _install_lichii(paths, args.lichii_archive, not args.skip_verify)
+        except (lichii.LichiiError, OSError) as exc:
+            if all(app.appimage for app in chosen):
+                raise ui.Abort(f"Lichii was not installed: {exc}") from exc
+            ui.warn(f"Lichii was not installed, so it is left out: {exc}")
+            chosen = [app for app in chosen if not app.appimage]
     if any(app.from_source for app in chosen):
         try:
             _install_nx2(paths, flatpak, args.eden_nx2_commit)
@@ -534,6 +640,7 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     for app in chosen:
         paths.app_link(app.id).unlink(missing_ok=True)
         _remove_from_desktop(paths, app)
+        _studio(paths).forget(app.id)
         if args.purge:
             _purge(paths, app)
     if not args.keep_app:
@@ -550,6 +657,10 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
         _kyty(paths).remove()
         kept = (paths.profiles / "kytyps5").is_dir()
         ui.ok("Removed KytyPS5's builds" + (f"; each Steam account's saves and settings stay in {paths.profiles / 'kytyps5'}" if kept else ""))
+    if not args.keep_app and not any(app.appimage for app in _managed(record)) and paths.lichii.exists():
+        _lichii(paths).remove()
+        kept = (paths.profiles / "lichii").is_dir()
+        ui.ok("Removed Lichii's builds" + (f"; each Steam account's saves and settings stay in {paths.profiles / 'lichii'}" if kept else ""))
     if not args.keep_app and not any(app.from_source for app in _managed(record)) and paths.nx2.exists():
         _nx2(paths, flatpak).remove()
         ui.ok("Removed Eden-NX2's source, builds and build caches")
@@ -615,16 +726,20 @@ def _remove_from_desktop(paths: Paths, app: App) -> None:
 
 
 def _remote_only(paths: Paths, force: bool) -> None:
-    """Keep Plasma Remote Controllers, which reads the TV's remote, to the remote (see :mod:`remote`)."""
-    if not remote.present():
-        return
-    if remote.remote_only(paths.config.parent / remote.FILE, paths.state / remote.RECORD, force):
+    """Keep the daemon that reads the TV's remote to what the remote means: ``cecd`` or Plasma Remote Controllers (see :mod:`remote`)."""
+    if remote.cecd_present() and remote.leave_out_tv_menus(paths.config.parent, paths.state / remote.CECD_RECORD, force):
+        remote.reload_cecd()
+        ui.ok("cecd, which reads the TV's remote, no longer presses keys for the TV's own menus, which TVs leave pressed")
+    if remote.present() and remote.remote_only(paths.config.parent / remote.FILE, paths.state / remote.RECORD, force):
         remote.restart()
         ui.ok("Plasma Remote Controllers, which reads the TV's remote, no longer types the controllers' presses as keys as well")
 
 
 def _restore_remote(paths: Paths) -> None:
-    """Put back what :func:`_remote_only` changed in Plasma Remote Controllers' settings."""
+    """Put back what :func:`_remote_only` changed in the settings of the daemons that read the TV's remote."""
+    if remote.restore_cecd(paths.config.parent, paths.state / remote.CECD_RECORD):
+        remote.reload_cecd()
+        ui.ok("Put back cecd's own key mappings for the TV's remote")
     if remote.restore(paths.config.parent / remote.FILE, paths.state / remote.RECORD):
         remote.restart()
         ui.ok("Put back Plasma Remote Controllers' own settings for controllers")
@@ -694,6 +809,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _launch_system(paths, app, extra)
     if app.release:
         return _launch_kyty(paths, app, account, extra)
+    if app.appimage:
+        return _launch_lichii(paths, app, account, extra)
     if account and app.profile:
         ready = app.profile.prepare(app.home(paths.home), account, lambda options: flatpak.run_quietly(app.flatpak, options))
         if not ready:
@@ -705,6 +822,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
     _share_keys(paths, app)
+    _share_firmware(paths, app)
     _graphics(paths, app, account)
     _place_userstyles(paths, app, account)
     games = _games_folder(paths, app, account)
@@ -754,19 +872,20 @@ def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: O
 
 
 def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
-    """Create the app's games folder, add it to the game list when the user has none there, and open it to the sandbox for this run."""
-    if not app.games:
-        return []
-    games = paths.home / app.games
-    try:
-        games.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        print(f"  {app.client} starts without {games}: {exc}")
-        return []
-    settings = app.profile.settings_file(app.home(paths.home), account) if isinstance(app.profile, apps.PortableProfile) else None
-    if settings and apps.add_game_folder(settings, games):
-        print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
-    return [f"--filesystem={games}:ro"]
+    """Create the app's games folders, add them to the game list as :func:`apps.add_game_folder` says, and open them to the sandbox for this run."""
+    settings = app.profile.settings_file(_app_home(paths, app), account) if isinstance(app.profile, apps.PortableProfile) else None
+    options = []
+    for name in app.games:
+        games = paths.home / name
+        try:
+            games.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"  {app.client} starts without {games}: {exc}")
+            continue
+        if settings and apps.add_game_folder(settings, games, always=app.games_listed):
+            print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
+        options.append(f"--filesystem={games}:ro")
+    return options
 
 
 def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict[str, str], game_mode: bool) -> None:
@@ -787,7 +906,7 @@ def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict
         docked, reason = choice == "docked", f"{EDEN_CONSOLE_MODE}={choice}"
     else:
         return
-    settings_file = app.profile.settings_file(app.home(paths.home), account)
+    settings_file = app.profile.settings_file(_app_home(paths, app), account)
     if settings_file and apps.set_console_mode(settings_file, docked):
         print(f"  {app.client} runs {'docked' if docked else 'handheld'}: {reason}", flush=True)
 
@@ -796,7 +915,7 @@ def _graphics(paths: Paths, app: App, account: Optional[int]) -> None:
     """Write the emulator's graphics settings for SteamOS's hardware, such as Vulkan, in case it saved another after a failed start."""
     if not app.graphics or not isinstance(app.profile, apps.PortableProfile):
         return
-    settings_file = app.profile.settings_file(app.home(paths.home), account)
+    settings_file = app.profile.settings_file(_app_home(paths, app), account)
     if settings_file and apps.write_eden_settings(settings_file, app.graphics):
         chosen = ", ".join(f"{key}={value}" for _, key, value in app.graphics if not key.endswith("\\default"))
         print(f"  set {app.client}'s graphics: {chosen}", flush=True)
@@ -807,10 +926,21 @@ def _share_keys(paths: Paths, app: App) -> None:
     origin = apps.by_id(app.keys_from) if app.keys_from else None
     if not origin or not isinstance(app.profile, apps.PortableProfile) or not isinstance(origin.profile, apps.PortableProfile):
         return
-    source = origin.profile.shared_path(origin.home(paths.home), apps.EDEN_KEYS)
-    copied = apps.copy_keys(source, app.profile.shared_path(app.home(paths.home), apps.EDEN_KEYS))
+    source = origin.profile.shared_path(_app_home(paths, origin), apps.EDEN_KEYS)
+    copied = apps.copy_keys(source, app.profile.shared_path(_app_home(paths, app), apps.EDEN_KEYS))
     if copied:
         print(f"  gave {app.client} the keys installed in {origin.client}: {', '.join(copied)}", flush=True)
+
+
+def _share_firmware(paths: Paths, app: App) -> None:
+    """Give the emulator the firmware installed in the one ``firmware_from`` names, while it has none of its own (see :func:`apps.share_firmware`)."""
+    origin = apps.by_id(app.firmware_from) if app.firmware_from else None
+    if not origin or not isinstance(app.profile, apps.PortableProfile) or not isinstance(origin.profile, apps.PortableProfile):
+        return
+    source = origin.profile.shared_path(_app_home(paths, origin), apps.EDEN_FIRMWARE)
+    given = apps.share_firmware(source, app.profile.shared_path(_app_home(paths, app), apps.EDEN_FIRMWARE))
+    if given:
+        print(f"  gave {app.client} the firmware installed in {origin.client}: {given} files", flush=True)
 
 
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
@@ -895,9 +1025,10 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
 
 
 def _environment(app: App, game_mode: bool) -> List[str]:
-    """``flatpak run`` options for the display and the variables the app is started with from Steam."""
+    """``flatpak run`` options for the display, the global menu NonSteamApps stands in for, and the variables the app is started with from Steam."""
     display_options = x11_options() if app.x11 else []
-    return [*display_options, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
+    menu = [f"--talk-name={appmenu.REGISTRAR}"] if app.hide_menu_bar and game_mode else []
+    return [*display_options, *menu, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
 
 
 def _libraries(app: App) -> List[str]:
@@ -981,6 +1112,40 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
     return EXIT_ERROR
 
 
+def _launch_lichii(paths: Paths, app: App, account: Optional[int], extra: Sequence[str]) -> int:
+    """Start Lichii's AppImage in the account's folder, or the shared one, whose ``user`` folder holds all its data (see :mod:`lichii`)."""
+    runtime = _lichii(paths)
+    if not runtime.current():
+        raise ui.Abort(f"Lichii is not installed; run: {paths.launcher} install {app.id}")
+    settings = config.read_settings(paths.settings)
+    home = _app_home(paths, app)
+    if account:
+        app.profile.prepare(home, account, lambda options: 0)
+        folder = app.profile.path(home, account)
+    else:
+        app.profile.prepare_shared(home)
+        folder = app.profile.data_folder(home, None).parent
+    _share_keys(paths, app)
+    _share_firmware(paths, app)
+    _graphics(paths, app, account)
+    _games_folder(paths, app, account)
+    game_mode = steamclient.in_game_mode()
+    _console_mode(paths, app, account, settings, game_mode)
+    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    variables = dict(app.env)
+    if factor:
+        variables.update(app.tv_scale.variables(factor))
+    if game_mode:
+        variables.update(app.game_mode_env)
+    os.environ.update(variables)
+    os.chdir(folder)
+    argv = [str(runtime.program), *app.args, *_qt_window(app, game_mode, factor), *extra]
+    print(f"  Lichii {lichii.describe(runtime.current() or '')} in {folder}: "
+          + " ".join([*(f"{name}={value}" for name, value in variables.items()), *argv]), flush=True)
+    os.execv(argv[0], argv)
+    return EXIT_ERROR
+
+
 def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
     command = shutil.which(app.system.command)
     if not command:
@@ -1050,6 +1215,13 @@ def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequen
             ui.warn(f"could not update KytyPS5: {exc}")
         else:
             ui.ok(f"Updated KytyPS5 to {kyty.describe(tag)}" if tag else "KytyPS5 is up to date")
+    if manual and any(app.appimage for app in managed):
+        try:
+            tag = _lichii(paths).update()
+        except (lichii.LichiiError, OSError) as exc:
+            ui.warn(f"could not update Lichii: {exc}")
+        else:
+            ui.ok(f"Updated Lichii to {lichii.describe(tag)}" if tag else "Lichii is up to date")
     if manual and any(app.from_source for app in managed):
         try:
             build = _nx2(paths, flatpak).update()
@@ -1066,7 +1238,7 @@ def _update_apps(paths: Paths, flatpak: Flatpak, record: Record, managed: Sequen
         ui.log(f"Updating {_listing(ours)}")
         flatpak.update([app.flatpak for app in ours], quiet=ui.quiet)
         ui.ok("Apps are up to date")
-    elif not any(app.browser or app.release or app.from_source for app in managed):
+    elif not any(app.browser or app.release or app.appimage or app.from_source for app in managed):
         ui.info("NonSteamApps installed no apps to update; Discover updates the rest")
 
 
@@ -1099,6 +1271,10 @@ def cmd_rollback(args, paths: Paths, flatpak: Flatpak) -> int:
     if args.app == "kytyps5":
         tag = _kyty(paths).rollback()
         ui.ok(f"Switched KytyPS5 back to {kyty.describe(tag)}")
+        return 0
+    if args.app == "lichii":
+        tag = _lichii(paths).rollback()
+        ui.ok(f"Switched Lichii back to {lichii.describe(tag)}")
         return 0
     if args.app == "edennx2":
         build = _nx2(paths, flatpak).rollback()
@@ -1134,9 +1310,11 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
 
 
 def _describe(app: App, record: Record, found: Optional[Installed], helium: Optional[str] = None, build: Optional[str] = None,
-              built: Optional[nx2.Build] = None) -> str:
+              built: Optional[nx2.Build] = None, appimage: Optional[str] = None) -> str:
     if app.release:
         return f"KytyPS5 {kyty.describe(build)}" if build else "not installed"
+    if app.appimage:
+        return f"{app.client} {lichii.describe(appimage)}, from its GitHub releases" if appimage else "not installed"
     if app.from_source:
         return f"{app.client} {nx2.describe(built)}, built here from its source ({found.installation} installation)" if found else "not installed"
     if app.system:
@@ -1157,9 +1335,11 @@ def cmd_list(args, paths: Paths, flatpak: Flatpak) -> int:
     helium = _runtime(paths).current()
     build = _kyty(paths).current()
     built = _nx2(paths, flatpak).current() if nx2.APP_ID in installed else None
+    appimage = _lichii(paths).current()
     for app in apps.APPS:
         managed = app.id in record.apps
-        status = _describe(app, record, installed.get(app.flatpak), helium if managed else None, build if managed else None, built)
+        status = _describe(app, record, installed.get(app.flatpak), helium if managed else None, build if managed else None, built,
+                           appimage if managed else None)
         managed = "in use" if app.id in record.apps else "available"
         print(f"{app.id:<10}{managed:<11}{status}")
         print(f"{'':<21}{app.summary}")
@@ -1197,6 +1377,15 @@ def _kyty_status(paths: Paths) -> str:
     return kyty.describe(current) + (f" (also {', '.join(others)})" if others else "") + f"; newer builds with: {paths.launcher} update"
 
 
+def _lichii_status(paths: Paths) -> str:
+    runtime = _lichii(paths)
+    current = runtime.current()
+    if not current:
+        return "not installed"
+    others = [lichii.describe(tag) for tag in runtime.versions() if tag != current]
+    return lichii.describe(current) + (f" (also {', '.join(others)})" if others else "") + f"; newer builds with: {paths.launcher} update"
+
+
 def _nx2_status(paths: Paths, flatpak: Flatpak) -> str:
     builder = _nx2(paths, flatpak)
     current = builder.current()
@@ -1226,6 +1415,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         ("Flatpak", "available" if flatpak.available() else "not installed"),
         ("Helium", _helium_status(paths, settings)),
         ("KytyPS5", _kyty_status(paths)),
+        ("Lichii", _lichii_status(paths)),
         ("Eden-NX2", _nx2_status(paths, flatpak)),
         ("Firewall", _firewall_status(Record.load(paths.record))),
         ("TV scale", f"{_scale_setting(settings)} (Helium apps, {_names([app for app in apps.APPS if app.tv_scale])})"),
@@ -1243,22 +1433,25 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
     helium = _runtime(paths).current()
     build = _kyty(paths).current()
     built = _nx2(paths, flatpak).current() if nx2.APP_ID in installed else None
+    appimage = _lichii(paths).current()
     for app in apps.APPS:
         if app.id not in record.apps and (not app.flatpak or app.flatpak not in installed):
             continue
-        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build, built)}")
+        print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build, built, appimage)}")
         if root:
             results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
             for result in results:
                 print(f"  {'':<10} {_report(result, 'in the library as', names)}")
             for tool in sorted(set(compat.forced(root, [result.appid for result in results]).values())):
                 print(f"  {'':<10} forced to the Steam Play tool {tool}, so it may not start; run: {paths.launcher} steam add {app.id}")
-        if app.browser or app.system or app.release:
+        if app.browser or app.system or app.release or app.appimage:
             folders = sorted(path for path in (paths.profiles / app.id).glob("*") if path.is_dir())
         else:
             folders = app.profile.existing(app.home(paths.home)) if app.profile else []
         for folder in folders:
             print(f"  {'':<10} data: {folder} ({_size(folder)})")
+        origin = _studio(paths).origin(app.id) if _own_icons(paths) else ""
+        print(f"  {'':<10} artwork: " + (f"drawn around its own icon, {origin}" if origin else "NonSteamApps' own"))
         log = paths.log(app.id)
         if log.is_file():
             lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -1342,10 +1535,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--helium-archive", metavar="FILE", help="install Helium from a release archive (its .asc signature beside it)")
     sub.add_argument("--kytyps5-archive", metavar="FILE",
                      help="install KytyPS5 from a Linux build archive, named as its releases name them (KytyPS5-DATE-COMMIT-Linux-x86_64.tar.gz)")
+    sub.add_argument("--lichii-archive", metavar="FILE",
+                     help=f"install Lichii from its AppImage ({lichii.ASSET}), found among its releases by its SHA-256")
     sub.add_argument("--eden-nx2-commit", metavar="COMMIT",
                      help="build Eden-NX2 from this commit of its source, all 40 characters, rather than its branch's newest")
     sub.add_argument("--skip-verify", action="store_true",
-                     help="install Helium without checking its signature, or KytyPS5 without checking it against GitHub (not recommended)")
+                     help="install Helium without checking its signature, or KytyPS5 or Lichii without checking it against GitHub (not recommended)")
     restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_install)
@@ -1363,13 +1558,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = commands.add_parser("update", help="update NonSteamApps and the apps it installed, keeping your apps and their settings")
     sub.add_argument("--apps-only", action="store_true",
-                     help="update only the apps and Helium, as the weekly timer does; KytyPS5 and Eden-NX2 stay as they are")
+                     help="update only the apps and Helium, as the weekly timer does; KytyPS5, Lichii and Eden-NX2 stay as they are")
     restart(sub)
     common(sub)
     sub.set_defaults(func=cmd_update)
 
-    sub = commands.add_parser("rollback", help="switch Helium, KytyPS5 or Eden-NX2 back to the version installed before")
-    sub.add_argument("app", nargs="?", choices=("helium", "kytyps5", "edennx2"), default="helium")
+    sub = commands.add_parser("rollback", help="switch Helium, KytyPS5, Lichii or Eden-NX2 back to the version installed before")
+    sub.add_argument("app", nargs="?", choices=("helium", "kytyps5", "lichii", "edennx2"), default="helium")
     common(sub)
     sub.set_defaults(func=cmd_rollback)
 
@@ -1409,7 +1604,7 @@ def main(argv: Optional[Sequence[str]] = None, paths: Optional[Paths] = None, fl
         return args.func(args, paths, flatpak)
     except ui.Abort as exc:
         ui.error(str(exc))
-    except (steam.SteamError, FlatpakError, HeliumError, kyty.KytyError, nx2.NX2Error, OSError) as exc:
+    except (steam.SteamError, FlatpakError, HeliumError, kyty.KytyError, lichii.LichiiError, nx2.NX2Error, OSError) as exc:
         ui.error(str(exc))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED

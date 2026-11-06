@@ -1,31 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <defs>
-    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#B48CFF"/>
-      <stop offset="1" stop-color="#2B1B5C"/>
-    </linearGradient>
-    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000000" flood-opacity="0.35"/>
-    </filter>
-    <symbol id="emblem" viewBox="0 0 240 204">
-      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#screen)"/>
-      <rect x="0" y="0" width="240" height="168" rx="46" fill="url(#gloss)"/>
-      <path d="M120 134 C120 110 119 86 116 58" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
-      <path d="M118 108 C94 112 72 100 64 76 C90 70 112 84 118 108 Z" fill="#FFFFFF"/>
-      <path d="M121 116 C131 88 153 74 181 74 C181 102 159 120 121 116 Z" fill="#FFFFFF"/>
-      <path d="M116 66 C101 63 88 51 84 32 C103 32 114 46 116 66 Z" fill="#FFFFFF"/>
-      <path d="M117 62 C124 42 140 30 160 30 C158 52 141 64 117 62 Z" fill="#FFFFFF"/>
-      <path d="M121 116 C139 100 155 89 172 81" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="5" stroke-linecap="round"/>
-      <path d="M118 108 C102 98 86 88 74 80" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="5" stroke-linecap="round"/>
-      <path d="M117 62 C128 52 140 44 152 37" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>
-      <path d="M116 66 C106 56 97 48 90 38" fill="none" stroke="#2B1B5C" stroke-opacity="0.45" stroke-width="4" stroke-linecap="round"/>
-      <rect x="90" y="138" width="60" height="11" rx="5.5" fill="#FF9F6B"/>
-      <rect x="76" y="182" width="88" height="16" rx="8" fill="#B48CFF"/>
-    </symbol>
-  </defs>
-  <use href="#emblem" x="16" y="30" width="224" height="190.4" filter="url(#shadow)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<radialGradient id="petal" cx="256" cy="256" r="170" gradientUnits="userSpaceOnUse"><stop offset="0.15" stop-color="#fbe1e6"/><stop offset="0.7" stop-color="#ef8da0"/><stop offset="1" stop-color="#e2465f"/></radialGradient>
+</defs>
+<path d="M256 256 C 178 226 168 118 256 82 C 344 118 334 226 256 256 Z" transform="rotate(0 256 256)" fill="url(#petal)"/>
+<path d="M256 256 C 178 226 168 118 256 82 C 344 118 334 226 256 256 Z" transform="rotate(72 256 256)" fill="url(#petal)"/>
+<path d="M256 256 C 178 226 168 118 256 82 C 344 118 334 226 256 256 Z" transform="rotate(144 256 256)" fill="url(#petal)"/>
+<path d="M256 256 C 178 226 168 118 256 82 C 344 118 334 226 256 256 Z" transform="rotate(216 256 256)" fill="url(#petal)"/>
+<path d="M256 256 C 178 226 168 118 256 82 C 344 118 334 226 256 256 Z" transform="rotate(288 256 256)" fill="url(#petal)"/>
+<circle cx="256" cy="256" r="24" fill="#7a2238"/>
+<circle cx="256" cy="256" r="10" fill="#f6c453"/>
+<circle cx="390" cy="390" r="78" fill="#e0313f" stroke="#fff" stroke-width="12"/>
+<path d="M362.7 426.6H418V411H390V410.9L401.6 401.5C411.2 393.7 417.8 387.1 417.8 376.4C417.8 362.1 406.2 353.4 390.3 353.4C372.8 353.4 362 363.8 362 380.6H380.4C380.4 373.1 384.4 368.9 390.2 368.9C395.6 368.9 399.2 372.4 399.2 377.5C399.2 383.7 393.8 387.5 389.8 390.7L362.7 412.6Z" fill="#fff"/>
 </svg>

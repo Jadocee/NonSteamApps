@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<radialGradient id="fruit" cx="220" cy="240" r="230" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff8db0"/><stop offset="0.6" stop-color="#f2306a"/><stop offset="1" stop-color="#c4103f"/></radialGradient>
+</defs>
+<path d="M250 150 C 214 96 150 92 110 118 C 150 160 206 170 250 150 Z" fill="#7cc443"/>
+<path d="M262 152 C 290 92 360 78 404 104 C 372 158 306 172 262 152 Z" fill="#5fae35"/>
+<circle cx="256" cy="300" r="162" fill="url(#fruit)"/>
+<circle cx="196" cy="232" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="256" cy="212" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="316" cy="232" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="168" cy="296" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="228" cy="280" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="288" cy="280" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="348" cy="296" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="196" cy="344" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="256" cy="336" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="316" cy="344" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="228" cy="396" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<circle cx="288" cy="396" r="14" fill="#ffffff" fill-opacity="0.16"/>
+<ellipse cx="200" cy="226" rx="52" ry="30" transform="rotate(-24 200 226)" fill="#fff" fill-opacity="0.32"/>
+</svg>

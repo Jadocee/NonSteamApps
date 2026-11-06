@@ -1,16 +1,18 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
 import shutil
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, cli, collection, compat, config, nx2, presence, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, lichii, nx2, presence, remote, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -36,6 +38,7 @@ class CliTestCase(unittest.TestCase):
         (Path(self.tmp.name) / "release").mkdir()
         self.helium_archive = _fakes.make_helium_archive(Path(self.tmp.name) / "release")
         self.kyty_archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "release")
+        self.lichii_appimage = _fakes.make_lichii_appimage(Path(self.tmp.name) / "release")
         self.steam_command = _fakes.FakeSteam(Path(self.tmp.name))
         patches = [
             mock.patch.dict(os.environ, {**_fakes.environment(self.home, self.fake, wall=self.wall), **self.steam_command.env}, clear=True),
@@ -56,14 +59,27 @@ class CliTestCase(unittest.TestCase):
         patches.append(self.status_watch)
         self.units = Path(self.tmp.name) / "units"
         patches.append(mock.patch("nonsteamapps.remote.UNIT_DIRS", (self.units,)))
+        self.system = Path(self.tmp.name) / "system"
+        patches.append(mock.patch.multiple("nonsteamapps.cli", SYSTEM_FLATPAK=self.system / "flatpak", APPLICATION_DIRS=(self.system / "applications",),
+                                           ICON_THEMES=(self.system / "icons" / "breeze", self.system / "icons" / "hicolor")))
+        self.downloads = {}
+        patches.append(mock.patch("nonsteamapps.artwork.fetch", side_effect=self.download_icon))
+        patches.append(mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("the tests reach no network")))
         self.restart_remote = mock.MagicMock(return_value=True)
         patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
+        self.reload_cecd = mock.MagicMock(return_value=True)
+        patches.append(mock.patch("nonsteamapps.remote.reload_cecd", self.reload_cecd))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def download_icon(self, url):
+        if url not in self.downloads:
+            raise artwork.ArtworkError(f"could not download {url}: offline in tests")
+        return self.downloads[url]
 
     def preinstalled(self):
         return {}
@@ -76,7 +92,8 @@ class CliTestCase(unittest.TestCase):
         return status
 
     def install(self, *names):
-        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive), "--skip-verify")
+        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive),
+                   "--lichii-archive", str(self.lichii_appimage), "--skip-verify")
         self.assertEqual(self.run_cli("install", *names, *options), 0, self.errors)
 
     def entries(self, account):
@@ -308,7 +325,7 @@ class LaunchTests(CliTestCase):
         self.install("element")
         config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
         argv, _ = self.launch("element", "--steam-account", str(BETA))
-        self.assertEqual(argv[3:], ["--password-store=basic", "--storage-mode=allow-plaintext"])
+        self.assertEqual(argv[3:], ["--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation"])
         argv, _ = self.launch("youtube", "--steam-account", str(BETA))
         self.assertEqual(argv[3:], ["--fullscreen"])
         self.assertTrue((self.home / ".var/app/rocks.shy.VacuumTube/config/VacuumTube/config.json").is_file())
@@ -354,6 +371,7 @@ class LaunchTests(CliTestCase):
         watch.assert_called_once_with("bitwarden", os.getpid())
         menu.assert_called_once_with(os.getpid())
         self.assertIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertIn("--talk-name=com.canonical.AppMenu.Registrar", argv[:argv.index("com.bitwarden.desktop")])
         self.assertIn("--force-device-scale-factor=1.5", argv)
         self.assertEqual(json.loads((folder / "data.json").read_text())["global_theming_selection"], "dark")
         with mock.patch("nonsteamapps.cli.x11.watch") as watch, mock.patch("nonsteamapps.cli.appmenu.watch") as menu:
@@ -361,6 +379,7 @@ class LaunchTests(CliTestCase):
         watch.assert_not_called()
         menu.assert_not_called()
         self.assertNotIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertNotIn("--talk-name=com.canonical.AppMenu.Registrar", argv)
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)
@@ -368,12 +387,16 @@ class LaunchTests(CliTestCase):
             argv, _ = self.launch("element", "--steam-account", str(ALPHA))
             youtube, _ = self.launch("youtube", "--steam-account", str(ALPHA))
         self.assertEqual(
-            argv[3:],
-            ["--password-store=basic", "--storage-mode=allow-plaintext", f"--profile=steam-{ALPHA}", "--force-device-scale-factor=3"],
+            argv[1:],
+            ["run", "--talk-name=com.canonical.AppMenu.Registrar", "im.riot.Riot", "--password-store=basic", "--storage-mode=allow-plaintext",
+             "--enable-spatial-navigation", f"--profile=steam-{ALPHA}", "--force-device-scale-factor=3"],
         )
+        cli.x11.watch.assert_any_call("element", mock.ANY)
+        self.assertTrue(cli.appmenu.watch.called)
         self.assertEqual(youtube[-1], "--force-device-scale-factor=2")
         with mock.patch("nonsteamapps.display.screen_height", return_value=2160):
             argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1:3], ["run", "im.riot.Riot"])
         self.assertEqual(argv[-1], f"--profile=steam-{ALPHA}")
 
     def test_vacuumtube_fits_youtubes_1080p_layout_and_keeps_the_tvs_video_resolution(self):
@@ -399,15 +422,17 @@ class LaunchTests(CliTestCase):
         folder = self.home / f".var/app/org.signal.Signal/config/Signal-steam-{BETA}"
         self.assertEqual(
             argv,
-            [self.fake.command, "run", "--command=env", "org.signal.Signal", f"XDG_CONFIG_HOME={folder}",
-             "SIGNAL_PASSWORD_STORE=basic", "signal-desktop", "--force-device-scale-factor=1.5"],
+            [self.fake.command, "run", "--command=env", "--talk-name=com.canonical.AppMenu.Registrar", "org.signal.Signal", f"XDG_CONFIG_HOME={folder}",
+             "SIGNAL_PASSWORD_STORE=basic", "signal-desktop", "--enable-spatial-navigation", "--force-device-scale-factor=1.5"],
         )
+        cli.x11.watch.assert_any_call("signal", mock.ANY)
+        self.assertTrue(cli.appmenu.watch.called)
         self.assertEqual(json.loads((folder / "Signal/config.json").read_text()), {})
         redirect.assert_called_once_with(self.paths.log("signal"))
         self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
         self.paths.settings.write_text(f"{cli.PER_ACCOUNT}=0\n")
         argv, _ = self.launch("signal", "--steam-account", str(BETA))
-        self.assertEqual(argv, [self.fake.command, "run", "org.signal.Signal"])
+        self.assertEqual(argv, [self.fake.command, "run", "org.signal.Signal", "--enable-spatial-navigation"])
 
     def test_jellyfin_and_localsend_are_scaled_for_a_tv_in_game_mode(self):
         self.launch("jellyfin", "--steam-account", str(ALPHA))
@@ -763,6 +788,29 @@ class SteamPlayTests(CliTestCase):
         self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=true\n")
         self.assertIn("Put back Plasma Remote Controllers' own settings for controllers", self.errors)
 
+    def test_cecd_stops_pressing_keys_for_the_tvs_own_menus_and_gets_its_mappings_back(self):
+        fragment = self.home / ".config" / remote.CECD_FRAGMENT
+        self.install("localsend")
+        self.assertFalse(fragment.exists())
+        self.assertEqual(self.reload_cecd.call_count, 0)
+        self.units.mkdir()
+        (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
+        self.install("localsend")
+        self.assertEqual(fragment.read_text(), remote.cecd_fragment())
+        self.assertIn("cecd, which reads the TV's remote, no longer presses keys for the TV's own menus, which TVs leave pressed", self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 1)
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 1)
+        fragment.unlink()
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertFalse(fragment.exists())
+        self.install("localsend")
+        self.assertTrue(fragment.exists())
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertFalse(fragment.exists())
+        self.assertIn("Put back cecd's own key mappings for the TV's remote", self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 3)
+
     def test_an_update_also_runs_every_app_natively_and_without_steams_overlay(self):
         self.install("localsend")
         self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
@@ -876,9 +924,9 @@ class HeliumAppTests(CliTestCase):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
             self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_nonsteamapps_youtube.vdf")
-            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_webbrowser.vdf")
+            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_nonsteamapps_element.vdf")
             self.assertEqual(self.configset(account).get("netflix").get("template"), "controller_neptune_nonsteamapps_browser.vdf")
-        self.assertIn("Gave Element (Element Desktop) the Web Browser controller layout", self.errors)
+        self.assertIn("Gave Element (Element Desktop) the Element (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave Helium, Prime Video (Helium), HBO Max (Helium), Netflix (Helium) and Disney+ (Helium) the Browser (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave YouTube (VacuumTube) the YouTube (NonSteamApps) controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
@@ -1170,8 +1218,8 @@ class KytyTests(CliTestCase):
         newer = "KytyPS5-2026-11-05-5555555"
         archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "newer", newer)
         releases = json.dumps([_fakes.kyty_release(archive, newer, "2026-11-05T08:00:00Z")])
-        with mock.patch("nonsteamapps.kyty.net.fetch_text", return_value=releases), \
-                mock.patch("nonsteamapps.kyty.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
             self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
             self.assertEqual(cli._kyty(self.paths).current(), _fakes.KYTY_TAG)
             self.assertEqual(self.run_cli("update"), 0, self.errors)
@@ -1198,12 +1246,223 @@ class KytyTests(CliTestCase):
         self.assertFalse((self.paths.profiles / "kytyps5").exists())
 
     def test_without_its_download_the_other_apps_are_installed_and_kytyps5_alone_fails(self):
-        with mock.patch("nonsteamapps.kyty.net.fetch_text", side_effect=OSError("offline")):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
             self.assertEqual(self.run_cli("install", "localsend", "kytyps5", "--yes", "--no-auto-update"), 0, self.errors)
             self.assertIn("KytyPS5 was not installed, so it is left out", self.errors)
             self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
             self.assertNotEqual(self.run_cli("install", "kytyps5", "--yes", "--no-auto-update"), 0)
         self.assertIn("could not read KytyPS5's releases from GitHub: offline", self.errors)
+
+
+class LichiiTests(CliTestCase):
+    def launch_lichii(self, account=ALPHA, game_mode=False):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)), \
+                mock.patch("nonsteamapps.cli.os.chdir") as chdir, \
+                mock.patch.dict(os.environ):
+            argv, _ = self.launch("lichii", "--steam-account", str(account))
+            environ = dict(os.environ)
+        return argv, environ, chdir
+
+    def test_lichii_starts_its_appimage_in_each_accounts_folder_set_up_as_eden_is(self):
+        self.install("lichii")
+        tag = cli._lichii(self.paths).current()
+        self.assertIn(f"installing Lichii {lichii.describe(tag)} without checking it against GitHub (--skip-verify)", self.errors)
+        program = self.paths.lichii / "current" / lichii.PROGRAM
+        folder = self.paths.profile("lichii", ALPHA)
+        switch, games = self.home / "Games" / "Switch", self.home / "Games" / "Switch2"
+        keys = self.home / ".var/app/dev.eden_emu.eden/data/eden/keys"
+        keys.mkdir(parents=True)
+        (keys / "prod.keys").write_text("header_key = 00\n")
+        firmware = self.home / ".var/app/dev.eden_emu.eden/data/eden/nand/system/Contents/registered"
+        firmware.mkdir(parents=True)
+        (firmware / "aa.nca").write_bytes(b"firmware")
+        argv, environ, chdir = self.launch_lichii()
+        self.assertEqual(argv, [str(program), "-f"])
+        chdir.assert_called_once_with(folder)
+        self.assertEqual(environ["QT_QPA_PLATFORM"], "xcb")
+        settings = (folder / "user/config/qt-config.ini").read_text()
+        for line in ("check_for_updates=false", "fullscreen=true", f"Paths\\gamedirs\\4\\path={switch}", f"Paths\\gamedirs\\5\\path={games}",
+                     "backend=1", "astc_recompression=2"):
+            self.assertIn(line + "\n", settings)
+        self.assertIn("player_0_button_a=", settings)
+        self.assertTrue(switch.is_dir() and games.is_dir())
+        self.assertEqual((folder / "user/keys/prod.keys").read_text(), "header_key = 00\n")
+        self.assertEqual((folder / "user/keys").resolve(), (self.paths.profiles / "lichii/shared/user/keys").resolve())
+        self.assertEqual((folder / "user/nand/system/Contents/registered/aa.nca").read_bytes(), b"firmware")
+        argv, environ, _ = self.launch_lichii(game_mode=True)
+        self.assertEqual((argv, environ["QT_SCALE_FACTOR"]), ([str(program), "-f", "-qwindowgeometry", "1280x720+0+0"], "3"))
+        self.assertIn("use_docked_mode=1\n", (folder / "user/config/qt-config.ini").read_text())
+        (folder / "user/config/qt-config.ini").write_text(settings.replace("fullscreen=true", "fullscreen=false"))
+        self.install("lichii")
+        self.assertIn("Put back Lichii's TV settings (1 data folder)", self.errors)
+        self.assertIn("fullscreen=true\n", (folder / "user/config/qt-config.ini").read_text())
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        _, _, chdir = self.launch_lichii()
+        chdir.assert_called_once_with(self.paths.profiles / "lichii" / "shared")
+        shared = (self.paths.profiles / "lichii/shared/user/config/qt-config.ini").read_text()
+        self.assertIn("check_for_updates=false\n", shared)
+        self.assertIn(f"path={switch}\n", shared)
+        self.assertIn(f"path={games}\n", shared)
+
+    def test_lichii_puts_the_shared_switch_and_switch_2_folders_back_in_its_game_list_beside_others(self):
+        self.install("lichii")
+        self.launch_lichii()
+        settings = self.paths.profile("lichii", ALPHA) / "user/config/qt-config.ini"
+        switch, games, own = self.home / "Games" / "Switch", self.home / "Games" / "Switch2", self.home / "SD card"
+        own.mkdir()
+        settings.write_text(settings.read_text().replace(f"Paths\\gamedirs\\5\\path={games}", f"Paths\\gamedirs\\5\\path={own}"))
+        self.launch_lichii()
+        listed = settings.read_text()
+        for line in (f"Paths\\gamedirs\\4\\path={switch}", f"Paths\\gamedirs\\5\\path={own}", f"Paths\\gamedirs\\6\\path={games}"):
+            self.assertIn(line + "\n", listed)
+        self.launch_lichii()
+        self.assertEqual([settings.read_text().count(f"path={folder}\n") for folder in (switch, games)], [1, 1])
+
+    def test_lichii_updates_only_when_asked_and_rolls_back(self):
+        self.install("lichii")
+        installed = cli._lichii(self.paths).current()
+        newer = _fakes.make_lichii_appimage(Path(self.tmp.name) / "newer")
+        releases = json.dumps([_fakes.lichii_release(newer, "build-84")])
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+            self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
+            self.assertEqual(cli._lichii(self.paths).current(), installed)
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Updated Lichii to build 84", self.errors)
+        self.assertEqual(self.run_cli("rollback", "lichii"), 0, self.errors)
+        self.assertEqual(cli._lichii(self.paths).current(), installed)
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"Lichii     {lichii.describe(installed)} (also build 84)", self.output)
+        self.assertEqual(self.run_cli("list"), 0)
+        self.assertIn(f"Lichii {lichii.describe(installed)}, from its GitHub releases", self.output)
+
+    def test_removing_lichii_removes_its_builds_and_keeps_each_accounts_data_unless_purged(self):
+        self.install("lichii")
+        self.launch_lichii()
+        saves = self.paths.profile("lichii", ALPHA) / "user/nand/user/save"
+        saves.mkdir(parents=True)
+        self.assertEqual(self.run_cli("remove", "lichii", "--yes"), 0, self.errors)
+        self.assertFalse(self.paths.lichii.exists())
+        self.assertTrue(saves.is_dir())
+        self.assertIn("Removed Lichii's builds; each Steam account's saves and settings stay in", self.errors)
+        self.install("lichii")
+        self.assertEqual(self.run_cli("remove", "lichii", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse((self.paths.profiles / "lichii").exists())
+
+    def test_without_its_download_the_other_apps_are_installed_and_lichii_alone_fails(self):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
+            self.assertEqual(self.run_cli("install", "localsend", "lichii", "--yes", "--no-auto-update"), 0, self.errors)
+            self.assertIn("Lichii was not installed, so it is left out", self.errors)
+            self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
+            self.assertNotEqual(self.run_cli("install", "lichii", "--yes", "--no-auto-update"), 0)
+        self.assertIn("could not read Lichii's releases from GitHub: offline", self.errors)
+
+
+class ArtworkTests(CliTestCase):
+    PNG = b"\x89PNG\r\n\x1a\n"
+
+    def flatpak_icon(self, app_id, data):
+        path = self.home / ".local/share/flatpak/exports/share/icons/hicolor/512x512/apps" / f"{app_id}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def grid(self, app_id, slot="p.png", account=ALPHA):
+        entry = self.entries(account)[apps.by_id(app_id).name]
+        return steam.config_dir(self.root, account) / "grid" / f"{steam.to_unsigned32(entry.get('appid'))}{slot}"
+
+    @staticmethod
+    def drawn(slot, data, kind="png"):
+        return f"fake {kind} {slot} {hashlib.sha256(data).hexdigest()[:12]}".encode()
+
+    def test_install_draws_each_apps_artwork_around_its_own_icon(self):
+        youtube = self.PNG + b"youtube"
+        self.flatpak_icon("rocks.shy.VacuumTube", youtube)
+        applications = self.system / "applications"
+        applications.mkdir(parents=True)
+        (applications / "org.kde.dolphin.desktop").write_text("[Desktop Entry]\nName=Dolphin\nExec=dolphin %u\nIcon=system-file-manager\n")
+        folder = self.system / "icons/breeze/apps/48/system-file-manager.svg"
+        folder.parent.mkdir(parents=True)
+        folder.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+        site = "https://assets.nflxext.com/icon-512.png"
+        self.downloads[site] = self.PNG + b"netflix"
+        with mock.patch.dict(os.environ, {"FAKE_DEVTOOLS_SITE_ICONS": json.dumps([{"url": site, "sizes": "512x512", "kind": "manifest"}])}):
+            self.install("youtube", "files", "netflix", "helium", "jellyfin")
+        self.assertIn("Drew Steam artwork around each app's own icon: YouTube, Files, Netflix, Helium\n", self.errors)
+        self.assertIn("Kept NonSteamApps' artwork where no icon of the app's own was found: Jellyfin\n", self.errors)
+        for account in (ALPHA, BETA):
+            self.assertEqual(self.grid("youtube", account=account).read_bytes(), self.drawn("capsule", youtube))
+        self.assertEqual(self.grid("youtube", "_hero.jpg").read_bytes(), self.drawn("hero", youtube, "jpeg"))
+        self.assertEqual(Path(self.entries(ALPHA)["YouTube"].get("icon")).read_bytes(), self.drawn("icon", youtube))
+        self.assertEqual(self.grid("files").read_bytes(), self.drawn("capsule", folder.read_bytes()))
+        self.assertEqual(self.grid("netflix", "_logo.png").read_bytes(), self.drawn("logo", self.PNG + b"netflix"))
+        self.assertEqual(self.grid("jellyfin").read_bytes(), (self.paths.artwork("jellyfin") / "capsule.png").read_bytes())
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"artwork: drawn around its own icon, {self.home}/.local/share/flatpak/exports/share/icons/hicolor/512x512/apps/rocks.shy.VacuumTube.png\n",
+                      self.output)
+        self.assertIn("artwork: drawn around its own icon, the icon www.netflix.com names\n", self.output)
+        self.assertIn("artwork: NonSteamApps' own\n", self.output)
+
+    def test_an_update_draws_again_only_once_an_icon_changes(self):
+        icon = self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")
+        self.install("youtube", "helium")
+        log = Path(self.tmp.name) / "devtools.log"
+        with mock.patch.dict(os.environ, {"FAKE_DEVTOOLS_LOG": str(log)}):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertNotIn("captureScreenshot", log.read_text() if log.exists() else "")
+            self.assertIn("The Steam library is up to date", self.errors)
+            icon.write_bytes(self.PNG + b"two")
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Drew Steam artwork around each app's own icon: YouTube\n", self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), self.drawn("capsule", self.PNG + b"two"))
+
+    def test_with_app_icons_off_or_without_helium_the_apps_get_nonsteamapps_artwork(self):
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"youtube")
+        shipped = (self.paths.artwork("youtube") / "capsule.png").read_bytes()
+        self.install("youtube")
+        self.assertIn("The apps keep NonSteamApps' artwork: Helium, which draws artwork around each app's own icon, is not installed", self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), shipped)
+        self.install("youtube", "helium")
+        self.assertEqual(self.grid("youtube").read_bytes(), self.drawn("capsule", self.PNG + b"youtube"))
+        config.set_setting(self.paths.settings, cli.APP_ICONS, "0")
+        self.assertEqual(self.run_cli("steam", "add", "youtube", "--yes"), 0, self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), shipped)
+        self.assertNotIn("Drew Steam artwork", self.errors)
+
+    def test_lichii_gets_its_projects_own_library_artwork_for_the_release_installed(self):
+        self.install("lichii", "helium")
+        self.assertEqual(self.grid("lichii").read_bytes(), (self.paths.artwork("lichii") / "capsule.png").read_bytes())
+        newer = _fakes.make_lichii_appimage(Path(self.tmp.name) / "newer")
+        releases = json.dumps([_fakes.lichii_release(newer, "build-84")])
+        base = "https://raw.githubusercontent.com/zortos293/Lichii/build-84/dist/branding"
+        art = {"icon": self.PNG + b"icon", "capsule": self.PNG + b"capsule", "wide": self.PNG + b"square", "logo": self.PNG + b"wordmark"}
+        files = {"icon": "lichii_icon.png", "capsule": "lichii_vertical_grid.png", "wide": "lichii_square_grid.png", "logo": "lichii_logo.png"}
+        self.downloads.update({f"{base}/{files[slot]}": data for slot, data in art.items()})
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Drew Steam artwork around each app's own icon: Lichii\n", self.errors)
+        for slot, suffix in (("capsule", "p.png"), ("wide", ".png"), ("logo", "_logo.png")):
+            self.assertEqual(self.grid("lichii", suffix).read_bytes(), self.drawn(slot, art[slot]), slot)
+        self.assertEqual(self.grid("lichii", "_hero.jpg").read_bytes(), self.drawn("hero", art["icon"], "jpeg"))
+        self.assertEqual(self.grid("lichii", "_icon.png").read_bytes(), self.drawn("icon", art["icon"]))
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"artwork: drawn around its own icon, {base}/lichii_icon.png; its project's own library artwork for the capsule, logo, wide",
+                      self.output)
+
+    def test_artwork_the_user_chose_stays_and_a_removed_app_forgets_what_was_drawn(self):
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")
+        self.install("youtube", "helium")
+        chosen = self.grid("youtube")
+        chosen.write_bytes(b"chosen in Steam")
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"two")
+        self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertEqual(chosen.read_bytes(), b"chosen in Steam")
+        self.assertEqual(self.grid("youtube", "_hero.jpg").read_bytes(), self.drawn("hero", self.PNG + b"two", "jpeg"))
+        self.assertTrue((self.paths.state / "artwork" / "youtube").is_dir())
+        self.assertEqual(self.run_cli("remove", "youtube", "--yes"), 0, self.errors)
+        self.assertFalse((self.paths.state / "artwork" / "youtube").exists())
 
 
 class EdenNX2Tests(CliTestCase):

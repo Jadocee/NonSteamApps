@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
@@ -12,7 +13,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 from . import nx2
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
+from .layouts import BITWARDEN, BROWSER, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -162,13 +163,16 @@ EDEN_GAME_LIST = "Paths\\gamedirs\\"
 EDEN_BUILT_IN = ("SDMC", "UserNAND", "SysNAND")
 EDEN_KEYS = "keys"
 EDEN_KEY_FILES = ("prod.keys", "title.keys")
+EDEN_FIRMWARE = "nand/system/Contents/registered"
+FIRMWARE_RECORD = "nonsteamapps-firmware.json"
 
 
-def add_game_folder(settings_file: Path, folder: Path) -> bool:
+def add_game_folder(settings_file: Path, folder: Path, always: bool = False) -> bool:
     """Add ``folder`` to Eden's game list in ``settings_file`` while none of the folders added to it exists; return whether it was.
 
-    Eden lists its SD card and NAND first, and adds them itself only to an empty list, so an empty list gets them
-    as well. ``folder`` is scanned with its subfolders.
+    With ``always``, ``folder`` is added wherever it is missing, beside the folders listed. Eden lists its SD card
+    and NAND first, and adds them itself only to an empty list, so an empty list gets them as well. ``folder`` is
+    scanned with its subfolders.
     """
     entries = dict(ini_entries(settings_file, "UI", EDEN_GAME_LIST))
     try:
@@ -177,7 +181,7 @@ def add_game_folder(settings_file: Path, folder: Path) -> bool:
         size = 0
     listed = [entries.get(f"{EDEN_GAME_LIST}{index}\\path", "").replace('"', "") for index in range(1, size + 1)]
     added = [path for path in listed if path and path not in EDEN_BUILT_IN]
-    if str(folder) in added or any(Path(path).is_dir() for path in added):
+    if str(folder) in added or (not always and any(Path(path).is_dir() for path in added)):
         return False
     values = [("UI", f"{EDEN_GAME_LIST}{index}\\path", name) for index, name in enumerate(EDEN_BUILT_IN, 1)] if not size else []
     index = (size or len(EDEN_BUILT_IN)) + 1
@@ -219,6 +223,92 @@ def copy_keys(source: Path, target: Path) -> List[str]:
             continue
         copied.append(name)
     return copied
+
+
+_FIRMWARE_ENTRY = re.compile(r"(?i:.+\.nca|000000[0-9a-f]{2}|yuzu_meta)\Z")
+
+
+def _size(path: Path) -> int:
+    if not path.is_dir():
+        return path.stat().st_size
+    return sum(part.stat().st_size for part in sorted(path.rglob("*")) if part.is_file())
+
+
+def _ncas(folder: Path) -> Dict[str, int]:
+    """The contents of a NAND's ``registered`` folder, by name, with their sizes: NCAs, an NCA kept in parts as a folder,
+    the ``000000XX`` folders the emulator installs single NCAs in, and its ``yuzu_meta`` folder."""
+    found: Dict[str, int] = {}
+    try:
+        entries = sorted(Path(folder).iterdir())
+    except OSError:
+        return found
+    for entry in entries:
+        if not _FIRMWARE_ENTRY.match(entry.name):
+            continue
+        try:
+            found[entry.name] = _size(entry)
+        except OSError:
+            continue
+    return found
+
+
+def _link_tree(source: Path, target: Path) -> None:
+    """Hard-link the file ``source`` to ``target``, or copy it where it cannot be linked; a folder is linked file by file."""
+    if source.is_dir():
+        target.mkdir()
+        for part in sorted(source.iterdir()):
+            _link_tree(part, target / part.name)
+        return
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
+
+def share_firmware(source: Path, target: Path) -> int:
+    """Give ``target`` the firmware installed in ``source`` while ``target`` holds none, or only what this gave it before; return the NCAs given.
+
+    It is the firmware from the user's own Switch, installed once in Eden. Each NCA is named after its content, and
+    the emulator deletes one before writing another in its place, so each file is hard-linked where both folders
+    share a file system, and copied elsewhere. A record beside ``target`` keeps what was given, so that firmware
+    installed in ``target`` itself stays, and a newer one in ``source`` replaces the copy. The firmware is put in
+    place whole, by renaming a complete folder, or not at all.
+    """
+    source, target = Path(source), Path(target)
+    given = _ncas(source)
+    present = _ncas(target)
+    record = target.parent / FIRMWARE_RECORD
+    try:
+        previous = json.loads(record.read_text(encoding="utf-8"))["files"]
+    except (OSError, ValueError, TypeError, KeyError):
+        previous = None
+    if not given or target.is_symlink() or present == given or (present and present != previous):
+        return 0
+    staging, retired = target.parent / f".{target.name}.nonsteamapps", target.parent / f".{target.name}.nonsteamapps-old"
+    try:
+        for leftover in (staging, retired):
+            shutil.rmtree(leftover, ignore_errors=True)
+        staging.mkdir(parents=True)
+        for name in given:
+            _link_tree(source / name, staging / name)
+        if target.exists():
+            os.rename(target, retired)
+        try:
+            os.rename(staging, target)
+        except OSError:
+            if retired.exists():
+                os.rename(retired, target)
+            raise
+        for entry in sorted(retired.iterdir()) if retired.is_dir() else []:
+            if entry.name not in present:
+                os.rename(entry, target / entry.name)
+        atomic_write_json(record, {"files": given})
+    except OSError:
+        return 0
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(retired, ignore_errors=True)
+    return len(given)
 
 
 def apply_changes(folder: Path, changes: Sequence[Tuple[str, Settings]]) -> List[str]:
@@ -307,7 +397,8 @@ VACUUMTUBE_TV = JsonSettings(
 VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
 VACUUMTUBE_SEGMENTS = JsonSettings("config.json", tuple((f"sponsorblock_skip_{category}", True) for category in VACUUMTUBE_SKIPPED if category != "sponsor"))
 VACUUMTUBE_STYLES = JsonSettings("config.json", (("userstyles", True),))
-ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
+ELEMENT_CONSOLE = JsonSettings("electron-config.json", (("warnBeforeExit", False), ("autoHideMenuBar", True)))
+ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False), *ELEMENT_CONSOLE.values))
 LOCALSEND_SETTINGS = JsonSettings(
     "data/org.localsend.localsend_app/shared_preferences.json",
     (("flutter.ls_theme", "dark"), ("flutter.ls_color", "oled")),
@@ -368,6 +459,12 @@ NX2_GRAPHICS = (
     *EDEN_GRAPHICS,
     *_eden_default("Renderer", "accelerate_astc", "1"),
     *_eden_setting("Renderer", "astc_recompression", "2"),
+)
+LICHII_TV = (*EDEN_TV, *_eden_setting("UI", "check_for_updates", "false"))
+LICHII_GRAPHICS = (
+    *EDEN_GRAPHICS,
+    *_eden_default("Renderer", "accelerate_astc", "1"),
+    *_eden_default("Renderer", "astc_recompression", "2"),
 )
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
@@ -642,7 +739,6 @@ class JellyfinProfile:
 
 
 Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile]
-WEB_BROWSER = "Web Browser"
 
 
 @dataclass(frozen=True)
@@ -781,9 +877,10 @@ class DesktopEntry:
 @dataclass(frozen=True)
 class App:
     """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
-    (``system``), one it downloads from its project's releases (``release``), or a Flatpak it builds on this machine
+    (``system``), one it downloads from its project's releases (``release``), a Flatpak it builds on this machine
     from its project's source (``from_source``), as it does for Eden-NX2 (see :mod:`nx2`), which then runs as
-    a Flathub app does.
+    a Flathub app does, or an ``appimage`` it downloads from its project's releases, as it does for Lichii (see
+    :mod:`lichii`), which keeps its data per account in NonSteamApps' profiles, laid out as Eden's.
 
     ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
     :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
@@ -804,18 +901,22 @@ class App:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
     :mod:`x11`), and a ``hide_menu_bar`` app runs with NonSteamApps standing in for the desktop's global
-    menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`). ``userstyles`` are style
+    menu, which its sandbox may then talk to, so that Electron draws no menu bar in its window (see
+    :mod:`appmenu`). ``userstyles`` are style
     sheets from NonSteamApps' ``share/userstyles``, copied at every start into the ``userstyles`` folder of
-    the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` is a
-    folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
-    for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
+    the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` are
+    folders in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
+    for that run; Eden's game list gets one while no folder added to it exists (see :func:`add_game_folder`), or,
+    ``games_listed``, each wherever it is missing, as Lichii's gets the Switch and Switch 2 libraries it shares
+    with Eden and Eden-NX2.
     A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
     (see :func:`set_console_mode`). An app with a ``desktop`` entry is added to Desktop Mode's applications menu
     and its taskbar at install, for use outside Game Mode. ``graphics`` are an emulator's graphics settings for
     SteamOS's hardware, written into its settings file at every start (see :func:`write_eden_settings`), so that
     a fallback the emulator saved after one failed start does not stay. An emulator with ``keys_from`` takes
     the decryption keys installed in that app at every start, where its own are missing or older (see
-    :func:`copy_keys`).
+    :func:`copy_keys`), and one with ``firmware_from`` the firmware installed there, while it has none of its
+    own (see :func:`share_firmware`).
     """
 
     id: str
@@ -845,12 +946,15 @@ class App:
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
     userstyles: Tuple[str, ...] = ()
-    games: str = ""
+    games: Tuple[str, ...] = ()
+    games_listed: bool = False
     console_mode: bool = False
     graphics: Tuple[Tuple[str, str, str], ...] = ()
     keys_from: str = ""
+    firmware_from: str = ""
     desktop: Optional[DesktopEntry] = None
     from_source: bool = False
+    appimage: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -866,20 +970,31 @@ class App:
         return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
 
 
+EDEN_SHARED_LINKS = (
+    ("user/keys", EDEN_KEYS),
+    ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
+    ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
+    ("user/load", "load"),
+    ("user/shader", "shader"),
+)
+EDEN_CARRIED = (("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\"))
 EDEN_PROFILE = PortableProfile(
     "data/eden-steam-{account}",
     "",
     shared="data/eden",
     settings=(EDEN_SETTINGS,),
     shared_settings=(EDEN_SHARED_SETTINGS,),
-    shared_links=(
-        ("user/keys", EDEN_KEYS),
-        ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
-        ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
-        ("user/load", "load"),
-        ("user/shader", "shader"),
-    ),
-    carried=(("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\")),
+    shared_links=EDEN_SHARED_LINKS,
+    carried=EDEN_CARRIED,
+)
+LICHII_PROFILE = PortableProfile(
+    "{account}",
+    "",
+    shared="shared/user",
+    settings=(IniSettings("user/config/qt-config.ini", LICHII_TV, new=EDEN_CONTROLS),),
+    shared_settings=(IniSettings("shared/user/config/qt-config.ini", LICHII_TV, new=EDEN_CONTROLS),),
+    shared_links=EDEN_SHARED_LINKS,
+    carried=EDEN_CARRIED,
 )
 
 APPS: Tuple[App, ...] = (
@@ -912,25 +1027,29 @@ APPS: Tuple[App, ...] = (
         name="Element",
         client="Element Desktop",
         flatpak="im.riot.Riot",
-        summary="Secure chat on Matrix",
-        args=("--password-store=basic", "--storage-mode=allow-plaintext"),
-        controller=WEB_BROWSER,
+        summary="Secure chat on Matrix, set up for a TV and a controller",
+        args=("--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation"),
+        controller=ELEMENT.title,
         profile=FolderProfile(
             "config/Element-steam-{account}",
             "--profile=steam-{account}",
             settings=(ELEMENT_SETTINGS,),
+            changes=(("2.34.0", ELEMENT_CONSOLE),),
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
         callbacks=("io.element.desktop", "element"),
+        fullscreen_class="element",
+        hide_menu_bar=True,
     ),
     App(
         id="signal",
         name="Signal",
         client="Signal Desktop",
         flatpak="org.signal.Signal",
-        summary="Private messages and calls, linked to Signal on your phone",
-        controller=WEB_BROWSER,
+        summary="Private messages and calls, linked to Signal on your phone, set up for a TV and a controller",
+        args=("--enable-spatial-navigation",),
+        controller=SIGNAL.title,
         profile=ScriptProfile(
             "config/Signal-steam-{account}",
             "XDG_CONFIG_HOME={folder}",
@@ -940,6 +1059,8 @@ APPS: Tuple[App, ...] = (
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
+        fullscreen_class="signal",
+        hide_menu_bar=True,
         notice="Signal keeps its database key unencrypted on disk, as Flathub's Signal does by default; see the README",
     ),
     App(
@@ -1023,7 +1144,7 @@ APPS: Tuple[App, ...] = (
         env=(("QT_QPA_PLATFORM", "xcb"),),
         x11=True,
         qt_window=True,
-        games="Games/Switch",
+        games=("Games/Switch",),
         console_mode=True,
         graphics=EDEN_GRAPHICS,
         notice="Eden plays only games you own, with the keys and firmware from your own Switch; install them once, from Eden in Desktop Mode",
@@ -1043,12 +1164,35 @@ APPS: Tuple[App, ...] = (
         env=(("QT_QPA_PLATFORM", "xcb"),),
         x11=True,
         qt_window=True,
-        games="Games/Switch2",
+        games=("Games/Switch2",),
         console_mode=True,
         graphics=NX2_GRAPHICS,
         keys_from="eden",
         notice="Eden-NX2 is early work, and few Switch 2 games start: copy each one you own, dumped as a folder holding its exefs and romfs, "
                "into ~/Games/Switch2. It is built here, so nonsteamapps update builds its newest source, which can take an hour",
+    ),
+    App(
+        id="lichii",
+        name="Lichii",
+        client="Lichii",
+        appimage=True,
+        summary="Switch and Switch 2 games you own, through the Lichii emulator, which builds on Eden, set up for a TV and a controller",
+        args=("-f",),
+        profile=LICHII_PROFILE,
+        controller=EMULATOR.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        env=(("QT_QPA_PLATFORM", "xcb"),),
+        qt_window=True,
+        games=("Games/Switch", "Games/Switch2"),
+        games_listed=True,
+        console_mode=True,
+        graphics=LICHII_GRAPHICS,
+        keys_from="eden",
+        firmware_from="eden",
+        notice="Lichii is early work and plays only games you own: Switch games in ~/Games/Switch, which Eden reads too, and Switch 2 games "
+               "in ~/Games/Switch2, dumped as Eden-NX2 reads them or as .nup packages, which only Lichii reads. "
+               "It takes the keys and firmware installed in Eden, and updates with `nonsteamapps update`, not every week",
     ),
     App(
         id="kytyps5",

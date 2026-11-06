@@ -254,12 +254,16 @@ check "the game's downloaded content went to the folder every account shares" te
 LICHII_HOME="$PROGRAM/profiles/lichii/222"
 mkdir -p "$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/keys"
 echo "header_key = 00" >"$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/keys/prod.keys"
+EDEN_FIRMWARE="$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/nand/system/Contents/registered"
+mkdir -p "$EDEN_FIRMWARE"
+echo "firmware" >"$EDEN_FIRMWARE/0123456789abcdef0123456789abcdef.nca"
 run "$PROGRAM/apps/lichii" --steam-account 222
 check "Lichii's AppImage started full screen, in the account's folder, on X11" grep -qF "{\"argv\": [\"-f\"], \"cwd\": \"$LICHII_HOME\", \"portable\": true, \"env\": {\"QT_QPA_PLATFORM\": \"xcb\"" "$WORK/lichii.log"
 check "Lichii's own update check is off" grep -qxF "check_for_updates=false" "$LICHII_HOME/user/config/qt-config.ini"
 check "Lichii runs on Vulkan, with ASTC textures kept as BC3" test "$(grep -cxE 'backend=1|astc_recompression=2' "$LICHII_HOME/user/config/qt-config.ini")" -eq 2
-check "Lichii lists ~/Games/Switch2" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$LICHII_HOME/user/config/qt-config.ini"
+check "Lichii lists ~/Games/Switch, which Eden reads, and ~/Games/Switch2, which Eden-NX2 reads" test "$(grep -cxF -e "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" -e "Paths\\gamedirs\\5\\path=$HOME_DIR/Games/Switch2" "$LICHII_HOME/user/config/qt-config.ini")" -eq 2
 check "Lichii took the keys installed in Eden" grep -qxF "header_key = 00" "$LICHII_HOME/user/keys/prod.keys"
+check "Lichii took the firmware installed in Eden, as a hard link" test "$LICHII_HOME/user/nand/system/Contents/registered/0123456789abcdef0123456789abcdef.nca" -ef "$EDEN_FIRMWARE/0123456789abcdef0123456789abcdef.nca"
 check "the account was invisible to friends while the apps ran, and online once they had closed" status_back
 
 VACUUMTUBE="$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"

@@ -818,6 +818,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
     _share_keys(paths, app)
+    _share_firmware(paths, app)
     _graphics(paths, app, account)
     _place_userstyles(paths, app, account)
     games = _games_folder(paths, app, account)
@@ -867,19 +868,20 @@ def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: O
 
 
 def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
-    """Create the app's games folder, add it to the game list when the user has none there, and open it to the sandbox for this run."""
-    if not app.games:
-        return []
-    games = paths.home / app.games
-    try:
-        games.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        print(f"  {app.client} starts without {games}: {exc}")
-        return []
+    """Create the app's games folders, add them to the game list as :func:`apps.add_game_folder` says, and open them to the sandbox for this run."""
     settings = app.profile.settings_file(_app_home(paths, app), account) if isinstance(app.profile, apps.PortableProfile) else None
-    if settings and apps.add_game_folder(settings, games, always=app.games_listed):
-        print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
-    return [f"--filesystem={games}:ro"]
+    options = []
+    for name in app.games:
+        games = paths.home / name
+        try:
+            games.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"  {app.client} starts without {games}: {exc}")
+            continue
+        if settings and apps.add_game_folder(settings, games, always=app.games_listed):
+            print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
+        options.append(f"--filesystem={games}:ro")
+    return options
 
 
 def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict[str, str], game_mode: bool) -> None:
@@ -924,6 +926,17 @@ def _share_keys(paths: Paths, app: App) -> None:
     copied = apps.copy_keys(source, app.profile.shared_path(_app_home(paths, app), apps.EDEN_KEYS))
     if copied:
         print(f"  gave {app.client} the keys installed in {origin.client}: {', '.join(copied)}", flush=True)
+
+
+def _share_firmware(paths: Paths, app: App) -> None:
+    """Give the emulator the firmware installed in the one ``firmware_from`` names, while it has none of its own (see :func:`apps.share_firmware`)."""
+    origin = apps.by_id(app.firmware_from) if app.firmware_from else None
+    if not origin or not isinstance(app.profile, apps.PortableProfile) or not isinstance(origin.profile, apps.PortableProfile):
+        return
+    source = origin.profile.shared_path(_app_home(paths, origin), apps.EDEN_FIRMWARE)
+    given = apps.share_firmware(source, app.profile.shared_path(_app_home(paths, app), apps.EDEN_FIRMWARE))
+    if given:
+        print(f"  gave {app.client} the firmware installed in {origin.client}: {given} files", flush=True)
 
 
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
@@ -1109,6 +1122,7 @@ def _launch_lichii(paths: Paths, app: App, account: Optional[int], extra: Sequen
         app.profile.prepare_shared(home)
         folder = app.profile.data_folder(home, None).parent
     _share_keys(paths, app)
+    _share_firmware(paths, app)
     _graphics(paths, app, account)
     _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()

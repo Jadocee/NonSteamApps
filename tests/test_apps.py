@@ -175,7 +175,7 @@ class ArgumentTests(unittest.TestCase):
         folder = HOME / ".var/app/io.github.jadocee.nonsteamapps.EdenNX2/data/eden-steam-111"
         self.assertEqual((nx2.arguments(HOME, 111), nx2.run_options(HOME, 111)), (["-f"], [f"--cwd={folder}"]))
         self.assertIs(nx2.profile, eden.profile)
-        self.assertEqual((nx2.games, eden.games), ("Games/Switch2", "Games/Switch"))
+        self.assertEqual((nx2.games, eden.games), (("Games/Switch2",), ("Games/Switch",)))
         same = ("controller", "tv_scale", "env", "x11", "qt_window", "console_mode", "logo_position", "args")
         self.assertEqual([getattr(nx2, name) for name in same], [getattr(eden, name) for name in same])
         self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden"), ("lichii", "eden")])
@@ -193,7 +193,11 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(profile.shared_links, eden.profile.shared_links)
         self.assertIn(("UI", "check_for_updates", "false"), profile.settings[0].values)
         self.assertEqual(profile.settings[0].new, apps.EDEN_CONTROLS)
-        self.assertEqual((app.games, app.keys_from, app.console_mode, app.env), ("Games/Switch2", "eden", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual((app.games, app.keys_from, app.firmware_from, app.console_mode, app.env),
+                         (("Games/Switch", "Games/Switch2"), "eden", "eden", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        self.assertEqual(profile.shared_path(home, apps.EDEN_FIRMWARE), home / "shared/user/nand/system/Contents/registered")
+        self.assertIn(("user/nand/system/Contents/registered", apps.EDEN_FIRMWARE), profile.shared_links)
+        self.assertEqual([candidate.id for candidate in apps.APPS if candidate.firmware_from], ["lichii"])
         same = ("controller", "tv_scale", "qt_window", "logo_position", "args")
         self.assertEqual([getattr(app, name) for name in same], [getattr(eden, name) for name in same])
 
@@ -519,20 +523,25 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
                                             f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
 
-    def test_lichiis_game_list_keeps_the_switch_2_folder_beside_any_other(self):
-        settings, games = self.home / "qt-config.ini", self.home / "Games" / "Switch2"
+    def test_lichiis_game_list_keeps_the_switch_and_switch_2_folders_beside_any_other(self):
+        settings = self.home / "qt-config.ini"
+        switch, switch2 = self.home / "Games" / "Switch", self.home / "Games" / "Switch2"
         own = self.home / "SD card"
         own.mkdir()
         settings.write_text(f"[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=\"{own}\"\nPaths\\gamedirs\\size=2\n")
-        self.assertFalse(apps.add_game_folder(settings, games))
-        self.assertTrue(apps.add_game_folder(settings, games, always=True))
-        for line in (f"Paths\\gamedirs\\3\\path={games}", "Paths\\gamedirs\\3\\deep_scan=true", "Paths\\gamedirs\\size=3"):
+        self.assertFalse(apps.add_game_folder(settings, switch2))
+        self.assertTrue(apps.add_game_folder(settings, switch, always=True))
+        self.assertTrue(apps.add_game_folder(settings, switch2, always=True))
+        for line in (f"Paths\\gamedirs\\2\\path=\"{own}\"", f"Paths\\gamedirs\\3\\path={switch}", "Paths\\gamedirs\\3\\deep_scan=true",
+                     f"Paths\\gamedirs\\4\\path={switch2}", "Paths\\gamedirs\\4\\deep_scan=true", "Paths\\gamedirs\\size=4"):
             self.assertIn(line + "\n", settings.read_text())
-        self.assertFalse(apps.add_game_folder(settings, games, always=True))
+        self.assertFalse(apps.add_game_folder(settings, switch, always=True))
+        self.assertFalse(apps.add_game_folder(settings, switch2, always=True))
         lichii = apps.by_id("lichii")
-        self.assertEqual((lichii.games, lichii.games_listed), ("Games/Switch2", True))
+        self.assertEqual((lichii.games, lichii.games_listed), (("Games/Switch", "Games/Switch2"), True))
+        self.assertEqual(lichii.games, (*apps.by_id("eden").games, *apps.by_id("edennx2").games))
         self.assertEqual([app.id for app in apps.APPS if app.games_listed], ["lichii"])
-        self.assertTrue(lichii.summary.startswith("Switch 2 games you own"))
+        self.assertTrue(lichii.summary.startswith("Switch and Switch 2 games you own"))
 
     def test_edens_graphics_go_into_its_renderer_settings_and_replace_a_fallback_it_saved(self):
         settings = self.home / "config" / "qt-config.ini"
@@ -563,6 +572,62 @@ class ProfileTests(unittest.TestCase):
         os.utime(source / "title.keys", ns=(4_000_000_000, 4_000_000_000))
         self.assertEqual(apps.copy_keys(source, target), [])
         self.assertEqual((target / "title.keys").read_text(), "0100 = 33\n")
+
+    def test_edens_firmware_reaches_lichii_whole_and_hard_linked_while_lichii_has_none_of_its_own(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        record = target.parent / apps.FIRMWARE_RECORD
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        source.mkdir(parents=True)
+        (source / "aa.nca").write_bytes(b"first")
+        (source / "bb.nca").mkdir()
+        (source / "bb.nca" / "00").write_bytes(b"part one")
+        (source / "bb.nca" / "01").write_bytes(b"part two")
+        (source / "notes.txt").write_text("not firmware")
+        target.mkdir(parents=True)
+        (target / "keep.txt").write_text("the user's")
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["aa.nca", "bb.nca", "keep.txt"])
+        self.assertEqual((target / "aa.nca").stat().st_ino, (source / "aa.nca").stat().st_ino)
+        self.assertEqual(((target / "bb.nca" / "00").read_bytes(), (target / "bb.nca" / "01").read_bytes()), (b"part one", b"part two"))
+        self.assertEqual(json.loads(record.read_text())["files"], {"aa.nca": 5, "bb.nca": 16})
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual(sorted(path.name for path in target.parent.iterdir()), [apps.FIRMWARE_RECORD, "registered"])
+        (source / "aa.nca").unlink()
+        (source / "cc.nca").write_bytes(b"newer firmware")
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["bb.nca", "cc.nca", "keep.txt"])
+        (target / "dd.nca").write_bytes(b"installed in Lichii")
+        (source / "ee.nca").write_bytes(b"newest")
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["bb.nca", "cc.nca", "dd.nca", "keep.txt"])
+
+    def test_firmware_the_emulator_installed_ncas_singly_into_is_mirrored_too(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        (source / "0000001F").mkdir(parents=True)
+        (source / "0000001F" / "aa.nca").write_bytes(b"single")
+        (source / "yuzu_meta").mkdir()
+        (source / "yuzu_meta" / "SystemProgram_0100000000000809.cnmt").write_bytes(b"meta")
+        (source / "placeholder").mkdir()
+        self.assertEqual(apps.share_firmware(source, target), 2)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), ["0000001F", "yuzu_meta"])
+        self.assertEqual((target / "0000001F" / "aa.nca").stat().st_ino, (source / "0000001F" / "aa.nca").stat().st_ino)
+        self.assertEqual(json.loads((target.parent / apps.FIRMWARE_RECORD).read_text())["files"], {"0000001F": 6, "yuzu_meta": 4})
+
+    def test_firmware_is_not_given_to_a_folder_that_holds_its_own_or_is_a_link(self):
+        source, target = self.home / "eden" / "registered", self.home / "lichii" / "registered"
+        source.mkdir(parents=True)
+        (source / "aa.nca").write_bytes(b"first")
+        target.mkdir(parents=True)
+        (target / "zz.nca").write_bytes(b"installed in Lichii")
+        self.assertEqual(apps.share_firmware(source, target), 0)
+        self.assertEqual([path.name for path in target.iterdir()], ["zz.nca"])
+        elsewhere = self.home / "elsewhere"
+        elsewhere.mkdir()
+        linked = self.home / "linked" / "registered"
+        linked.parent.mkdir()
+        linked.symlink_to(elsewhere)
+        self.assertEqual(apps.share_firmware(source, linked), 0)
+        self.assertEqual(list(elsewhere.iterdir()), [])
 
     def test_localsend_settings_go_where_localsend_reads_them_and_keep_the_rest(self):
         localsend = apps.by_id("localsend")

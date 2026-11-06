@@ -1243,21 +1243,26 @@ class LichiiTests(CliTestCase):
         self.assertIn(f"installing Lichii {lichii.describe(tag)} without checking it against GitHub (--skip-verify)", self.errors)
         program = self.paths.lichii / "current" / lichii.PROGRAM
         folder = self.paths.profile("lichii", ALPHA)
-        games = self.home / "Games" / "Switch2"
+        switch, games = self.home / "Games" / "Switch", self.home / "Games" / "Switch2"
         keys = self.home / ".var/app/dev.eden_emu.eden/data/eden/keys"
         keys.mkdir(parents=True)
         (keys / "prod.keys").write_text("header_key = 00\n")
+        firmware = self.home / ".var/app/dev.eden_emu.eden/data/eden/nand/system/Contents/registered"
+        firmware.mkdir(parents=True)
+        (firmware / "aa.nca").write_bytes(b"firmware")
         argv, environ, chdir = self.launch_lichii()
         self.assertEqual(argv, [str(program), "-f"])
         chdir.assert_called_once_with(folder)
         self.assertEqual(environ["QT_QPA_PLATFORM"], "xcb")
         settings = (folder / "user/config/qt-config.ini").read_text()
-        for line in ("check_for_updates=false", "fullscreen=true", f"Paths\\gamedirs\\4\\path={games}", "backend=1", "astc_recompression=2"):
+        for line in ("check_for_updates=false", "fullscreen=true", f"Paths\\gamedirs\\4\\path={switch}", f"Paths\\gamedirs\\5\\path={games}",
+                     "backend=1", "astc_recompression=2"):
             self.assertIn(line + "\n", settings)
         self.assertIn("player_0_button_a=", settings)
-        self.assertTrue(games.is_dir())
+        self.assertTrue(switch.is_dir() and games.is_dir())
         self.assertEqual((folder / "user/keys/prod.keys").read_text(), "header_key = 00\n")
         self.assertEqual((folder / "user/keys").resolve(), (self.paths.profiles / "lichii/shared/user/keys").resolve())
+        self.assertEqual((folder / "user/nand/system/Contents/registered/aa.nca").read_bytes(), b"firmware")
         argv, environ, _ = self.launch_lichii(game_mode=True)
         self.assertEqual((argv, environ["QT_SCALE_FACTOR"]), ([str(program), "-f", "-qwindowgeometry", "1280x720+0+0"], "3"))
         self.assertIn("use_docked_mode=1\n", (folder / "user/config/qt-config.ini").read_text())
@@ -1270,21 +1275,22 @@ class LichiiTests(CliTestCase):
         chdir.assert_called_once_with(self.paths.profiles / "lichii" / "shared")
         shared = (self.paths.profiles / "lichii/shared/user/config/qt-config.ini").read_text()
         self.assertIn("check_for_updates=false\n", shared)
+        self.assertIn(f"path={switch}\n", shared)
         self.assertIn(f"path={games}\n", shared)
 
-    def test_lichii_puts_the_shared_switch_2_folder_back_in_its_game_list_beside_others(self):
+    def test_lichii_puts_the_shared_switch_and_switch_2_folders_back_in_its_game_list_beside_others(self):
         self.install("lichii")
         self.launch_lichii()
         settings = self.paths.profile("lichii", ALPHA) / "user/config/qt-config.ini"
-        games, own = self.home / "Games" / "Switch2", self.home / "SD card"
+        switch, games, own = self.home / "Games" / "Switch", self.home / "Games" / "Switch2", self.home / "SD card"
         own.mkdir()
-        settings.write_text(settings.read_text().replace(f"Paths\\gamedirs\\4\\path={games}", f"Paths\\gamedirs\\4\\path={own}"))
+        settings.write_text(settings.read_text().replace(f"Paths\\gamedirs\\5\\path={games}", f"Paths\\gamedirs\\5\\path={own}"))
         self.launch_lichii()
         listed = settings.read_text()
-        self.assertIn(f"Paths\\gamedirs\\4\\path={own}\n", listed)
-        self.assertIn(f"Paths\\gamedirs\\5\\path={games}\n", listed)
+        for line in (f"Paths\\gamedirs\\4\\path={switch}", f"Paths\\gamedirs\\5\\path={own}", f"Paths\\gamedirs\\6\\path={games}"):
+            self.assertIn(line + "\n", listed)
         self.launch_lichii()
-        self.assertEqual(settings.read_text().count(str(games)), 1)
+        self.assertEqual([settings.read_text().count(f"path={folder}\n") for folder in (switch, games)], [1, 1])
 
     def test_lichii_updates_only_when_asked_and_rolls_back(self):
         self.install("lichii")

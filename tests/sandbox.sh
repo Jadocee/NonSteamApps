@@ -193,9 +193,11 @@ check "VacuumTube got the SteamOS theme, with its userstyles on" test -f "$HOME_
 check "VacuumTube skips self-promotion and end cards" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_selfpromo) $(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_outro)" == "true true"
 check "the launch was logged" grep -q 'starting YouTube (VacuumTube) for Steam account 222' "$HOME_DIR/.local/state/nonsteamapps/youtube.log"
 run "$PROGRAM/apps/element" --steam-account 222
-check "Element's new profile quits when its window closes" grep -qF '"minimizeToTray": false' "$HOME_DIR/.var/app/im.riot.Riot/config/Element-steam-222/electron-config.json"
+check "Element's new profile quits when its window closes, without asking, and hides its menu bar" \
+    test "$(grep -cE '"(minimizeToTray|warnBeforeExit)": false|"autoHideMenuBar": true' "$HOME_DIR/.var/app/im.riot.Riot/config/Element-steam-222/electron-config.json")" -eq 3
+check "Element moves with the arrow keys by what is on screen" grep -qF '"--storage-mode=allow-plaintext", "--enable-spatial-navigation", "--profile=steam-222"' "$WORK/flatpak.log"
 run "$PROGRAM/apps/signal" --steam-account 222
-check "Signal started its own script with the account's folder" grep -qF "[\"run\", \"--command=env\", \"org.signal.Signal\", \"XDG_CONFIG_HOME=$HOME_DIR/.var/app/org.signal.Signal/config/Signal-steam-222\", \"SIGNAL_PASSWORD_STORE=basic\", \"signal-desktop\"]" "$WORK/flatpak.log"
+check "Signal started its own script with the account's folder and spatial navigation" grep -qF "[\"run\", \"--command=env\", \"org.signal.Signal\", \"XDG_CONFIG_HOME=$HOME_DIR/.var/app/org.signal.Signal/config/Signal-steam-222\", \"SIGNAL_PASSWORD_STORE=basic\", \"signal-desktop\", \"--enable-spatial-navigation\"]" "$WORK/flatpak.log"
 run env LD_PRELOAD="$STEAM/ubuntu12_64/gameoverlayrenderer.so" LD_LIBRARY_PATH="$STEAM/ubuntu12_32/steam-runtime/lib" \
     SYSTEM_LD_LIBRARY_PATH= "$PROGRAM/apps/primevideo" --steam-account 222 2>/dev/null
 check "Helium started without Steam's overlay library" grep -qxF "<unset>" "$WORK/helium-env.log"

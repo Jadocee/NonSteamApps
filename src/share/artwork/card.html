@@ -113,6 +113,16 @@ html, body {
 }
 .icon-only .icon { inset: 0; width: 256px; height: 256px; }
 .icon-only .icon img { filter: none; }
+.art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.art.fitted { object-fit: contain; filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.35)); }
+.art.logo-art { object-fit: contain; object-position: left center; }
+.art-backdrop {
+  position: absolute;
+  inset: -10%;
+  background-size: cover;
+  background-position: center;
+  filter: blur(42px) saturate(1.1);
+}
 </style>
 </head>
 <body>
@@ -127,6 +137,59 @@ html, body {
   root.setProperty("--a", params.get("a") || "#1a9fff");
   root.setProperty("--b", params.get("b") || params.get("a") || "#66c0f4");
   card.classList.add(slot === "icon" ? "icon-only" : slot);
+  const artUrl = params.get("art");
+  if (artUrl) {
+    const art = new Image();
+    const artLoaded = new Promise((resolve) => {
+      art.onload = () => resolve(true);
+      art.onerror = () => resolve(false);
+    });
+    art.src = artUrl;
+    const shown = await artLoaded;
+    if (shown && slot === "logo") {
+      const canvas = document.createElement("canvas");
+      canvas.width = art.naturalWidth;
+      canvas.height = art.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(art, 0, 0);
+      const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+      let top = height, left = width, right = -1, bottom = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (data[(y * width + x) * 4 + 3] > 8) {
+            top = Math.min(top, y);
+            bottom = Math.max(bottom, y);
+            left = Math.min(left, x);
+            right = Math.max(right, x);
+          }
+        }
+      }
+      const trimmed = document.createElement("canvas");
+      trimmed.width = right >= left ? right - left + 1 : width;
+      trimmed.height = bottom >= top ? bottom - top + 1 : height;
+      trimmed.getContext("2d").drawImage(canvas, right >= left ? left : 0, bottom >= top ? top : 0, trimmed.width, trimmed.height,
+        0, 0, trimmed.width, trimmed.height);
+      const logo = new Image();
+      logo.className = "art logo-art";
+      logo.src = trimmed.toDataURL("image/png");
+      await logo.decode();
+      card.appendChild(logo);
+    } else if (shown) {
+      const ratio = art.naturalWidth / art.naturalHeight;
+      const wanted = window.innerWidth / window.innerHeight;
+      if (Math.abs(ratio - wanted) / wanted > 0.12) {
+        const backdrop = document.createElement("div");
+        backdrop.className = "art-backdrop";
+        backdrop.style.backgroundImage = `url("${artUrl}")`;
+        card.appendChild(backdrop);
+        art.classList.add("fitted");
+      }
+      art.classList.add("art");
+      card.appendChild(art);
+    }
+    window.cardReady = { ok: shown, width: art.naturalWidth || 0, height: art.naturalHeight || 0, tile: false };
+    return;
+  }
   const part = (name) => {
     const element = document.createElement("div");
     element.className = name;

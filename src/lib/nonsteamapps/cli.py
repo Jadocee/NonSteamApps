@@ -249,6 +249,13 @@ def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
     return artwork.Source("file", str(found)) if found and found.is_file() else None
 
 
+def _official_art(paths: Paths, app: App) -> Dict[str, str]:
+    """The artwork for Steam's library that the app's project publishes itself, by slot, at the release installed."""
+    if app.release:
+        return _kyty(paths).library_urls()
+    return _lichii(paths).library_urls() if app.appimage else {}
+
+
 def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool) -> None:
     """Draw each app's Steam artwork around its own icon, with NonSteamApps' Helium; an app without one keeps NonSteamApps' artwork."""
     if not chosen or not _own_icons(paths):
@@ -265,7 +272,7 @@ def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool) -> None:
                 without.append(app.name)
                 continue
             try:
-                if studio.make(app.id, app.name, source, refresh=refresh) == "made":
+                if studio.make(app.id, app.name, source, refresh=refresh, official=_official_art(paths, app)) == "made":
                     made.append(app)
             except artwork.BrowserError as exc:
                 ui.warn(f"Helium could not draw artwork around the apps' own icons, so the rest keep what they had: {exc}")
@@ -870,7 +877,7 @@ def _games_folder(paths: Paths, app: App, account: Optional[int]) -> List[str]:
         print(f"  {app.client} starts without {games}: {exc}")
         return []
     settings = app.profile.settings_file(_app_home(paths, app), account) if isinstance(app.profile, apps.PortableProfile) else None
-    if settings and apps.add_game_folder(settings, games):
+    if settings and apps.add_game_folder(settings, games, always=app.games_listed):
         print(f"  added {games} to {app.client}'s game list: copy your games there", flush=True)
     return [f"--filesystem={games}:ro"]
 
@@ -1001,9 +1008,10 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
 
 
 def _environment(app: App, game_mode: bool) -> List[str]:
-    """``flatpak run`` options for the display and the variables the app is started with from Steam."""
+    """``flatpak run`` options for the display, the global menu NonSteamApps stands in for, and the variables the app is started with from Steam."""
     display_options = x11_options() if app.x11 else []
-    return [*display_options, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
+    menu = [f"--talk-name={appmenu.REGISTRAR}"] if app.hide_menu_bar and game_mode else []
+    return [*display_options, *menu, *(f"--env={name}={value}" for name, value in (*app.env, *(app.game_mode_env if game_mode else ())))]
 
 
 def _libraries(app: App) -> List[str]:

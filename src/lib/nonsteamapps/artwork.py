@@ -46,6 +46,7 @@ SLOTS: Tuple[Tuple[str, str, int, int], ...] = (
 TEMPLATE = "card.html"
 RECORD = "made.json"
 MIN_SIZE = 128
+MIN_ART = 256
 MAX_ICON = 8 << 20
 COLOURS: Dict[str, Tuple[str, str]] = {
     "youtube": ("#ff0033", "#ff6a3d"),
@@ -424,9 +425,12 @@ def rank(candidates: Sequence[object]) -> List[str]:
     return ranked
 
 
-def card_url(template: Path, slot: str, name: str, colours: Tuple[str, str], icon: Path) -> str:
-    query = urllib.parse.urlencode({"slot": slot, "name": name, "a": colours[0], "b": colours[1], "icon": Path(icon).resolve().as_uri()})
-    return f"{Path(template).resolve().as_uri()}?{query}"
+def card_url(template: Path, slot: str, name: str, colours: Tuple[str, str], icon: Path, art: Optional[Path] = None) -> str:
+    """The template's address for one slot: drawn around ``icon``, or showing ``art``, the project's own artwork for it."""
+    values = {"slot": slot, "name": name, "a": colours[0], "b": colours[1], "icon": Path(icon).resolve().as_uri()}
+    if art is not None:
+        values["art"] = Path(art).resolve().as_uri()
+    return f"{Path(template).resolve().as_uri()}?{urllib.parse.urlencode(values)}"
 
 
 class Studio:
@@ -483,11 +487,15 @@ class Studio:
         return record if isinstance(record, dict) else {}
 
     def origin(self, app_id: str) -> str:
-        """Where the icon of the artwork made for ``app_id`` came from, as people read it, or ``""`` if none was made."""
+        """Where the icon of the artwork made for ``app_id`` came from, and which slots its project's own artwork fills, as
+        people read it, or ``""`` if none was made."""
         if not self.files(app_id):
             return ""
-        kind, _, location = str(self._record(app_id).get("source", "")).partition(":")
-        return f"the icon {urllib.parse.urlsplit(location).netloc} names" if kind == "site" else location
+        record = self._record(app_id)
+        kind, _, location = str(record.get("source", "")).partition(":")
+        icon = f"the icon {urllib.parse.urlsplit(location).netloc} names" if kind == "site" else location
+        official = sorted(record.get("official") or {}) if isinstance(record.get("official"), dict) else []
+        return icon + (f"; its project's own library artwork for the {', '.join(official)}" if official else "")
 
     def forget(self, app_id: str) -> None:
         shutil.rmtree(self.folder / app_id, ignore_errors=True)
@@ -551,17 +559,53 @@ class Studio:
             icon.unlink()
         raise ArtworkError("; ".join(reasons[:3]) or "no icon was found")
 
-    def make(self, app_id: str, name: str, source: Source, refresh: bool = False) -> str:
+    def _official(self, app_id: str, official: Dict[str, str], record: dict, refresh: bool) -> Dict[str, Tuple[Path, str, str]]:
+        """The library artwork ``app_id``'s project publishes, by slot, as ``(file, SHA-256, address)``: kept from before where the
+        address is the same, otherwise downloaded and checked. A slot whose artwork cannot be had, or is smaller than
+        :data:`MIN_ART` pixels, is left out, and gets NonSteamApps' design.
+        """
+        known = record.get("official") if isinstance(record.get("official"), dict) else {}
+        found: Dict[str, Tuple[Path, str, str]] = {}
+        for slot, url in sorted(official.items()):
+            entry = known.get(slot) if isinstance(known.get(slot), dict) else {}
+            kept = self.folder / app_id / str(entry.get("file", ""))
+            if not refresh and entry.get("url") == url and entry.get("file") and kept.is_file():
+                found[slot] = (kept, str(entry.get("sha256", "")), url)
+                continue
+            try:
+                data = (self.download or fetch)(url)
+            except ArtworkError:
+                continue
+            suffix = _suffix(url, data)
+            if not suffix:
+                continue
+            art = self.folder / app_id / f"official-{slot}{suffix}"
+            for stale in (self.folder / app_id).glob(f"official-{slot}.*"):
+                stale.unlink()
+            atomic_write_bytes(art, data)
+            ready = self._measure(art)
+            if not ready.get("ok") or min(int(ready.get("width") or 0), int(ready.get("height") or 0)) < MIN_ART:
+                art.unlink()
+                continue
+            found[slot] = (art, hashlib.sha256(data).hexdigest(), url)
+        return found
+
+    def make(self, app_id: str, name: str, source: Source, refresh: bool = False, official: Optional[Dict[str, str]] = None) -> str:
         """Draw ``app_id``'s artwork around the icon ``source`` names, unless it is already up to date; return what happened.
 
-        Returns ``"made"`` or ``"kept"``; raises :class:`ArtworkError` when the icon cannot be had or drawn, keeping
-        artwork made before. A ``site`` or ``url`` icon is downloaded again only with ``refresh``, or once it changes.
+        ``official`` maps slots to the addresses of library artwork that the app's project publishes itself, which
+        those slots use in place of NonSteamApps' design. Returns ``"made"`` or ``"kept"``; raises :class:`ArtworkError`
+        when the icon cannot be had or drawn, keeping artwork made before. A ``site`` or ``url`` icon, and the
+        project's artwork, are downloaded again only with ``refresh``, or once their address changes.
         """
+        official = dict(official or {})
         record = self._record(app_id)
         complete = bool(self.files(app_id))
-        if complete and record.get("source") == source.key and source.kind != "file" and not refresh:
+        known = record.get("official") if isinstance(record.get("official"), dict) else {}
+        same_art = official == {slot: entry.get("url") for slot, entry in known.items() if isinstance(entry, dict)}
+        if complete and same_art and record.get("source") == source.key and source.kind != "file" and not refresh:
             return "kept"
-        if complete and source.kind == "file" and record.get("source") == source.key:
+        if complete and same_art and source.kind == "file" and record.get("source") == source.key:
             try:
                 digest = hashlib.sha256(Path(source.location).read_bytes()).hexdigest()
             except OSError as exc:
@@ -569,21 +613,26 @@ class Studio:
             if digest == record.get("icon"):
                 return "kept"
         icon, digest = self._fetch(app_id, source)
-        if complete and digest == record.get("icon"):
-            if record.get("source") != source.key or record.get("file") != icon.name:
-                atomic_write_json(self.folder / app_id / RECORD, {**record, "source": source.key, "file": icon.name})
+        art = self._official(app_id, official, record, refresh)
+        drawn_art = {slot: entry.get("sha256") for slot, entry in known.items() if isinstance(entry, dict)}
+        entries = {slot: {"url": url, "sha256": sha, "file": path.name} for slot, (path, sha, url) in art.items()}
+        updated = {"version": VERSION, "source": source.key, "icon": digest, "file": icon.name, "official": entries}
+        if complete and digest == record.get("icon") and {slot: sha for slot, (_, sha, _) in art.items()} == drawn_art:
+            if updated != record:
+                atomic_write_json(self.folder / app_id / RECORD, updated)
             return "kept"
         colours = COLOURS.get(app_id, ("#1a9fff", "#66c0f4"))
         browser, session = self._page()
         drawn = {}
         for slot, file, width, height in SLOTS:
             jpeg = file.endswith(".jpg")
-            browser.load(session, card_url(self.template, slot, name, colours, icon), width, height, transparent=not jpeg)
+            piece = art.get(slot, (None, "", ""))[0]
+            browser.load(session, card_url(self.template, slot, name, colours, icon, piece), width, height, transparent=not jpeg)
             ready = browser.evaluate(session, CARD_READY)
             if not isinstance(ready, dict) or not ready.get("ok"):
                 raise ArtworkError(f"Helium could not draw {app_id}'s {slot}")
             drawn[file] = browser.screenshot(session, width, height, jpeg)
         for file, data in drawn.items():
             atomic_write_bytes(self.folder / app_id / file, data)
-        atomic_write_json(self.folder / app_id / RECORD, {"version": VERSION, "source": source.key, "icon": digest, "file": icon.name})
+        atomic_write_json(self.folder / app_id / RECORD, updated)
         return "made"

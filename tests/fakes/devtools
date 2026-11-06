@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Stand-in for a headless Chromium on its DevTools pipe (``--remote-debugging-pipe``): commands come on fd 3, answers go out on fd 4.
 
-It answers what NonSteamApps' artwork asks of a browser. A card page's icon loads at 512 pixels, at 32 when the
-icon file holds ``tiny``, and fails when it holds ``broken`` or is missing. A site's page names the icons that
-$FAKE_DEVTOOLS_SITE_ICONS lists as JSON. A screenshot is the text ``fake <format> <slot> <icon digest>``, so that a
-test can tell which icon each piece of artwork was drawn around. Each command is logged, as JSON, in $FAKE_DEVTOOLS_LOG.
+It answers what NonSteamApps' artwork asks of a browser. A card page's icon, or the project's artwork it shows,
+loads at 512 pixels, at 32 when the file holds ``tiny``, and fails when it holds ``broken`` or is missing. A
+site's page names the icons that $FAKE_DEVTOOLS_SITE_ICONS lists as JSON. A screenshot is the text
+``fake <format> <slot> <digest>``, of the artwork shown or else the icon, so that a test can tell what each piece
+of artwork was drawn from. Each command is logged, as JSON, in $FAKE_DEVTOOLS_LOG.
 """
 
 import base64
@@ -26,7 +27,7 @@ def send(message):
 
 def icon_of(url):
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
-    location = urllib.parse.urlsplit(query.get("icon", [""])[0])
+    location = urllib.parse.urlsplit((query.get("art") or query.get("icon") or [""])[0])
     try:
         with open(urllib.parse.unquote(location.path), "rb") as stream:
             return query.get("slot", [""])[0], stream.read()

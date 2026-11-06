@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 from . import nx2
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, TOOLS, YOUTUBE
+from .layouts import BITWARDEN, BROWSER, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -164,11 +164,12 @@ EDEN_KEYS = "keys"
 EDEN_KEY_FILES = ("prod.keys", "title.keys")
 
 
-def add_game_folder(settings_file: Path, folder: Path) -> bool:
+def add_game_folder(settings_file: Path, folder: Path, always: bool = False) -> bool:
     """Add ``folder`` to Eden's game list in ``settings_file`` while none of the folders added to it exists; return whether it was.
 
-    Eden lists its SD card and NAND first, and adds them itself only to an empty list, so an empty list gets them
-    as well. ``folder`` is scanned with its subfolders.
+    With ``always``, ``folder`` is added wherever it is missing, beside the folders listed. Eden lists its SD card
+    and NAND first, and adds them itself only to an empty list, so an empty list gets them as well. ``folder`` is
+    scanned with its subfolders.
     """
     entries = dict(ini_entries(settings_file, "UI", EDEN_GAME_LIST))
     try:
@@ -177,7 +178,7 @@ def add_game_folder(settings_file: Path, folder: Path) -> bool:
         size = 0
     listed = [entries.get(f"{EDEN_GAME_LIST}{index}\\path", "").replace('"', "") for index in range(1, size + 1)]
     added = [path for path in listed if path and path not in EDEN_BUILT_IN]
-    if str(folder) in added or any(Path(path).is_dir() for path in added):
+    if str(folder) in added or (not always and any(Path(path).is_dir() for path in added)):
         return False
     values = [("UI", f"{EDEN_GAME_LIST}{index}\\path", name) for index, name in enumerate(EDEN_BUILT_IN, 1)] if not size else []
     index = (size or len(EDEN_BUILT_IN)) + 1
@@ -307,7 +308,8 @@ VACUUMTUBE_TV = JsonSettings(
 VACUUMTUBE_SETTINGS = JsonSettings("config.json", (*VACUUMTUBE_DEFAULTS.items(), *VACUUMTUBE_TV.values))
 VACUUMTUBE_SEGMENTS = JsonSettings("config.json", tuple((f"sponsorblock_skip_{category}", True) for category in VACUUMTUBE_SKIPPED if category != "sponsor"))
 VACUUMTUBE_STYLES = JsonSettings("config.json", (("userstyles", True),))
-ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False),))
+ELEMENT_CONSOLE = JsonSettings("electron-config.json", (("warnBeforeExit", False), ("autoHideMenuBar", True)))
+ELEMENT_SETTINGS = JsonSettings("electron-config.json", (("minimizeToTray", False), *ELEMENT_CONSOLE.values))
 LOCALSEND_SETTINGS = JsonSettings(
     "data/org.localsend.localsend_app/shared_preferences.json",
     (("flutter.ls_theme", "dark"), ("flutter.ls_color", "oled")),
@@ -648,7 +650,6 @@ class JellyfinProfile:
 
 
 Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile]
-WEB_BROWSER = "Web Browser"
 
 
 @dataclass(frozen=True)
@@ -811,11 +812,13 @@ class App:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
     :mod:`x11`), and a ``hide_menu_bar`` app runs with NonSteamApps standing in for the desktop's global
-    menu, so that Electron draws no menu bar in its window (see :mod:`appmenu`). ``userstyles`` are style
+    menu, which its sandbox may then talk to, so that Electron draws no menu bar in its window (see
+    :mod:`appmenu`). ``userstyles`` are style
     sheets from NonSteamApps' ``share/userstyles``, copied at every start into the ``userstyles`` folder of
     the data folder the app runs with, where VacuumTube loads them (see :func:`place_userstyles`). ``games`` is a
     folder in the home folder for an app's games, created at every start and opened to its sandbox, read-only,
-    for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`).
+    for that run; Eden's game list gets it while no folder added to it exists (see :func:`add_game_folder`), or,
+    ``games_listed``, wherever it is missing, as Lichii's gets the Switch 2 games folder it shares with Eden-NX2.
     A ``console_mode`` app emulates a console that runs docked or handheld, which each start chooses
     (see :func:`set_console_mode`). An app with a ``desktop`` entry is added to Desktop Mode's applications menu
     and its taskbar at install, for use outside Game Mode. ``graphics`` are an emulator's graphics settings for
@@ -853,6 +856,7 @@ class App:
     hide_menu_bar: bool = False
     userstyles: Tuple[str, ...] = ()
     games: str = ""
+    games_listed: bool = False
     console_mode: bool = False
     graphics: Tuple[Tuple[str, str, str], ...] = ()
     keys_from: str = ""
@@ -931,25 +935,29 @@ APPS: Tuple[App, ...] = (
         name="Element",
         client="Element Desktop",
         flatpak="im.riot.Riot",
-        summary="Secure chat on Matrix",
-        args=("--password-store=basic", "--storage-mode=allow-plaintext"),
-        controller=WEB_BROWSER,
+        summary="Secure chat on Matrix, set up for a TV and a controller",
+        args=("--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation"),
+        controller=ELEMENT.title,
         profile=FolderProfile(
             "config/Element-steam-{account}",
             "--profile=steam-{account}",
             settings=(ELEMENT_SETTINGS,),
+            changes=(("2.34.0", ELEMENT_CONSOLE),),
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
         callbacks=("io.element.desktop", "element"),
+        fullscreen_class="element",
+        hide_menu_bar=True,
     ),
     App(
         id="signal",
         name="Signal",
         client="Signal Desktop",
         flatpak="org.signal.Signal",
-        summary="Private messages and calls, linked to Signal on your phone",
-        controller=WEB_BROWSER,
+        summary="Private messages and calls, linked to Signal on your phone, set up for a TV and a controller",
+        args=("--enable-spatial-navigation",),
+        controller=SIGNAL.title,
         profile=ScriptProfile(
             "config/Signal-steam-{account}",
             "XDG_CONFIG_HOME={folder}",
@@ -959,6 +967,8 @@ APPS: Tuple[App, ...] = (
         ),
         logo_position="BottomLeft:44:56",
         tv_scale=CHROMIUM_SCALE,
+        fullscreen_class="signal",
+        hide_menu_bar=True,
         notice="Signal keeps its database key unencrypted on disk, as Flathub's Signal does by default; see the README",
     ),
     App(
@@ -1074,7 +1084,7 @@ APPS: Tuple[App, ...] = (
         name="Lichii",
         client="Lichii",
         appimage=True,
-        summary="Switch and Switch 2 games you own, through the Lichii emulator, which builds on Eden, set up for a TV and a controller",
+        summary="Switch 2 games you own, through the Lichii emulator, which builds on Eden, set up for a TV and a controller",
         args=("-f",),
         profile=LICHII_PROFILE,
         controller=EMULATOR.title,
@@ -1083,11 +1093,13 @@ APPS: Tuple[App, ...] = (
         env=(("QT_QPA_PLATFORM", "xcb"),),
         qt_window=True,
         games="Games/Switch2",
+        games_listed=True,
         console_mode=True,
         graphics=LICHII_GRAPHICS,
         keys_from="eden",
-        notice="Lichii is early work and plays only games you own: it takes the keys installed in Eden, and reads ~/Games/Switch2, as Eden-NX2 does. "
-               "It updates with `nonsteamapps update`, not every week",
+        notice="Lichii is early work and plays only Switch 2 games you own: copy each into ~/Games/Switch2, the folder Eden-NX2 reads too, "
+               "dumped as a folder holding its exefs and romfs, or as a .nup package, which only Lichii reads. "
+               "It takes the keys installed in Eden, and updates with `nonsteamapps update`, not every week",
     ),
     App(
         id="kytyps5",

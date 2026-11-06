@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -216,6 +217,39 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(self.screenshots(), 10)
         self.studio.forget("lichii")
         self.assertFalse((self.dir / "made/lichii").exists())
+
+    def test_a_projects_own_library_artwork_fills_its_slots_and_the_icon_the_rest(self):
+        base = "https://raw.githubusercontent.com/zortos293/Lichii/build-83/dist/branding"
+        icon = f"{base}/lichii_icon.png"
+        official = {"capsule": f"{base}/lichii_vertical_grid.png", "wide": f"{base}/lichii_square_grid.png", "logo": f"{base}/lichii_logo.png"}
+        art = {"icon": png(9, 9), "capsule": png(6, 9), "wide": png(8, 8), "logo": png(16, 9)}
+        self.downloads = {icon: art["icon"], **{official[slot]: art[slot] for slot in official}}
+        self.assertEqual(self.studio.make("lichii", "Lichii", artwork.Source("url", icon), official=official), "made")
+        files = self.studio.files("lichii")
+
+        def drawn(slot, kind="png"):
+            return f"fake {kind} {slot} {hashlib.sha256(art[slot if slot in official else 'icon']).hexdigest()[:12]}".encode()
+
+        for slot in ("capsule", "wide", "logo", "icon"):
+            self.assertEqual(files[slot].read_bytes(), drawn(slot), slot)
+        self.assertEqual(files["hero"].read_bytes(), drawn("hero", "jpeg"))
+        record = json.loads((self.dir / "made/lichii" / artwork.RECORD).read_text())
+        self.assertEqual(sorted(record["official"]), ["capsule", "logo", "wide"])
+        self.assertIn("its project's own library artwork for the capsule, logo, wide", self.studio.origin("lichii"))
+        self.assertEqual(self.studio.make("lichii", "Lichii", artwork.Source("url", icon), official=official), "kept")
+        self.assertEqual(self.screenshots(), 5)
+        newer = {slot: url.replace("build-83", "build-84") for slot, url in official.items()}
+        self.downloads.update({newer[slot]: art[slot] for slot in newer})
+        self.assertEqual(self.studio.make("lichii", "Lichii", artwork.Source("url", icon), official=newer), "kept")
+        self.assertEqual(json.loads((self.dir / "made/lichii" / artwork.RECORD).read_text())["official"]["capsule"]["url"], newer["capsule"])
+        self.downloads[newer["wide"]] = png(2, 2) + b"tiny"
+        changed = {**newer, "wide": newer["wide"] + "?v=2"}
+        self.downloads[changed["wide"]] = png(2, 2) + b"tiny"
+        self.assertEqual(self.studio.make("lichii", "Lichii", artwork.Source("url", icon), official=changed), "made")
+        files = self.studio.files("lichii")
+        self.assertEqual(files["wide"].read_bytes(), drawn("icon").replace(b" icon ", b" wide "))
+        self.assertEqual(files["capsule"].read_bytes(), drawn("capsule"))
+        self.assertNotIn("wide", json.loads((self.dir / "made/lichii" / artwork.RECORD).read_text())["official"])
 
     def test_a_program_that_does_not_speak_devtools_is_reported_at_once(self):
         program = self.dir / "not-a-browser"

@@ -321,7 +321,7 @@ class LaunchTests(CliTestCase):
         self.install("element")
         config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
         argv, _ = self.launch("element", "--steam-account", str(BETA))
-        self.assertEqual(argv[3:], ["--password-store=basic", "--storage-mode=allow-plaintext"])
+        self.assertEqual(argv[3:], ["--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation"])
         argv, _ = self.launch("youtube", "--steam-account", str(BETA))
         self.assertEqual(argv[3:], ["--fullscreen"])
         self.assertTrue((self.home / ".var/app/rocks.shy.VacuumTube/config/VacuumTube/config.json").is_file())
@@ -367,6 +367,7 @@ class LaunchTests(CliTestCase):
         watch.assert_called_once_with("bitwarden", os.getpid())
         menu.assert_called_once_with(os.getpid())
         self.assertIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertIn("--talk-name=com.canonical.AppMenu.Registrar", argv[:argv.index("com.bitwarden.desktop")])
         self.assertIn("--force-device-scale-factor=1.5", argv)
         self.assertEqual(json.loads((folder / "data.json").read_text())["global_theming_selection"], "dark")
         with mock.patch("nonsteamapps.cli.x11.watch") as watch, mock.patch("nonsteamapps.cli.appmenu.watch") as menu:
@@ -374,6 +375,7 @@ class LaunchTests(CliTestCase):
         watch.assert_not_called()
         menu.assert_not_called()
         self.assertNotIn("--env=DISPLAY_MODE=X11", argv)
+        self.assertNotIn("--talk-name=com.canonical.AppMenu.Registrar", argv)
 
     def test_element_is_scaled_for_a_tv_only_in_game_mode(self):
         in_game_mode = mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True)
@@ -381,12 +383,16 @@ class LaunchTests(CliTestCase):
             argv, _ = self.launch("element", "--steam-account", str(ALPHA))
             youtube, _ = self.launch("youtube", "--steam-account", str(ALPHA))
         self.assertEqual(
-            argv[3:],
-            ["--password-store=basic", "--storage-mode=allow-plaintext", f"--profile=steam-{ALPHA}", "--force-device-scale-factor=3"],
+            argv[1:],
+            ["run", "--talk-name=com.canonical.AppMenu.Registrar", "im.riot.Riot", "--password-store=basic", "--storage-mode=allow-plaintext",
+             "--enable-spatial-navigation", f"--profile=steam-{ALPHA}", "--force-device-scale-factor=3"],
         )
+        cli.x11.watch.assert_any_call("element", mock.ANY)
+        self.assertTrue(cli.appmenu.watch.called)
         self.assertEqual(youtube[-1], "--force-device-scale-factor=2")
         with mock.patch("nonsteamapps.display.screen_height", return_value=2160):
             argv, _ = self.launch("element", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1:3], ["run", "im.riot.Riot"])
         self.assertEqual(argv[-1], f"--profile=steam-{ALPHA}")
 
     def test_vacuumtube_fits_youtubes_1080p_layout_and_keeps_the_tvs_video_resolution(self):
@@ -412,15 +418,17 @@ class LaunchTests(CliTestCase):
         folder = self.home / f".var/app/org.signal.Signal/config/Signal-steam-{BETA}"
         self.assertEqual(
             argv,
-            [self.fake.command, "run", "--command=env", "org.signal.Signal", f"XDG_CONFIG_HOME={folder}",
-             "SIGNAL_PASSWORD_STORE=basic", "signal-desktop", "--force-device-scale-factor=1.5"],
+            [self.fake.command, "run", "--command=env", "--talk-name=com.canonical.AppMenu.Registrar", "org.signal.Signal", f"XDG_CONFIG_HOME={folder}",
+             "SIGNAL_PASSWORD_STORE=basic", "signal-desktop", "--enable-spatial-navigation", "--force-device-scale-factor=1.5"],
         )
+        cli.x11.watch.assert_any_call("signal", mock.ANY)
+        self.assertTrue(cli.appmenu.watch.called)
         self.assertEqual(json.loads((folder / "Signal/config.json").read_text()), {})
         redirect.assert_called_once_with(self.paths.log("signal"))
         self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
         self.paths.settings.write_text(f"{cli.PER_ACCOUNT}=0\n")
         argv, _ = self.launch("signal", "--steam-account", str(BETA))
-        self.assertEqual(argv, [self.fake.command, "run", "org.signal.Signal"])
+        self.assertEqual(argv, [self.fake.command, "run", "org.signal.Signal", "--enable-spatial-navigation"])
 
     def test_jellyfin_and_localsend_are_scaled_for_a_tv_in_game_mode(self):
         self.launch("jellyfin", "--steam-account", str(ALPHA))
@@ -889,9 +897,9 @@ class HeliumAppTests(CliTestCase):
             self.assertEqual(sorted(self.configset(account)),
                              ["disney+", "element", "hbo max", "helium", "netflix", "prime video", "youtube"])
             self.assertEqual(self.configset(account).get("youtube").get("template"), "controller_neptune_nonsteamapps_youtube.vdf")
-            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_webbrowser.vdf")
+            self.assertEqual(self.configset(account).get("element").get("template"), "controller_neptune_nonsteamapps_element.vdf")
             self.assertEqual(self.configset(account).get("netflix").get("template"), "controller_neptune_nonsteamapps_browser.vdf")
-        self.assertIn("Gave Element (Element Desktop) the Web Browser controller layout", self.errors)
+        self.assertIn("Gave Element (Element Desktop) the Element (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave Helium, Prime Video (Helium), HBO Max (Helium), Netflix (Helium) and Disney+ (Helium) the Browser (NonSteamApps) controller layout", self.errors)
         self.assertIn("Gave YouTube (VacuumTube) the YouTube (NonSteamApps) controller layout", self.errors)
         self.assertEqual(self.run_cli("remove", "element", "hbomax", "disneyplus", "--yes"), 0, self.errors)
@@ -1264,6 +1272,20 @@ class LichiiTests(CliTestCase):
         self.assertIn("check_for_updates=false\n", shared)
         self.assertIn(f"path={games}\n", shared)
 
+    def test_lichii_puts_the_shared_switch_2_folder_back_in_its_game_list_beside_others(self):
+        self.install("lichii")
+        self.launch_lichii()
+        settings = self.paths.profile("lichii", ALPHA) / "user/config/qt-config.ini"
+        games, own = self.home / "Games" / "Switch2", self.home / "SD card"
+        own.mkdir()
+        settings.write_text(settings.read_text().replace(f"Paths\\gamedirs\\4\\path={games}", f"Paths\\gamedirs\\4\\path={own}"))
+        self.launch_lichii()
+        listed = settings.read_text()
+        self.assertIn(f"Paths\\gamedirs\\4\\path={own}\n", listed)
+        self.assertIn(f"Paths\\gamedirs\\5\\path={games}\n", listed)
+        self.launch_lichii()
+        self.assertEqual(settings.read_text().count(str(games)), 1)
+
     def test_lichii_updates_only_when_asked_and_rolls_back(self):
         self.install("lichii")
         installed = cli._lichii(self.paths).current()
@@ -1374,6 +1396,27 @@ class ArtworkTests(CliTestCase):
         self.assertEqual(self.run_cli("steam", "add", "youtube", "--yes"), 0, self.errors)
         self.assertEqual(self.grid("youtube").read_bytes(), shipped)
         self.assertNotIn("Drew Steam artwork", self.errors)
+
+    def test_lichii_gets_its_projects_own_library_artwork_for_the_release_installed(self):
+        self.install("lichii", "helium")
+        self.assertEqual(self.grid("lichii").read_bytes(), (self.paths.artwork("lichii") / "capsule.png").read_bytes())
+        newer = _fakes.make_lichii_appimage(Path(self.tmp.name) / "newer")
+        releases = json.dumps([_fakes.lichii_release(newer, "build-84")])
+        base = "https://raw.githubusercontent.com/zortos293/Lichii/build-84/dist/branding"
+        art = {"icon": self.PNG + b"icon", "capsule": self.PNG + b"capsule", "wide": self.PNG + b"square", "logo": self.PNG + b"wordmark"}
+        files = {"icon": "lichii_icon.png", "capsule": "lichii_vertical_grid.png", "wide": "lichii_square_grid.png", "logo": "lichii_logo.png"}
+        self.downloads.update({f"{base}/{files[slot]}": data for slot, data in art.items()})
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Drew Steam artwork around each app's own icon: Lichii\n", self.errors)
+        for slot, suffix in (("capsule", "p.png"), ("wide", ".png"), ("logo", "_logo.png")):
+            self.assertEqual(self.grid("lichii", suffix).read_bytes(), self.drawn(slot, art[slot]), slot)
+        self.assertEqual(self.grid("lichii", "_hero.jpg").read_bytes(), self.drawn("hero", art["icon"], "jpeg"))
+        self.assertEqual(self.grid("lichii", "_icon.png").read_bytes(), self.drawn("icon", art["icon"]))
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"artwork: drawn around its own icon, {base}/lichii_icon.png; its project's own library artwork for the capsule, logo, wide",
+                      self.output)
 
     def test_artwork_the_user_chose_stays_and_a_removed_app_forgets_what_was_drawn(self):
         self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")

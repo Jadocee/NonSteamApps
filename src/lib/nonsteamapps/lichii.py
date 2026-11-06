@@ -5,6 +5,8 @@ Lichii publishes no Flatpak and signs nothing: each change to its source publish
 one, after checking the download's size and SHA-256 against what GitHub's API records for the file (see
 :mod:`builds`), keeps the build before it for :meth:`Runtime.rollback`, and runs the AppImage as it is. Of the two
 x86-64 AppImages it takes the one built with profile-guided optimisation, as Lichii's release notes recommend.
+Lichii's project also publishes its icon and artwork for Steam's library (``dist/branding``), which NonSteamApps
+takes, at the release installed, for the app's Steam artwork (see :mod:`artwork`).
 
 Lichii keeps Eden's data layout and settings: started in a folder that holds a ``user`` folder, it keeps everything
 there, as Eden does. Each Steam account runs it from a folder of its own, laid out as Eden's (see
@@ -27,6 +29,11 @@ REPO = "zortos293/Lichii"
 ASSET = "lichii-linux-x86_64-pgo.AppImage"
 PROGRAM = "lichii.AppImage"
 ICON = "dist/branding/lichii_icon.png"
+LIBRARY = (
+    ("capsule", "dist/branding/lichii_vertical_grid.png"),
+    ("wide", "dist/branding/lichii_square_grid.png"),
+    ("logo", "dist/branding/lichii_logo.png"),
+)
 _TAG = re.compile(r"(?:build-([1-9][0-9]*)|local-([0-9a-f]{12}))\Z")
 _APPIMAGE = (b"\x7fELF", b"AI\x02")
 
@@ -82,6 +89,7 @@ class Runtime(builds.Builds):
     programs = (PROGRAM,)
     running = (PROGRAM,)
     icon = ICON
+    library = LIBRARY
 
     def __init__(self, root: Path, repo: str = REPO) -> None:
         super().__init__(root, repo)

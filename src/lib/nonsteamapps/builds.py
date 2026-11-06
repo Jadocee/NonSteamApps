@@ -17,7 +17,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Type
+from typing import Dict, List, Optional, Sequence, Tuple, Type
 
 from . import net, ui
 
@@ -70,7 +70,8 @@ class Builds:
 
     ``label`` names the project in messages and ``error`` is its exception. A complete build holds the executable
     ``programs``; ``running`` are the files a process started from the build can be running, which :meth:`prune`
-    keeps the build for.
+    keeps the build for. ``icon`` is the path of the app's icon in the project's repository, and ``library`` pairs
+    Steam's artwork slots with the artwork the project publishes for them there.
     """
 
     label = ""
@@ -78,6 +79,7 @@ class Builds:
     programs: Tuple[str, ...] = ()
     running: Tuple[str, ...] = ()
     icon = ""
+    library: Tuple[Tuple[str, str], ...] = ()
 
     def __init__(self, root: Path, repo: str) -> None:
         self.root = Path(root)
@@ -126,6 +128,13 @@ class Builds:
         """Where the project keeps ``icon``, its app's icon, at the release ``tag``, the active build's by default."""
         tag = tag or self.current()
         return f"https://raw.githubusercontent.com/{self.repo}/{tag}/{self.icon}" if self.icon and tag and self.released(tag) else None
+
+    def library_urls(self, tag: Optional[str] = None) -> Dict[str, str]:
+        """Where the project keeps the artwork it publishes for Steam's library at the release ``tag``, by slot, as ``library`` lists it."""
+        tag = tag or self.current()
+        if not tag or not self.released(tag):
+            return {}
+        return {slot: f"https://raw.githubusercontent.com/{self.repo}/{tag}/{file}" for slot, file in self.library}
 
     def check_machine(self) -> None:
         machine = platform.machine().lower()

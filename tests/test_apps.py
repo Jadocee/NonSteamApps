@@ -42,8 +42,16 @@ class ArgumentTests(unittest.TestCase):
     def test_element_keeps_secrets_the_same_way_in_game_and_desktop_mode(self):
         self.assertEqual(
             apps.by_id("element").arguments(HOME, 222),
-            ["--password-store=basic", "--storage-mode=allow-plaintext", "--profile=steam-222"],
+            ["--password-store=basic", "--storage-mode=allow-plaintext", "--enable-spatial-navigation", "--profile=steam-222"],
         )
+
+    def test_element_and_signal_move_with_the_arrow_keys_fill_the_tv_and_have_layouts_of_their_own(self):
+        element, signal = apps.by_id("element"), apps.by_id("signal")
+        self.assertEqual([app.id for app in apps.APPS if "--enable-spatial-navigation" in app.args], ["element", "signal", "bitwarden"])
+        self.assertEqual((element.controller, signal.controller), ("Element (NonSteamApps)", "Signal (NonSteamApps)"))
+        self.assertEqual((element.fullscreen_class, signal.fullscreen_class), ("element", "signal"))
+        self.assertEqual((element.hide_menu_bar, signal.hide_menu_bar), (True, True))
+        self.assertEqual(element.profile.changes, (("2.34.0", apps.JsonSettings("electron-config.json", (("warnBeforeExit", False), ("autoHideMenuBar", True)))),))
 
     def test_localsend_has_no_sign_in_so_every_account_shares_its_settings(self):
         localsend = apps.by_id("localsend")
@@ -59,7 +67,7 @@ class ArgumentTests(unittest.TestCase):
             app = apps.by_id(app_id)
             self.assertEqual((app.flatpak, app.client, app.browser.url, app.browser.kiosk), ("", "Helium", url, kiosk))
             self.assertEqual(app.controller, "Browser (NonSteamApps)")
-        self.assertEqual([app.id for app in apps.APPS if app.controller == apps.WEB_BROWSER], ["element", "signal"])
+        self.assertEqual([app.id for app in apps.APPS if app.controller == "Web Browser"], [])
         self.assertEqual(apps.by_id("protondb").browser.start_url(111), "https://www.protondb.com/dashboard/76561197960265839?nonsteamapps=library")
         self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.extensions], ["protondb"])
         self.assertEqual([(app.id, app.desktop) for app in apps.APPS if app.desktop],
@@ -94,10 +102,11 @@ class ArgumentTests(unittest.TestCase):
                 "XDG_CONFIG_HOME=/home/deck/.var/app/org.signal.Signal/config/Signal-steam-111",
                 "SIGNAL_PASSWORD_STORE=basic",
                 "signal-desktop",
+                "--enable-spatial-navigation",
             ],
         )
         self.assertEqual(signal.run_options(HOME, 111), ["--command=env"])
-        self.assertEqual((signal.arguments(HOME, None), signal.run_options(HOME, None)), ([], []))
+        self.assertEqual((signal.arguments(HOME, None), signal.run_options(HOME, None)), (["--enable-spatial-navigation"], []))
         self.assertEqual(apps.by_id("element").run_options(HOME, 111), [])
 
     def test_each_toolkit_takes_the_tv_scale_its_own_way(self):
@@ -134,8 +143,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(bitwarden.run_options(HOME, None), [])
         self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Bitwarden (NonSteamApps)"))
         self.assertEqual((bitwarden.game_mode_env, bitwarden.fullscreen_class, bitwarden.hide_menu_bar), ((("DISPLAY_MODE", "X11"),), "bitwarden", True))
-        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["bitwarden"])
-        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["bitwarden", "kytyps5"])
+        self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["element", "signal", "bitwarden"])
+        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["element", "signal", "bitwarden", "kytyps5"])
         self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
 
     def test_kytyps5_is_downloaded_from_its_releases_with_its_own_updater_off(self):
@@ -346,7 +355,7 @@ class ProfileTests(unittest.TestCase):
         app_home = element.home(self.home)
         element.profile.prepare(app_home, 111, lambda options: 0)
         settings = app_home / "config/Element-steam-111/electron-config.json"
-        self.assertEqual(json.loads(settings.read_text()), {"minimizeToTray": False})
+        self.assertEqual(json.loads(settings.read_text()), {"minimizeToTray": False, "warnBeforeExit": False, "autoHideMenuBar": True})
         settings.write_text('{"minimizeToTray": true}')
         element.profile.prepare(app_home, 111, lambda options: 0)
         self.assertTrue(json.loads(settings.read_text())["minimizeToTray"])
@@ -509,6 +518,21 @@ class ProfileTests(unittest.TestCase):
         self.assertTrue(apps.add_game_folder(fresh, games))
         self.assertEqual(fresh.read_text(), "[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=UserNAND\nPaths\\gamedirs\\3\\path=SysNAND\n"
                                             f"Paths\\gamedirs\\4\\path={games}\nPaths\\gamedirs\\4\\deep_scan=true\nPaths\\gamedirs\\size=4\n")
+
+    def test_lichiis_game_list_keeps_the_switch_2_folder_beside_any_other(self):
+        settings, games = self.home / "qt-config.ini", self.home / "Games" / "Switch2"
+        own = self.home / "SD card"
+        own.mkdir()
+        settings.write_text(f"[UI]\nPaths\\gamedirs\\1\\path=SDMC\nPaths\\gamedirs\\2\\path=\"{own}\"\nPaths\\gamedirs\\size=2\n")
+        self.assertFalse(apps.add_game_folder(settings, games))
+        self.assertTrue(apps.add_game_folder(settings, games, always=True))
+        for line in (f"Paths\\gamedirs\\3\\path={games}", "Paths\\gamedirs\\3\\deep_scan=true", "Paths\\gamedirs\\size=3"):
+            self.assertIn(line + "\n", settings.read_text())
+        self.assertFalse(apps.add_game_folder(settings, games, always=True))
+        lichii = apps.by_id("lichii")
+        self.assertEqual((lichii.games, lichii.games_listed), ("Games/Switch2", True))
+        self.assertEqual([app.id for app in apps.APPS if app.games_listed], ["lichii"])
+        self.assertTrue(lichii.summary.startswith("Switch 2 games you own"))
 
     def test_edens_graphics_go_into_its_renderer_settings_and_replace_a_fallback_it_saved(self):
         settings = self.home / "config" / "qt-config.ini"

@@ -172,10 +172,17 @@ WASD = [
     ("dpad", "dpad", {"dpad_north": ["key_press UP_ARROW"]}),
 ]
 
+GAMEPAD_BUTTONS = {"button_escape": "start", "button_menu": "select"}
+
+
 def gamepad_groups(switch_inputs, trackpads=False):
-    """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs."""
+    """The groups of a Valve Gamepad layout for a controller with these ``switch`` inputs.
+
+    As in Valve's, ``button_escape``, the Menu button, presses the gamepad's Start, and ``button_menu``, the View
+    button, its Select.
+    """
     groups = [
-        ("switch", "switches", {name: [f"xinput_button {name}"] for name in switch_inputs}),
+        ("switch", "switches", {name: [f"xinput_button {GAMEPAD_BUTTONS.get(name, name)}"] for name in switch_inputs}),
         ("button_diamond", "four_buttons", {f"button_{key}": [f"xinput_button {key.upper()}"] for key in "abxy"}),
         ("joystick", "joystick_move", {}),
         ("left_trigger", "trigger", {}),

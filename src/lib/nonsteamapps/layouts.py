@@ -19,7 +19,7 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   before, A selects (Enter; Valve's also presses Space, so a button would be pressed twice), B goes back
   (Escape; LocalSend ignores the mouse's Back button), Y pastes (Ctrl+V, which sends what was copied), the
   bumpers step to the previous and next control (Shift+Tab and Tab), and holding Menu quits (Ctrl+Q).
-- **Emulator**, for KytyPS5, Eden and Eden-NX2, starts from Gamepad with Mouse Trackpad, whose right trackpad moves
+- **Emulator**, for KytyPS5, Eden, Eden-NX2 and Lichii, starts from Gamepad with Mouse Trackpad, whose right trackpad moves
   the pointer but whose press, on a soft press like Valve's mouse layouts, is the right stick's click. It presses
   the left mouse button instead; the rest is a
   gamepad for the game. Holding View shifts the right stick and the face buttons into Web Browser's for every

@@ -83,6 +83,11 @@ class Paths:
         return self.program / "kytyps5"
 
     @property
+    def lichii(self) -> Path:
+        """Lichii's AppImages; each Steam account's Lichii data is in its profile."""
+        return self.program / "lichii"
+
+    @property
     def nx2(self) -> Path:
         """Eden-NX2's source, the repository of its builds and their caches; its data is in its Flatpak's folder."""
         return self.program / "eden-nx2"

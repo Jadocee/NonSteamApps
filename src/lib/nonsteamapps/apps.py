@@ -369,6 +369,12 @@ NX2_GRAPHICS = (
     *_eden_default("Renderer", "accelerate_astc", "1"),
     *_eden_setting("Renderer", "astc_recompression", "2"),
 )
+LICHII_TV = (*EDEN_TV, *_eden_setting("UI", "check_for_updates", "false"))
+LICHII_GRAPHICS = (
+    *EDEN_GRAPHICS,
+    *_eden_default("Renderer", "accelerate_astc", "1"),
+    *_eden_default("Renderer", "astc_recompression", "2"),
+)
 PRISM_SETTINGS = IniSettings(
     "prismlauncher.cfg",
     tuple(("General", key, value) for key, value in (
@@ -781,9 +787,10 @@ class DesktopEntry:
 @dataclass(frozen=True)
 class App:
     """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
-    (``system``), one it downloads from its project's releases (``release``), or a Flatpak it builds on this machine
+    (``system``), one it downloads from its project's releases (``release``), a Flatpak it builds on this machine
     from its project's source (``from_source``), as it does for Eden-NX2 (see :mod:`nx2`), which then runs as
-    a Flathub app does.
+    a Flathub app does, or an ``appimage`` it downloads from its project's releases, as it does for Lichii (see
+    :mod:`lichii`), which keeps its data per account in NonSteamApps' profiles, laid out as Eden's.
 
     ``controller`` names the controller layout to give the shortcut, one of Valve's or one of
     :mod:`layouts`. ``tv_scale`` says how a Flathub or system app is scaled for a TV in Game Mode, as the
@@ -851,6 +858,7 @@ class App:
     keys_from: str = ""
     desktop: Optional[DesktopEntry] = None
     from_source: bool = False
+    appimage: bool = False
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -866,20 +874,31 @@ class App:
         return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
 
 
+EDEN_SHARED_LINKS = (
+    ("user/keys", EDEN_KEYS),
+    ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
+    ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
+    ("user/load", "load"),
+    ("user/shader", "shader"),
+)
+EDEN_CARRIED = (("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\"))
 EDEN_PROFILE = PortableProfile(
     "data/eden-steam-{account}",
     "",
     shared="data/eden",
     settings=(EDEN_SETTINGS,),
     shared_settings=(EDEN_SHARED_SETTINGS,),
-    shared_links=(
-        ("user/keys", EDEN_KEYS),
-        ("user/nand/system/Contents/registered", "nand/system/Contents/registered"),
-        ("user/nand/user/Contents/registered", "nand/user/Contents/registered"),
-        ("user/load", "load"),
-        ("user/shader", "shader"),
-    ),
-    carried=(("UI", "Paths\\gamedirs\\"), ("UI", "Paths\\external_content_dirs\\")),
+    shared_links=EDEN_SHARED_LINKS,
+    carried=EDEN_CARRIED,
+)
+LICHII_PROFILE = PortableProfile(
+    "{account}",
+    "",
+    shared="shared/user",
+    settings=(IniSettings("user/config/qt-config.ini", LICHII_TV, new=EDEN_CONTROLS),),
+    shared_settings=(IniSettings("shared/user/config/qt-config.ini", LICHII_TV, new=EDEN_CONTROLS),),
+    shared_links=EDEN_SHARED_LINKS,
+    carried=EDEN_CARRIED,
 )
 
 APPS: Tuple[App, ...] = (
@@ -1049,6 +1068,26 @@ APPS: Tuple[App, ...] = (
         keys_from="eden",
         notice="Eden-NX2 is early work, and few Switch 2 games start: copy each one you own, dumped as a folder holding its exefs and romfs, "
                "into ~/Games/Switch2. It is built here, so nonsteamapps update builds its newest source, which can take an hour",
+    ),
+    App(
+        id="lichii",
+        name="Lichii",
+        client="Lichii",
+        appimage=True,
+        summary="Switch and Switch 2 games you own, through the Lichii emulator, which builds on Eden, set up for a TV and a controller",
+        args=("-f",),
+        profile=LICHII_PROFILE,
+        controller=EMULATOR.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        env=(("QT_QPA_PLATFORM", "xcb"),),
+        qt_window=True,
+        games="Games/Switch2",
+        console_mode=True,
+        graphics=LICHII_GRAPHICS,
+        keys_from="eden",
+        notice="Lichii is early work and plays only games you own: it takes the keys installed in Eden, and reads ~/Games/Switch2, as Eden-NX2 does. "
+               "It updates with `nonsteamapps update`, not every week",
     ),
     App(
         id="kytyps5",

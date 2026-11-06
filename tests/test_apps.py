@@ -15,8 +15,8 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
-             "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
+             "protontricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -74,8 +74,8 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "kytyps5", "protonup", "protontricks",
-             "files"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
+             "protontricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -157,7 +157,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((eden.controller, eden.qt_window, eden.game_mode_env), ("Emulator (NonSteamApps)", True, ()))
         self.assertEqual([(app.id, app.env) for app in apps.APPS if app.x11], [(name, (("QT_QPA_PLATFORM", "xcb"),)) for name in ("eden", "edennx2")])
         self.assertEqual(eden.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
-        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden", "edennx2"])
+        self.assertEqual([app.id for app in apps.APPS if isinstance(app.profile, apps.PortableProfile)], ["eden", "edennx2", "lichii"])
 
     def test_eden_nx2_is_eden_built_here_with_a_games_folder_of_its_own(self):
         eden, nx2 = apps.by_id("eden"), apps.by_id("edennx2")
@@ -169,14 +169,34 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((nx2.games, eden.games), ("Games/Switch2", "Games/Switch"))
         same = ("controller", "tv_scale", "env", "x11", "qt_window", "console_mode", "logo_position", "args")
         self.assertEqual([getattr(nx2, name) for name in same], [getattr(eden, name) for name in same])
-        self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden")])
+        self.assertEqual([(app.id, app.keys_from) for app in apps.APPS if app.keys_from], [("edennx2", "eden"), ("lichii", "eden")])
+
+    def test_lichii_is_an_appimage_that_keeps_edens_layout_in_nonsteamapps_profiles(self):
+        app, eden = apps.by_id("lichii"), apps.by_id("eden")
+        self.assertEqual((app.flatpak, app.release, app.from_source, app.appimage), ("", None, False, True))
+        self.assertEqual([candidate.id for candidate in apps.APPS if candidate.appimage], ["lichii"])
+        home = HOME / ".local/share/nonsteamapps/profiles/lichii"
+        profile = app.profile
+        self.assertEqual(profile.path(home, 111), home / "111")
+        self.assertEqual(profile.settings_file(home, 111), home / "111/user/config/qt-config.ini")
+        self.assertEqual(profile.settings_file(home, None), home / "shared/user/config/qt-config.ini")
+        self.assertEqual(profile.shared_path(home, apps.EDEN_KEYS), home / "shared/user/keys")
+        self.assertEqual(profile.shared_links, eden.profile.shared_links)
+        self.assertIn(("UI", "check_for_updates", "false"), profile.settings[0].values)
+        self.assertEqual(profile.settings[0].new, apps.EDEN_CONTROLS)
+        self.assertEqual((app.games, app.keys_from, app.console_mode, app.env), ("Games/Switch2", "eden", True, (("QT_QPA_PLATFORM", "xcb"),)))
+        same = ("controller", "tv_scale", "qt_window", "logo_position", "args")
+        self.assertEqual([getattr(app, name) for name in same], [getattr(eden, name) for name in same])
 
     def test_both_emulators_run_on_vulkan_and_eden_nx2_keeps_astc_textures_small(self):
         vulkan = (("Renderer", "backend\\default", "true"), ("Renderer", "backend", "1"),
                   ("Renderer", "vulkan_device\\default", "true"), ("Renderer", "vulkan_device", "0"))
         astc = (("Renderer", "accelerate_astc\\default", "true"), ("Renderer", "accelerate_astc", "1"),
                 ("Renderer", "astc_recompression\\default", "false"), ("Renderer", "astc_recompression", "2"))
-        self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics], [("eden", vulkan), ("edennx2", vulkan + astc)])
+        bc3 = (("Renderer", "accelerate_astc\\default", "true"), ("Renderer", "accelerate_astc", "1"),
+               ("Renderer", "astc_recompression\\default", "true"), ("Renderer", "astc_recompression", "2"))
+        self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics],
+                         [("eden", vulkan), ("edennx2", vulkan + astc), ("lichii", vulkan + bc3)])
 
     def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
         self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])

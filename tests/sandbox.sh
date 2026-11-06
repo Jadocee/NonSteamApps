@@ -2,7 +2,7 @@
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
 # fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall, a
 # stand-in systemctl that reaches no real service,
-# stand-in Helium and KytyPS5 releases and two Steam accounts, launches through the
+# stand-in Helium, KytyPS5 and Lichii releases and two Steam accounts, launches through the
 # links Steam runs, an update that keeps what the
 # user changed, an install that puts it back, and uninstall.sh. Needs bash,
 # python3 and xz.
@@ -20,7 +20,8 @@ run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
-        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" "$@"
+        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_LICHII_LOG="$WORK/lichii.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" \
+        FAKE_FLATPAK_ICONS=1 FAKE_DEVTOOLS_LOG="$WORK/devtools.log" HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$@"
 }
 
 check() {
@@ -32,6 +33,18 @@ check() {
         echo "    FAIL $message"
         failed=1
     fi
+}
+
+grid_file() {
+    python3 -I - "$ROOT/src/lib" "$STEAM/userdata/$1/config" "$2" "$3" <<'EOF'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from nonsteamapps import steam
+config, name, suffix = Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+entry = next(entry for entry in steam.ShortcutsFile.load(config / "shortcuts.vdf").entries() if entry.get("AppName") == name)
+print(config / "grid" / f"{steam.to_unsigned32(entry.get('appid'))}{suffix}")
+EOF
 }
 
 shortcut_names() {
@@ -115,6 +128,7 @@ printf '%s\n' '"libraryfolders"' '{' "\"0\" { \"path\" \"$STEAM\" }" "\"1\" { \"
 
 HELIUM_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_helium_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
 KYTY_ARCHIVE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_kyty_archive(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$WORK")
+LICHII_APPIMAGE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.make_lichii_appimage(pathlib.Path(sys.argv[2]) / "lichii"))' "$ROOT/tests" "$WORK")
 NX2_COMMIT=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes; print(_fakes.NX2_COMMIT)' "$ROOT/tests")
 NX2_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import nx2; print(nx2.APP_ID)' "$ROOT/src/lib")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
@@ -132,21 +146,25 @@ if pgrep -u "$(id -u)" -x plasmashell >/dev/null 2>&1; then
 fi
 
 echo "==> install.sh"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --eden-nx2-commit "$NX2_COMMIT" \
-    --skip-verify >"$WORK/install.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --lichii-archive "$LICHII_APPIMAGE" \
+    --eden-nx2-commit "$NX2_COMMIT" --skip-verify >"$WORK/install.log" 2>&1 || {
     cat "$WORK/install.log"
     exit 1
 }
-everything="Bitwarden Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 20
+everything="Bitwarden Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 Lichii LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 21
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 20
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 21
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
 check "KytyPS5 was unpacked and made current" test -x "$PROGRAM/kytyps5/current/kyty_launcher"
+check "Lichii's AppImage was installed and made current" test -x "$PROGRAM/lichii/current/lichii.AppImage"
+check "YouTube's capsule was drawn around VacuumTube's own icon" test "$(head -c 17 "$(grid_file 222 YouTube p.png)")" == "fake png capsule "
+check "Helium's hero was drawn around the icon in Helium's release" test "$(head -c 15 "$(grid_file 222 Helium _hero.jpg)")" == "fake jpeg hero "
+check "a site that names no icon keeps NonSteamApps' artwork" cmp -s "$(grid_file 222 Netflix p.png)" "$PROGRAM/artwork/netflix/capsule.png"
 check "Eden-NX2 was built from its source in the SDK" grep -qF "\"git\", \"-C\", \"/run/nonsteamapps/source\", \"fetch\", \"-q\", \"--depth\", \"1\", \"https://git.eden-emu.dev/Takoroka/eden-nx2.git\", \"$NX2_COMMIT\"]" "$WORK/flatpak.log"
 check "Eden-NX2 was installed from NonSteamApps' own repository" grep -qF "[\"install\", \"--user\", \"--noninteractive\", \"-y\", \"nonsteamapps\", \"$NX2_ID\"]" "$WORK/flatpak.log"
 check "Eden-NX2's build files and staging folder were cleared, its caches kept" test ! -e "$PROGRAM/eden-nx2/build" -a ! -e "$PROGRAM/eden-nx2/app" -a -d "$PROGRAM/eden-nx2/cpm"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "20 20"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "21 21"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
@@ -231,6 +249,15 @@ check "KytyPS5's games render at 1080p" grep -qxF "screen_resolution=1920x1080" 
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
 check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
 check "the game's downloaded content went to the folder every account shares" test -d "$PROGRAM/profiles/kytyps5/games/_DownloadData/PPSA00000" -a -L "$KYTY_HOME/_DownloadData"
+LICHII_HOME="$PROGRAM/profiles/lichii/222"
+mkdir -p "$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/keys"
+echo "header_key = 00" >"$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/keys/prod.keys"
+run "$PROGRAM/apps/lichii" --steam-account 222
+check "Lichii's AppImage started full screen, in the account's folder, on X11" grep -qF "{\"argv\": [\"-f\"], \"cwd\": \"$LICHII_HOME\", \"portable\": true, \"env\": {\"QT_QPA_PLATFORM\": \"xcb\"" "$WORK/lichii.log"
+check "Lichii's own update check is off" grep -qxF "check_for_updates=false" "$LICHII_HOME/user/config/qt-config.ini"
+check "Lichii runs on Vulkan, with ASTC textures kept as BC3" test "$(grep -cxE 'backend=1|astc_recompression=2' "$LICHII_HOME/user/config/qt-config.ini")" -eq 2
+check "Lichii lists ~/Games/Switch2" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$LICHII_HOME/user/config/qt-config.ini"
+check "Lichii took the keys installed in Eden" grep -qxF "header_key = 00" "$LICHII_HOME/user/keys/prod.keys"
 check "the account was invisible to friends while the apps ran, and online once they had closed" status_back
 
 VACUUMTUBE="$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json"
@@ -242,14 +269,14 @@ run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/
     exit 1
 }
 check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
-check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 20
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 21
 check "update kept the Eden-NX2 build it could not compare with its branch" grep -qF "could not update Eden-NX2, so the build installed stays" "$WORK/update.log"
 check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
 check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"
 
 echo "==> installing again puts NonSteamApps' set-up back"
-run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --eden-nx2-commit "$NX2_COMMIT" \
-    --skip-verify >"$WORK/reinstall.log" 2>&1 || {
+run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE" --kytyps5-archive "$KYTY_ARCHIVE" --lichii-archive "$LICHII_APPIMAGE" \
+    --eden-nx2-commit "$NX2_COMMIT" --skip-verify >"$WORK/reinstall.log" 2>&1 || {
     cat "$WORK/reinstall.log"
     exit 1
 }
@@ -263,6 +290,7 @@ run "$ROOT/uninstall.sh" --yes >"$WORK/uninstall.log" 2>&1 || {
 }
 check "only the app profiles remain" test "$(ls "$PROGRAM")" == "profiles"
 check "KytyPS5's save stayed, without its programs" test -d "$KYTY_HOME/_SaveData/PPSA00000" -a ! -e "$KYTY_HOME/kyty_launcher"
+check "Lichii's settings stayed, without its AppImages" test -f "$LICHII_HOME/user/config/qt-config.ini" -a ! -e "$PROGRAM/lichii"
 check "the shortcuts are gone" test -z "$(shortcut_names 111)$(shortcut_names 222)"
 check "the apps it installed were uninstalled" grep -q '"apps": {}' "$WORK/flatpak.json"
 check "Eden-NX2's repository was forgotten" grep -qF '["remote-delete", "--user", "--force", "nonsteamapps"]' "$WORK/flatpak.log"

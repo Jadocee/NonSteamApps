@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -10,7 +11,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, cli, collection, compat, config, nx2, presence, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, lichii, nx2, presence, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -36,6 +37,7 @@ class CliTestCase(unittest.TestCase):
         (Path(self.tmp.name) / "release").mkdir()
         self.helium_archive = _fakes.make_helium_archive(Path(self.tmp.name) / "release")
         self.kyty_archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "release")
+        self.lichii_appimage = _fakes.make_lichii_appimage(Path(self.tmp.name) / "release")
         self.steam_command = _fakes.FakeSteam(Path(self.tmp.name))
         patches = [
             mock.patch.dict(os.environ, {**_fakes.environment(self.home, self.fake, wall=self.wall), **self.steam_command.env}, clear=True),
@@ -56,6 +58,11 @@ class CliTestCase(unittest.TestCase):
         patches.append(self.status_watch)
         self.units = Path(self.tmp.name) / "units"
         patches.append(mock.patch("nonsteamapps.remote.UNIT_DIRS", (self.units,)))
+        self.system = Path(self.tmp.name) / "system"
+        patches.append(mock.patch.multiple("nonsteamapps.cli", SYSTEM_FLATPAK=self.system / "flatpak", APPLICATION_DIRS=(self.system / "applications",),
+                                           ICON_THEMES=(self.system / "icons" / "breeze", self.system / "icons" / "hicolor")))
+        self.downloads = {}
+        patches.append(mock.patch("nonsteamapps.artwork.fetch", side_effect=self.download_icon))
         self.restart_remote = mock.MagicMock(return_value=True)
         patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
         for patch in patches:
@@ -64,6 +71,11 @@ class CliTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def download_icon(self, url):
+        if url not in self.downloads:
+            raise artwork.ArtworkError(f"could not download {url}: offline in tests")
+        return self.downloads[url]
 
     def preinstalled(self):
         return {}
@@ -76,7 +88,8 @@ class CliTestCase(unittest.TestCase):
         return status
 
     def install(self, *names):
-        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive), "--skip-verify")
+        options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive),
+                   "--lichii-archive", str(self.lichii_appimage), "--skip-verify")
         self.assertEqual(self.run_cli("install", *names, *options), 0, self.errors)
 
     def entries(self, account):
@@ -1170,8 +1183,8 @@ class KytyTests(CliTestCase):
         newer = "KytyPS5-2026-11-05-5555555"
         archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "newer", newer)
         releases = json.dumps([_fakes.kyty_release(archive, newer, "2026-11-05T08:00:00Z")])
-        with mock.patch("nonsteamapps.kyty.net.fetch_text", return_value=releases), \
-                mock.patch("nonsteamapps.kyty.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
             self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
             self.assertEqual(cli._kyty(self.paths).current(), _fakes.KYTY_TAG)
             self.assertEqual(self.run_cli("update"), 0, self.errors)
@@ -1198,12 +1211,182 @@ class KytyTests(CliTestCase):
         self.assertFalse((self.paths.profiles / "kytyps5").exists())
 
     def test_without_its_download_the_other_apps_are_installed_and_kytyps5_alone_fails(self):
-        with mock.patch("nonsteamapps.kyty.net.fetch_text", side_effect=OSError("offline")):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
             self.assertEqual(self.run_cli("install", "localsend", "kytyps5", "--yes", "--no-auto-update"), 0, self.errors)
             self.assertIn("KytyPS5 was not installed, so it is left out", self.errors)
             self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
             self.assertNotEqual(self.run_cli("install", "kytyps5", "--yes", "--no-auto-update"), 0)
         self.assertIn("could not read KytyPS5's releases from GitHub: offline", self.errors)
+
+
+class LichiiTests(CliTestCase):
+    def launch_lichii(self, account=ALPHA, game_mode=False):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=game_mode), \
+                mock.patch("nonsteamapps.display.screen_size", return_value=(3840, 2160)), \
+                mock.patch("nonsteamapps.cli.os.chdir") as chdir, \
+                mock.patch.dict(os.environ):
+            argv, _ = self.launch("lichii", "--steam-account", str(account))
+            environ = dict(os.environ)
+        return argv, environ, chdir
+
+    def test_lichii_starts_its_appimage_in_each_accounts_folder_set_up_as_eden_is(self):
+        self.install("lichii")
+        tag = cli._lichii(self.paths).current()
+        self.assertIn(f"installing Lichii {lichii.describe(tag)} without checking it against GitHub (--skip-verify)", self.errors)
+        program = self.paths.lichii / "current" / lichii.PROGRAM
+        folder = self.paths.profile("lichii", ALPHA)
+        games = self.home / "Games" / "Switch2"
+        keys = self.home / ".var/app/dev.eden_emu.eden/data/eden/keys"
+        keys.mkdir(parents=True)
+        (keys / "prod.keys").write_text("header_key = 00\n")
+        argv, environ, chdir = self.launch_lichii()
+        self.assertEqual(argv, [str(program), "-f"])
+        chdir.assert_called_once_with(folder)
+        self.assertEqual(environ["QT_QPA_PLATFORM"], "xcb")
+        settings = (folder / "user/config/qt-config.ini").read_text()
+        for line in ("check_for_updates=false", "fullscreen=true", f"Paths\\gamedirs\\4\\path={games}", "backend=1", "astc_recompression=2"):
+            self.assertIn(line + "\n", settings)
+        self.assertIn("player_0_button_a=", settings)
+        self.assertTrue(games.is_dir())
+        self.assertEqual((folder / "user/keys/prod.keys").read_text(), "header_key = 00\n")
+        self.assertEqual((folder / "user/keys").resolve(), (self.paths.profiles / "lichii/shared/user/keys").resolve())
+        argv, environ, _ = self.launch_lichii(game_mode=True)
+        self.assertEqual((argv, environ["QT_SCALE_FACTOR"]), ([str(program), "-f", "-qwindowgeometry", "1280x720+0+0"], "3"))
+        self.assertIn("use_docked_mode=1\n", (folder / "user/config/qt-config.ini").read_text())
+        (folder / "user/config/qt-config.ini").write_text(settings.replace("fullscreen=true", "fullscreen=false"))
+        self.install("lichii")
+        self.assertIn("Put back Lichii's TV settings (1 data folder)", self.errors)
+        self.assertIn("fullscreen=true\n", (folder / "user/config/qt-config.ini").read_text())
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        _, _, chdir = self.launch_lichii()
+        chdir.assert_called_once_with(self.paths.profiles / "lichii" / "shared")
+        shared = (self.paths.profiles / "lichii/shared/user/config/qt-config.ini").read_text()
+        self.assertIn("check_for_updates=false\n", shared)
+        self.assertIn(f"path={games}\n", shared)
+
+    def test_lichii_updates_only_when_asked_and_rolls_back(self):
+        self.install("lichii")
+        installed = cli._lichii(self.paths).current()
+        newer = _fakes.make_lichii_appimage(Path(self.tmp.name) / "newer")
+        releases = json.dumps([_fakes.lichii_release(newer, "build-84")])
+        with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+            self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
+            self.assertEqual(cli._lichii(self.paths).current(), installed)
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Updated Lichii to build 84", self.errors)
+        self.assertEqual(self.run_cli("rollback", "lichii"), 0, self.errors)
+        self.assertEqual(cli._lichii(self.paths).current(), installed)
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"Lichii     {lichii.describe(installed)} (also build 84)", self.output)
+        self.assertEqual(self.run_cli("list"), 0)
+        self.assertIn(f"Lichii {lichii.describe(installed)}, from its GitHub releases", self.output)
+
+    def test_removing_lichii_removes_its_builds_and_keeps_each_accounts_data_unless_purged(self):
+        self.install("lichii")
+        self.launch_lichii()
+        saves = self.paths.profile("lichii", ALPHA) / "user/nand/user/save"
+        saves.mkdir(parents=True)
+        self.assertEqual(self.run_cli("remove", "lichii", "--yes"), 0, self.errors)
+        self.assertFalse(self.paths.lichii.exists())
+        self.assertTrue(saves.is_dir())
+        self.assertIn("Removed Lichii's builds; each Steam account's saves and settings stay in", self.errors)
+        self.install("lichii")
+        self.assertEqual(self.run_cli("remove", "lichii", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse((self.paths.profiles / "lichii").exists())
+
+    def test_without_its_download_the_other_apps_are_installed_and_lichii_alone_fails(self):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
+            self.assertEqual(self.run_cli("install", "localsend", "lichii", "--yes", "--no-auto-update"), 0, self.errors)
+            self.assertIn("Lichii was not installed, so it is left out", self.errors)
+            self.assertEqual(config.Record.load(self.paths.record).managed(), ["localsend"])
+            self.assertNotEqual(self.run_cli("install", "lichii", "--yes", "--no-auto-update"), 0)
+        self.assertIn("could not read Lichii's releases from GitHub: offline", self.errors)
+
+
+class ArtworkTests(CliTestCase):
+    PNG = b"\x89PNG\r\n\x1a\n"
+
+    def flatpak_icon(self, app_id, data):
+        path = self.home / ".local/share/flatpak/exports/share/icons/hicolor/512x512/apps" / f"{app_id}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def grid(self, app_id, slot="p.png", account=ALPHA):
+        entry = self.entries(account)[apps.by_id(app_id).name]
+        return steam.config_dir(self.root, account) / "grid" / f"{steam.to_unsigned32(entry.get('appid'))}{slot}"
+
+    @staticmethod
+    def drawn(slot, data, kind="png"):
+        return f"fake {kind} {slot} {hashlib.sha256(data).hexdigest()[:12]}".encode()
+
+    def test_install_draws_each_apps_artwork_around_its_own_icon(self):
+        youtube = self.PNG + b"youtube"
+        self.flatpak_icon("rocks.shy.VacuumTube", youtube)
+        applications = self.system / "applications"
+        applications.mkdir(parents=True)
+        (applications / "org.kde.dolphin.desktop").write_text("[Desktop Entry]\nName=Dolphin\nExec=dolphin %u\nIcon=system-file-manager\n")
+        folder = self.system / "icons/breeze/apps/48/system-file-manager.svg"
+        folder.parent.mkdir(parents=True)
+        folder.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+        site = "https://assets.nflxext.com/icon-512.png"
+        self.downloads[site] = self.PNG + b"netflix"
+        with mock.patch.dict(os.environ, {"FAKE_DEVTOOLS_SITE_ICONS": json.dumps([{"url": site, "sizes": "512x512", "kind": "manifest"}])}):
+            self.install("youtube", "files", "netflix", "helium", "jellyfin")
+        self.assertIn("Drew Steam artwork around each app's own icon: YouTube, Files, Netflix, Helium\n", self.errors)
+        self.assertIn("Kept NonSteamApps' artwork where no icon of the app's own was found: Jellyfin\n", self.errors)
+        for account in (ALPHA, BETA):
+            self.assertEqual(self.grid("youtube", account=account).read_bytes(), self.drawn("capsule", youtube))
+        self.assertEqual(self.grid("youtube", "_hero.jpg").read_bytes(), self.drawn("hero", youtube, "jpeg"))
+        self.assertEqual(Path(self.entries(ALPHA)["YouTube"].get("icon")).read_bytes(), self.drawn("icon", youtube))
+        self.assertEqual(self.grid("files").read_bytes(), self.drawn("capsule", folder.read_bytes()))
+        self.assertEqual(self.grid("netflix", "_logo.png").read_bytes(), self.drawn("logo", self.PNG + b"netflix"))
+        self.assertEqual(self.grid("jellyfin").read_bytes(), (self.paths.artwork("jellyfin") / "capsule.png").read_bytes())
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"artwork: drawn around its own icon, {self.home}/.local/share/flatpak/exports/share/icons/hicolor/512x512/apps/rocks.shy.VacuumTube.png\n",
+                      self.output)
+        self.assertIn("artwork: drawn around its own icon, the icon www.netflix.com names\n", self.output)
+        self.assertIn("artwork: NonSteamApps' own\n", self.output)
+
+    def test_an_update_draws_again_only_once_an_icon_changes(self):
+        icon = self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")
+        self.install("youtube", "helium")
+        log = Path(self.tmp.name) / "devtools.log"
+        with mock.patch.dict(os.environ, {"FAKE_DEVTOOLS_LOG": str(log)}):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertNotIn("captureScreenshot", log.read_text() if log.exists() else "")
+            self.assertIn("The Steam library is up to date", self.errors)
+            icon.write_bytes(self.PNG + b"two")
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Drew Steam artwork around each app's own icon: YouTube\n", self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), self.drawn("capsule", self.PNG + b"two"))
+
+    def test_with_app_icons_off_or_without_helium_the_apps_get_nonsteamapps_artwork(self):
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"youtube")
+        shipped = (self.paths.artwork("youtube") / "capsule.png").read_bytes()
+        self.install("youtube")
+        self.assertIn("The apps keep NonSteamApps' artwork: Helium, which draws artwork around each app's own icon, is not installed", self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), shipped)
+        self.install("youtube", "helium")
+        self.assertEqual(self.grid("youtube").read_bytes(), self.drawn("capsule", self.PNG + b"youtube"))
+        config.set_setting(self.paths.settings, cli.APP_ICONS, "0")
+        self.assertEqual(self.run_cli("steam", "add", "youtube", "--yes"), 0, self.errors)
+        self.assertEqual(self.grid("youtube").read_bytes(), shipped)
+        self.assertNotIn("Drew Steam artwork", self.errors)
+
+    def test_artwork_the_user_chose_stays_and_a_removed_app_forgets_what_was_drawn(self):
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")
+        self.install("youtube", "helium")
+        chosen = self.grid("youtube")
+        chosen.write_bytes(b"chosen in Steam")
+        self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"two")
+        self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertEqual(chosen.read_bytes(), b"chosen in Steam")
+        self.assertEqual(self.grid("youtube", "_hero.jpg").read_bytes(), self.drawn("hero", self.PNG + b"two", "jpeg"))
+        self.assertTrue((self.paths.state / "artwork" / "youtube").is_dir())
+        self.assertEqual(self.run_cli("remove", "youtube", "--yes"), 0, self.errors)
+        self.assertFalse((self.paths.state / "artwork" / "youtube").exists())
 
 
 class EdenNX2Tests(CliTestCase):

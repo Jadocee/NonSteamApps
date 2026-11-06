@@ -51,6 +51,7 @@ class CliTestCase(unittest.TestCase):
         self.watch = mock.patch("nonsteamapps.cli.x11.watch")
         patches.append(self.watch)
         patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
+        patches.append(mock.patch("nonsteamapps.cli.cecwatch.watch", return_value=0))
         patches.append(mock.patch("nonsteamapps.desktop.plasma_running", return_value=False))
         self.branch = _fakes.NX2_COMMIT
         patches.append(mock.patch("nonsteamapps.nx2.remote_refs", side_effect=lambda repository, fetch=None: {"refs/heads/eden-nx2": self.branch}))
@@ -443,6 +444,20 @@ class LaunchTests(CliTestCase):
                 self.assertEqual(argv[3:], ["--tv", "--fullscreen", f"--profile=steam-{ALPHA}", jellyfin])
                 argv, _ = self.launch("localsend", "--steam-account", str(ALPHA))
                 self.assertEqual(argv, [self.fake.command, "run", *localsend, "org.localsend.localsend_app"])
+
+    def test_in_game_mode_the_tv_remotes_keys_are_followed_while_an_app_runs_where_cecd_reads_them(self):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080):
+            self.launch("localsend", "--steam-account", str(ALPHA))
+            cli.cecwatch.watch.assert_not_called()
+            self.units.mkdir()
+            (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
+            self.launch("localsend", "--steam-account", str(ALPHA))
+            cli.cecwatch.watch.assert_called_once_with(os.getpid())
+            self.launch("jellyfin", "--steam-account", str(ALPHA))
+            self.assertEqual(cli.cecwatch.watch.call_count, 2)
+        self.launch("localsend", "--steam-account", str(ALPHA))
+        self.assertEqual(cli.cecwatch.watch.call_count, 2)
 
     def test_prism_starts_with_each_accounts_folder_and_is_scaled_for_a_tv(self):
         folder = self.home / f".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher-steam-{ALPHA}"

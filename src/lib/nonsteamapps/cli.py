@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, artwork, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, lichii,
-    links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy,
+    lichii, links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -803,6 +803,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     if steamclient.leave_steam_environment(os.environ):
         print("  without Steam's overlay library and Steam Runtime paths")
     _hide_from_friends(paths, app, settings, hint)
+    _follow_remote()
     if app.browser:
         return _launch_helium(paths, app, account, extra)
     if app.system:
@@ -851,6 +852,12 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
         return _serve_links(paths, app, account, command, settings, game_mode, channel)
     os.execvp(command[0], command)
     return EXIT_ERROR
+
+
+def _follow_remote() -> None:
+    """In Game Mode, where ``cecd`` reads the TV's remote, let go of a key the TV leaves pressed while the app runs (see :mod:`cecwatch`)."""
+    if steamclient.in_game_mode() and remote.cecd_present():
+        cecwatch.watch(os.getpid())
 
 
 def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: Optional[str]) -> None:

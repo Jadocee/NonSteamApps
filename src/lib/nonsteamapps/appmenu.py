@@ -26,7 +26,7 @@ REGISTRAR = "com.canonical.AppMenu.Registrar"
 BUS = "org.freedesktop.DBus"
 BUS_PATH = "/org/freedesktop/DBus"
 METHOD_CALL, METHOD_RETURN, ERROR, SIGNAL = 1, 2, 3, 4
-NO_REPLY_EXPECTED = 1
+NO_REPLY_EXPECTED, NO_AUTO_START = 1, 2
 DO_NOT_QUEUE = 4
 PRIMARY_OWNER = 1
 PATH, INTERFACE, MEMBER, ERROR_NAME, REPLY_SERIAL, DESTINATION, SENDER, SIGNATURE = range(1, 9)
@@ -172,6 +172,7 @@ class Connection:
         self.socket.settimeout(timeout)
         self.serial = 0
         self.buffer = b""
+        self.pending: List[Message] = []
         try:
             self.socket.connect(address)
             self._authenticate()
@@ -200,7 +201,13 @@ class Connection:
         return self.serial
 
     def messages(self) -> List[Message]:
-        """Read from the bus once, waiting up to the timeout, and return the whole messages that have arrived."""
+        """The messages that arrived while :meth:`call` waited for a reply, else the whole ones one read of the bus brings."""
+        if self.pending:
+            found, self.pending = self.pending, []
+            return found
+        return self._read()
+
+    def _read(self) -> List[Message]:
         chunk = self.socket.recv(65536)
         if not chunk:
             raise EOFError("the session bus closed the connection")
@@ -213,18 +220,28 @@ class Connection:
             self.buffer = self.buffer[size(self.buffer):]
             found.append(message)
 
-    def call(self, destination: str, path: str, interface: str, member: str, signature: str = "", body: bytes = b"") -> Message:
-        """Call a method and wait for its reply; an error reply raises :class:`OSError`."""
+    def call(self, destination: str, path: str, interface: str, member: str, signature: str = "", body: bytes = b"",
+             flags: int = 0) -> Message:
+        """Call a method and wait for its reply, keeping what else arrives meanwhile for :meth:`messages`.
+
+        An error reply raises :class:`OSError`.
+        """
         fields = {PATH: path, INTERFACE: interface, MEMBER: member, DESTINATION: destination}
         if signature:
             fields[SIGNATURE] = signature
-        serial = self.send(METHOD_CALL, fields, body)
+        serial = self.send(METHOD_CALL, fields, body, flags)
         while True:
-            for message in self.messages():
-                if message.fields.get(REPLY_SERIAL) == serial:
-                    if message.kind == ERROR:
-                        raise OSError(f"{member} failed: {message.fields.get(ERROR_NAME)}")
-                    return message
+            reply = None
+            for message in self._read():
+                if reply is None and message.fields.get(REPLY_SERIAL) == serial:
+                    reply = message
+                else:
+                    self.pending.append(message)
+            if reply is None:
+                continue
+            if reply.kind == ERROR:
+                raise OSError(f"{member} failed: {reply.fields.get(ERROR_NAME)}")
+            return reply
 
     def bus(self, member: str, signature: str = "", body: bytes = b"") -> Message:
         return self.call(BUS, BUS_PATH, BUS, member, signature, body)
@@ -258,7 +275,7 @@ def stand_in(alive: Callable[[], bool], ready: Callable[[], None] = lambda: None
             return False
         ready()
         while alive():
-            if select.select([connection.socket], [], [], interval)[0]:
+            if connection.pending or select.select([connection.socket], [], [], interval)[0]:
                 for message in connection.messages():
                     answer(connection, message)
         return True

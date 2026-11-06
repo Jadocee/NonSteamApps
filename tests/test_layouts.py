@@ -196,11 +196,14 @@ class FilesLayoutTests(unittest.TestCase):
             self.assertEqual((find(found["joystick"], "mode"), bindings(found["joystick"], "dpad_west")), ("dpad", ["key_press LEFT_ARROW, ⏪"]))
             self.assertEqual(bindings(found["dpad"], "dpad_north"), ["key_press UP_ARROW, ⏫"])
 
-    def test_bitwarden_keeps_the_tools_controls_and_reaches_what_its_hidden_menu_holds(self):
+    def test_bitwarden_moves_with_the_d_pad_and_left_stick_and_reaches_what_its_hidden_menu_holds(self):
         found = groups(layouts.build(layouts.BITWARDEN, self.read(layouts.BITWARDEN.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
-        tools = groups(layouts.build(layouts.TOOLS, self.read(layouts.TOOLS.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
-        self.assertEqual(found["button_diamond"], tools["button_diamond"])
-        self.assertEqual(found["dpad"], tools["dpad"])
+        arrows = [["key_press UP_ARROW, ⏫"], ["key_press DOWN_ARROW, ⏬"], ["key_press RIGHT_ARROW, ⏩"], ["key_press LEFT_ARROW, ⏪"]]
+        for source in ("dpad", "joystick"):
+            self.assertEqual((find(found[source], "mode"), [bindings(found[source], f"dpad_{way}") for way in ("north", "south", "east", "west")]),
+                             ("dpad", arrows), source)
+        self.assertEqual([bindings(found["button_diamond"], f"button_{key}") for key in "abxy"],
+                         [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"], ["key_press SPACE, Tick"]])
         switch = found["switch"]
         self.assertEqual(
             [bindings(switch, button) for button in ("button_menu", "button_escape", "left_bumper", "right_bumper")],

@@ -948,6 +948,7 @@ APPS: Tuple[App, ...] = (
         client="Bitwarden",
         flatpak="com.bitwarden.desktop",
         summary="Your Bitwarden password vault, set up for a TV and a controller",
+        args=("--enable-spatial-navigation",),
         profile=EnvProfile(
             "config/Bitwarden-steam-{account}",
             "BITWARDEN_APPDATA_DIR={folder}",

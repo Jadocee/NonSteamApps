@@ -340,6 +340,7 @@ class LaunchTests(CliTestCase):
         folder = self.home / f".var/app/com.bitwarden.desktop/config/Bitwarden-steam-{ALPHA}"
         self.assertEqual(argv, [
             self.fake.command, "run", f"--env=BITWARDEN_APPDATA_DIR={folder}", "--env=ACCESS_TOKEN_LOCATION=DISK", "com.bitwarden.desktop",
+            "--enable-spatial-navigation",
         ])
         self.assertFalse(json.loads((folder / "data.json").read_text())["global_desktopSettings_runInBackground"])
 

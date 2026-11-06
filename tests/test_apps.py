@@ -127,7 +127,8 @@ class ArgumentTests(unittest.TestCase):
 
     def test_bitwarden_gets_each_accounts_folder_in_a_variable_and_keeps_its_tokens_on_disk(self):
         bitwarden = apps.by_id("bitwarden")
-        self.assertEqual(bitwarden.arguments(HOME, 111), [])
+        self.assertEqual(bitwarden.arguments(HOME, 111), ["--enable-spatial-navigation"])
+        self.assertEqual(bitwarden.arguments(HOME, None), ["--enable-spatial-navigation"])
         self.assertEqual(bitwarden.run_options(HOME, 111),
                          ["--env=BITWARDEN_APPDATA_DIR=/home/deck/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-111"])
         self.assertEqual(bitwarden.run_options(HOME, None), [])

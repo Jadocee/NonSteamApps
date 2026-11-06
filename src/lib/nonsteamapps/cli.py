@@ -726,16 +726,20 @@ def _remove_from_desktop(paths: Paths, app: App) -> None:
 
 
 def _remote_only(paths: Paths, force: bool) -> None:
-    """Keep Plasma Remote Controllers, which reads the TV's remote, to the remote (see :mod:`remote`)."""
-    if not remote.present():
-        return
-    if remote.remote_only(paths.config.parent / remote.FILE, paths.state / remote.RECORD, force):
+    """Keep the daemon that reads the TV's remote to what the remote means: ``cecd`` or Plasma Remote Controllers (see :mod:`remote`)."""
+    if remote.cecd_present() and remote.leave_out_tv_menus(paths.config.parent, paths.state / remote.CECD_RECORD, force):
+        remote.reload_cecd()
+        ui.ok("cecd, which reads the TV's remote, no longer presses keys for the TV's own menus, which TVs leave pressed")
+    if remote.present() and remote.remote_only(paths.config.parent / remote.FILE, paths.state / remote.RECORD, force):
         remote.restart()
         ui.ok("Plasma Remote Controllers, which reads the TV's remote, no longer types the controllers' presses as keys as well")
 
 
 def _restore_remote(paths: Paths) -> None:
-    """Put back what :func:`_remote_only` changed in Plasma Remote Controllers' settings."""
+    """Put back what :func:`_remote_only` changed in the settings of the daemons that read the TV's remote."""
+    if remote.restore_cecd(paths.config.parent, paths.state / remote.CECD_RECORD):
+        remote.reload_cecd()
+        ui.ok("Put back cecd's own key mappings for the TV's remote")
     if remote.restore(paths.config.parent / remote.FILE, paths.state / remote.RECORD):
         remote.restart()
         ui.ok("Put back Plasma Remote Controllers' own settings for controllers")

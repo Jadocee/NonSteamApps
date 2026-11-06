@@ -45,5 +45,69 @@ class RemoteTests(unittest.TestCase):
         self.assertTrue(remote.present([Path(self.tmp.name) / "none", units]))
 
 
+class CecdTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.config = Path(self.tmp.name) / "config"
+        self.fragment = self.config / remote.CECD_FRAGMENT
+        self.record = Path(self.tmp.name) / "state" / remote.CECD_RECORD
+
+    def test_the_mappings_keep_cecds_own_but_the_tv_menus_whose_keys_tvs_leave_pressed(self):
+        names = dict(remote.CECD_MAPPINGS)
+        self.assertEqual(len(names), len(remote.CECD_MAPPINGS))
+        self.assertFalse(set(names) & set(remote.CECD_LEFT_OUT))
+        self.assertEqual({name: names[name] for name in ("select", "up", "down", "left", "right", "back", "play", "pause", "f1")},
+                         {"select": 28, "up": 103, "down": 108, "left": 105, "right": 106, "back": 1, "play": 200, "pause": 201, "f1": 401})
+        self.assertEqual((len(names), len(remote.CECD_LEFT_OUT)), (60, 14))
+        self.assertIn("device-root-menu", remote.CECD_LEFT_OUT)
+        text = remote.cecd_fragment()
+        self.assertTrue(text.startswith("# NonSteamApps: "))
+        self.assertIn('[mappings]\n"select" = 28\n', text)
+        self.assertNotIn("root-menu", text)
+        try:
+            import tomllib
+        except ImportError:
+            return
+        self.assertEqual(tomllib.loads(text), {"mappings": names})
+
+    def test_an_install_writes_the_mappings_an_update_keeps_what_the_user_changed_and_an_uninstall_removes_them(self):
+        self.assertTrue(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.assertEqual(self.fragment.read_text(), remote.cecd_fragment())
+        self.assertFalse(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.fragment.unlink()
+        self.assertFalse(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.assertFalse(self.fragment.exists())
+        self.assertTrue(remote.leave_out_tv_menus(self.config, self.record, force=True))
+        self.fragment.write_text(remote.cecd_fragment() + '"device-root-menu" = 618\n')
+        self.assertFalse(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.assertFalse(remote.restore_cecd(self.config, self.record))
+        self.assertTrue(self.fragment.exists())
+        self.assertTrue(remote.leave_out_tv_menus(self.config, self.record, force=True))
+        self.assertTrue(remote.restore_cecd(self.config, self.record))
+        self.assertFalse(self.fragment.exists() or self.record.exists())
+        self.assertFalse(remote.restore_cecd(self.config, self.record))
+
+    def test_an_update_writes_the_mappings_of_a_newer_nonsteamapps_but_not_over_a_file_it_did_not_write(self):
+        self.fragment.parent.mkdir(parents=True)
+        self.fragment.write_text("[mappings]\nup = 103\n")
+        self.assertFalse(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.assertEqual(self.fragment.read_text(), "[mappings]\nup = 103\n")
+        older = "[mappings]\nselect = 28\n"
+        self.fragment.write_text(older)
+        self.record.parent.mkdir(parents=True)
+        self.record.write_text(json.dumps({"sha256": remote._digest(older)}))
+        self.assertTrue(remote.leave_out_tv_menus(self.config, self.record, force=False))
+        self.assertEqual(self.fragment.read_text(), remote.cecd_fragment())
+
+    def test_cecd_counts_only_where_its_unit_is_installed(self):
+        units = Path(self.tmp.name) / "units"
+        self.assertFalse(remote.cecd_present([units]))
+        units.mkdir()
+        (units / remote.CECD_UNIT).write_text("[Unit]\n")
+        self.assertTrue(remote.cecd_present([units]))
+        self.assertFalse(remote.present([units]))
+
+
 if __name__ == "__main__":
     unittest.main()

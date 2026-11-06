@@ -11,7 +11,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, lichii, nx2, presence, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, lichii, nx2, presence, remote, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -65,6 +65,8 @@ class CliTestCase(unittest.TestCase):
         patches.append(mock.patch("nonsteamapps.artwork.fetch", side_effect=self.download_icon))
         self.restart_remote = mock.MagicMock(return_value=True)
         patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
+        self.reload_cecd = mock.MagicMock(return_value=True)
+        patches.append(mock.patch("nonsteamapps.remote.reload_cecd", self.reload_cecd))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -783,6 +785,29 @@ class SteamPlayTests(CliTestCase):
         self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
         self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=true\n")
         self.assertIn("Put back Plasma Remote Controllers' own settings for controllers", self.errors)
+
+    def test_cecd_stops_pressing_keys_for_the_tvs_own_menus_and_gets_its_mappings_back(self):
+        fragment = self.home / ".config" / remote.CECD_FRAGMENT
+        self.install("localsend")
+        self.assertFalse(fragment.exists())
+        self.assertEqual(self.reload_cecd.call_count, 0)
+        self.units.mkdir()
+        (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
+        self.install("localsend")
+        self.assertEqual(fragment.read_text(), remote.cecd_fragment())
+        self.assertIn("cecd, which reads the TV's remote, no longer presses keys for the TV's own menus, which TVs leave pressed", self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 1)
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 1)
+        fragment.unlink()
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertFalse(fragment.exists())
+        self.install("localsend")
+        self.assertTrue(fragment.exists())
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertFalse(fragment.exists())
+        self.assertIn("Put back cecd's own key mappings for the TV's remote", self.errors)
+        self.assertEqual(self.reload_cecd.call_count, 3)
 
     def test_an_update_also_runs_every_app_natively_and_without_steams_overlay(self):
         self.install("localsend")

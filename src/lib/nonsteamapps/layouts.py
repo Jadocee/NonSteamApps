@@ -29,9 +29,13 @@ layouts, and then assigned like Valve's own (see :mod:`controllers`).
   and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
   A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
   Space, which would tick a box and close its dialog at once.
-- **Bitwarden** is Tools with Bitwarden's shortcuts for what its menu bar holds, which Game Mode hides
-  (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L), L1 searches it
-  (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
+- **Bitwarden** starts from Web Browser, for Bitwarden's web interface, in which the arrow keys move between
+  controls by where they are on screen (Chromium's spatial navigation, see :mod:`apps`): the D-pad, and the left
+  stick instead of scrolling, send them. A presses Enter, which opens a link, presses a button or sends a form
+  (Space would not open the links of its sidebar), B is Escape and Y is Space, which ticks a box. Valve's A also
+  presses Space, which would press a button twice. Bitwarden's shortcuts stand in for what its menu bar holds,
+  which Game Mode hides (see :mod:`appmenu`): Menu opens the settings (Ctrl+,), View locks the vault (Ctrl+L),
+  L1 searches it (Ctrl+F), R1 opens the password generator (Ctrl+G), and holding Menu quits (Ctrl+Q).
 - **Jellyfin** starts from Web Browser and sends Jellyfin Desktop's keys, as its Flatpak cannot reach a
   controller itself: the D-pad and the left stick move (arrow keys), A selects (Enter), B goes back
   (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
@@ -202,8 +206,13 @@ def _youtube(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.P
 
 
 def _bitwarden(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
-    group = _tools(source, group, base)
-    if source == "switch":
+    if source == "joystick" and "dpad" in base:
+        group = _stick_as_dpad(group, base)
+    elif source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press SPACE, Tick"])
+    elif source == "switch":
         _bind(group, "button_menu", ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
         _hold(group, "button_menu", ["key_press LEFT_CONTROL, Quit", "key_press Q"])
         _bind(group, "button_escape", ["key_press LEFT_CONTROL, Lock", "key_press L"])
@@ -304,9 +313,10 @@ TOOLS = Layout(
 BITWARDEN = Layout(
     slug="bitwarden",
     title="Bitwarden (NonSteamApps)",
-    description="D-pad to move, A to select, Y for OK, B to cancel, X for the keyboard, Start for settings, View to lock, L1 to search, R1 for the generator, hold Start to quit",
+    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, Start for settings, View to lock, L1 to search, R1 for the generator, hold Start to quit",
     base="controller_neptune_webbrowser.vdf",
     change=_bitwarden,
+    revision="2",
 )
 YOUTUBE = Layout(
     slug="youtube",

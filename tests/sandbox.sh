@@ -210,7 +210,7 @@ check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_
 check "the TV profile starts without the menu bar" grep -qxF "MenuBar=Disabled" "$PROGRAM/profiles/files/shared/config/dolphinrc"
 run "$PROGRAM/apps/bitwarden" --steam-account 222
 BITWARDEN="$HOME_DIR/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-222"
-check "Bitwarden started with the account's folder and its tokens on disk" grep -qF "[\"run\", \"--env=BITWARDEN_APPDATA_DIR=$BITWARDEN\", \"--env=ACCESS_TOKEN_LOCATION=DISK\", \"com.bitwarden.desktop\"]" "$WORK/flatpak.log"
+check "Bitwarden started with the account's folder, its tokens on disk and spatial navigation" grep -qF "[\"run\", \"--env=BITWARDEN_APPDATA_DIR=$BITWARDEN\", \"--env=ACCESS_TOKEN_LOCATION=DISK\", \"com.bitwarden.desktop\", \"--enable-spatial-navigation\"]" "$WORK/flatpak.log"
 check "Bitwarden quits when its window closes" test "$(json_value "$BITWARDEN/data.json" global_desktopSettings_runInBackground)" == "false"
 run "$PROGRAM/apps/localsend" --steam-account 222
 check "LocalSend starts dark, in its OLED colours" test "$(json_value "$HOME_DIR/.var/app/org.localsend.localsend_app/data/org.localsend.localsend_app/shared_preferences.json" flutter.ls_color)" == '"oled"'

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check of the shipped scripts in a throwaway home: install.sh with a
-# fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall,
+# fake flatpak, which also stands in for Eden-NX2's build, a running fake firewall, a
+# stand-in systemctl that reaches no real service,
 # stand-in Helium and KytyPS5 releases and two Steam accounts, launches through the
 # links Steam runs, an update that keeps what the
 # user changed, an install that puts it back, and uninstall.sh. Needs bash,
@@ -19,7 +20,7 @@ run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
-        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" "$@"
+        FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" "$@"
 }
 
 check() {
@@ -104,6 +105,7 @@ ln -s "$ROOT/tests/fakes/steam" "$WORK/bin/steam"
 ln -s "$ROOT/tests/fakes/firewall-cmd" "$WORK/bin/firewall-cmd"
 ln -s "$ROOT/tests/fakes/sudo" "$WORK/bin/sudo"
 ln -s "$ROOT/tests/fakes/dolphin" "$WORK/bin/dolphin"
+ln -s "$ROOT/tests/fakes/systemctl" "$WORK/bin/systemctl"
 echo '{"running": true, "default": "public", "active": ["public"], "runtime": {}, "permanent": {}}' >"$WORK/firewall.json"
 printf '%s\n' '"users"' '{' \
     '  "76561197960265839" { "AccountName" "alpha" "PersonaName" "Alpha" "MostRecent" "1" }' \
@@ -150,7 +152,8 @@ check "Files got its own controller layout for each controller" test "$(find "$T
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
 check "YouTube got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_youtube.vdf' | wc -l)" -eq 2
 check "Jellyfin got its own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_jellyfin.vdf' | wc -l)" -eq 2
-check "Helium joined the applications menu" grep -qxF "Exec=\"$PROGRAM/apps/helium\" %U" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+check "Helium joined the applications menu, starting Helium itself" grep -qxF "Exec=\"$PROGRAM/helium/current/helium-wrapper\" --class=nonsteamapps-helium %U" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
+check "Helium's entry has Helium's own icon" grep -qxF "Icon=$PROGRAM/helium/current/product_logo_256.png" "$HOME_DIR/.local/share/applications/nonsteamapps-helium.desktop"
 if [ "$PLASMA_HERE" = 0 ]; then
     check "Helium joined the taskbar, after Plasma's own launchers" grep -qxF "launchers=applications:systemsettings.desktop,applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop" "$LAYOUT"
 fi
@@ -192,10 +195,15 @@ check "Eden started full screen, portable and on X11, in the account's folder, w
 check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden shares the keys, firmware and installed games" test "$(readlink "$EDEN/eden-steam-222/user/keys")" == "../../eden/keys" -a -d "$EDEN/eden/nand/user/Contents/registered"
+check "Eden runs on Vulkan, on the first graphics chip" grep -qxF "backend=1" "$EDEN/eden-steam-222/user/config/qt-config.ini"
+printf 'header_key = 00\n' > "$EDEN/eden/keys/prod.keys"
 NX2="$HOME_DIR/.var/app/$NX2_ID/data"
 run "$PROGRAM/apps/edennx2" --steam-account 222
 check "Eden-NX2 started as Eden does, from its own Flatpak, with its own games folder" grep -qF "[\"run\", \"--cwd=$NX2/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch2:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"$NX2_ID\", \"-f\"]" "$WORK/flatpak.log"
 check "Eden-NX2 lists ~/Games/Switch2 among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$NX2/eden-steam-222/user/config/qt-config.ini"
+check "Eden-NX2 took the keys installed in Eden, so it does not ask for them" cmp -s "$EDEN/eden/keys/prod.keys" "$NX2/eden-steam-222/user/keys/prod.keys"
+check "Eden-NX2 runs on Vulkan" grep -qxF "backend=1" "$NX2/eden-steam-222/user/config/qt-config.ini"
+check "Eden-NX2 keeps ASTC textures as BC3, decoded on the graphics chip" grep -qxF "astc_recompression=2" "$NX2/eden-steam-222/user/config/qt-config.ini"
 run "$PROGRAM/apps/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"

@@ -22,7 +22,7 @@ import json
 import os
 import urllib.parse
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import List, MutableMapping, Optional, Sequence, Tuple
 
 from .fsutil import atomic_write_bytes, atomic_write_json
 
@@ -34,6 +34,22 @@ FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
 EXIT_COMMAND = "34031"
 EXIT_SHORTCUT = "Control+Shift+KeyQ"
 BROWSER_BINARIES = ("helium", "chrome", "chromium")
+STEAM_INPUT_METHOD = "Steam"
+SIMPLE_INPUT_METHOD = "simple"
+
+
+def single_keystrokes(environ: MutableMapping[str, str]) -> bool:
+    """Have Helium take each key of Steam's on-screen keyboard once; return whether ``environ`` changed.
+
+    Steam's Game Mode starts games with ``GTK_IM_MODULE=Steam``, its own GTK input method, which can deliver the same
+    text twice to a Chromium-based program that, like Helium, runs on SteamOS itself and can load it; an app in a
+    Flatpak cannot. Helium then gets GTK's simple input method instead. Another input method, such as one chosen
+    for Desktop Mode, stays.
+    """
+    if environ.get("GTK_IM_MODULE", "").strip().lower() != STEAM_INPUT_METHOD.lower():
+        return False
+    environ["GTK_IM_MODULE"] = SIMPLE_INPUT_METHOD
+    return True
 
 
 def deep_merge(base: dict, overlay: dict) -> dict:

@@ -333,8 +333,8 @@ class ShortcutsFile:
 
         Without one, an entry for any of ``spec.legacy_exes`` is taken over instead,
         so the shortcut keeps its app ID, play time and per-game settings. ``overwrite``
-        sets the name, launch options and overlay back to ``spec``; without it, a name the
-        user gave, options they added and their overlay choice stay.
+        sets the name and launch options back to ``spec``; without it, a name the user gave
+        and options they added stay. The overlay always follows ``spec``.
         """
         matches = self.matches(spec)
         if not matches:
@@ -352,8 +352,7 @@ class ShortcutsFile:
         entry.set("StartDir", quote(spec.start_dir))
         options = spec.launch_options if overwrite else merge_launch_options(str(entry.get("LaunchOptions", "")), spec.launch_options)
         entry.set("LaunchOptions", options)
-        if overwrite or entry.get("AllowOverlay") is None:
-            entry.set("AllowOverlay", int(spec.overlay), vdf.INT32)
+        entry.set("AllowOverlay", int(spec.overlay), vdf.INT32)
         if spec.icon:
             entry.set("icon", spec.icon)
         appid = self.entry_appid(entry)

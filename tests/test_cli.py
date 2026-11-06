@@ -54,6 +54,10 @@ class CliTestCase(unittest.TestCase):
         patches.append(mock.patch.multiple("nonsteamapps.nx2", BUILD_SPACE=0, SDK_SPACE=0))
         self.status_watch = mock.patch("nonsteamapps.presence.Presence.watch")
         patches.append(self.status_watch)
+        self.units = Path(self.tmp.name) / "units"
+        patches.append(mock.patch("nonsteamapps.remote.UNIT_DIRS", (self.units,)))
+        self.restart_remote = mock.MagicMock(return_value=True)
+        patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -473,6 +477,37 @@ class LaunchTests(CliTestCase):
         self.assertEqual(mode(True), "[System]\nuse_docked_mode\\default=false\nuse_docked_mode=0\n")
         self.assertIn("[UI]\n", settings.read_text())
 
+    def test_each_start_runs_eden_and_eden_nx2_on_vulkan_even_after_eden_fell_back_to_opengl(self):
+        vulkan = "[Renderer]\nbackend\\default=true\nbackend=1\nvulkan_device\\default=true\nvulkan_device=0\n"
+        astc = "accelerate_astc\\default=true\naccelerate_astc=1\nastc_recompression\\default=false\nastc_recompression=2\n"
+        eden = self.home / f".var/app/dev.eden_emu.eden/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+        edennx2 = self.home / f".var/app/{nx2.APP_ID}/data/eden-steam-{ALPHA}/user/config/qt-config.ini"
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        self.assertTrue(eden.read_text().endswith("\n\n" + vulkan))
+        self.assertIn(vulkan + astc, edennx2.read_text())
+        eden.write_text(eden.read_text().replace("backend\\default=true\nbackend=1", "backend\\default=false\nbackend=0"))
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertIn(vulkan, eden.read_text())
+        self.assertNotIn("backend=0", eden.read_text())
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        self.paths.settings.write_text(f"{cli.PER_ACCOUNT}=0\n")
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertIn(vulkan, (self.home / ".var/app/dev.eden_emu.eden/config/eden/qt-config.ini").read_text())
+
+    def test_eden_nx2_takes_the_keys_installed_in_eden_so_that_it_does_not_ask_for_them(self):
+        eden = self.home / ".var/app/dev.eden_emu.eden/data/eden/keys"
+        edennx2 = self.home / f".var/app/{nx2.APP_ID}/data/eden/keys"
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        self.assertEqual(sorted(path.name for path in edennx2.iterdir()), [])
+        self.launch("eden", "--steam-account", str(BETA))
+        (eden / "prod.keys").write_text("header_key = 00\n")
+        self.launch("edennx2", "--steam-account", str(ALPHA))
+        account = self.home / f".var/app/{nx2.APP_ID}/data/eden-steam-{ALPHA}/user/keys"
+        self.assertEqual([(path.name, path.read_text()) for path in account.iterdir()], [("prod.keys", "header_key = 00\n")])
+        self.launch("eden", "--steam-account", str(ALPHA))
+        self.assertEqual(sorted(path.name for path in eden.iterdir()), ["prod.keys"])
+
     def test_the_proton_tools_start_with_a_tv_set_up_and_reach_every_steam_library(self):
         library = Path(self.tmp.name) / "SD Card"
         library.mkdir()
@@ -707,6 +742,40 @@ class SteamPlayTests(CliTestCase):
         self.assertNotIn(str(appid), compat.config_file(self.root).read_text())
         self.assertEqual(compat.forced(self.root, [1245620]), {1245620: "proton_9"})
 
+    def test_the_tv_remotes_daemon_stops_typing_the_controllers_presses_and_gets_its_settings_back(self):
+        settings = self.home / ".config" / "plasma-remotecontrollersrc"
+        self.install("localsend")
+        self.assertFalse(settings.exists())
+        self.units.mkdir()
+        (self.units / "plasma-remotecontrollers.service").write_text("[Unit]\n")
+        settings.write_text("[General]\nEnableCEC=true\n")
+        self.install("localsend")
+        self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=false\nEnableEvdev=false\n")
+        self.assertIn("Plasma Remote Controllers, which reads the TV's remote, no longer types the controllers' presses as keys as well", self.errors)
+        self.assertEqual(self.restart_remote.call_count, 1)
+        settings.write_text("[General]\nEnableCEC=true\nEnableJoystick=true\nEnableEvdev=false\n")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("EnableJoystick=true", settings.read_text())
+        self.install("localsend")
+        self.assertIn("EnableJoystick=false", settings.read_text())
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertEqual(settings.read_text(), "[General]\nEnableCEC=true\nEnableJoystick=true\n")
+        self.assertIn("Put back Plasma Remote Controllers' own settings for controllers", self.errors)
+
+    def test_an_update_also_runs_every_app_natively_and_without_steams_overlay(self):
+        self.install("localsend")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("The Steam library is up to date", self.errors)
+        appid = self.force("localsend", "steamlinuxruntime_sniper")
+        path = steam.config_dir(self.root, ALPHA) / "shortcuts.vdf"
+        shortcuts = steam.ShortcutsFile.load(path)
+        shortcuts.find(str(self.paths.app_link("localsend")))[0].set("AllowOverlay", 1, vdf.INT32)
+        shortcuts.save()
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn("LocalSend no longer forces the Steam Play tool steamlinuxruntime_sniper", self.errors)
+        self.assertEqual(compat.forced(self.root, [appid, 1245620]), {1245620: "proton_9"})
+        self.assertEqual([entry.get("AllowOverlay") for entry in self.entries(ALPHA).values()], [0])
+
 
 class FilesTests(CliTestCase):
     def setUp(self):
@@ -847,9 +916,15 @@ class HeliumAppTests(CliTestCase):
         entry = self.paths.desktop_entry("helium")
         self.assertEqual(entry, self.home / ".local/share/applications/nonsteamapps-helium.desktop")
         text = entry.read_text()
-        for line in (f'Exec="{self.paths.app_link("helium")}" %U', f"Icon={self.paths.artwork('helium') / 'icon.png'}",
-                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser"):
+        wrapper = cli._runtime(self.paths).executable
+        self.assertEqual(wrapper, self.paths.helium / "current" / "helium-wrapper")
+        for line in (f'Exec="{wrapper}" --class=nonsteamapps-helium %U', f'Exec="{wrapper}" --class=nonsteamapps-helium',
+                     f'Exec="{wrapper}" --class=nonsteamapps-helium --incognito', f"Icon={self.paths.helium / 'current' / 'product_logo_256.png'}",
+                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser", "GenericName[de]=Web-Browser",
+                     "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;", "Name=New Incognito Window"):
             self.assertIn(line + "\n", text)
+        self.assertNotIn("Exec=helium", text)
+        self.assertNotIn(str(self.paths.app_link("helium")), text)
         self.assertIn("Added Helium to Desktop Mode's applications menu and taskbar", self.errors)
         pinned = ("[Containments][1][Applets][2][Configuration][General]\nlaunchers=applications:systemsettings.desktop,"
                   "applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop\n")
@@ -864,6 +939,36 @@ class HeliumAppTests(CliTestCase):
         self.install("helium")
         self.assertIn("Plasma's taskbar could not be changed, so pin it from the menu", self.errors)
         self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertFalse(entry.exists())
+
+    def test_without_heliums_own_entry_desktop_mode_still_starts_helium_itself(self):
+        bare = Path(self.tmp.name) / "bare"
+        bare.mkdir()
+        self.helium_archive = _fakes.make_helium_archive(bare, own_entry=False)
+        self.install("helium")
+        text = self.paths.desktop_entry("helium").read_text()
+        for line in (f'Exec="{cli._runtime(self.paths).executable}" --class=nonsteamapps-helium %U', f"Icon={self.paths.artwork('helium') / 'icon.png'}",
+                     "StartupWMClass=nonsteamapps-helium", "GenericName=Web Browser", "Categories=Network;WebBrowser;"):
+            self.assertIn(line + "\n", text)
+
+    def test_update_rewrites_an_earlier_entry_but_brings_back_none_the_user_removed(self):
+        layout = self.paths.plasma_layout
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        self.install("helium")
+        entry = self.paths.desktop_entry("helium")
+        current = entry.read_text()
+        entry.write_text(f'[Desktop Entry]\nType=Application\nName=Helium\nExec="{self.paths.app_link("helium")}" %U\nStartupWMClass=nonsteamapps-helium\n')
+        pinned = layout.read_text()
+        with mock.patch.object(cli.Runtime, "update", return_value=None):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertEqual(entry.read_text(), current)
+            self.assertIn("Refreshed Helium's entry in Desktop Mode's applications menu", self.errors)
+            self.assertEqual(layout.read_text(), pinned)
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+            self.assertNotIn("Refreshed Helium's entry", self.errors)
+            entry.unlink()
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
         self.assertFalse(entry.exists())
 
     def test_protondb_opens_the_library_of_the_account_that_starts_it(self):
@@ -886,6 +991,13 @@ class HeliumAppTests(CliTestCase):
         self.assertIn("--start-maximized", argv)
         preferences = json.loads((self.paths.profiles / "helium" / str(ALPHA) / "Default" / "Preferences").read_text())
         self.assertFalse(preferences["helium"]["services"]["enabled"])
+
+    def test_helium_takes_each_key_of_steams_keyboard_once(self):
+        self.install("helium")
+        for given, used in (("Steam", "simple"), ("fcitx", "fcitx")):
+            with mock.patch.dict(os.environ, {"GTK_IM_MODULE": given}):
+                self.launch("helium", "--steam-account", str(ALPHA))
+                self.assertEqual(os.environ["GTK_IM_MODULE"], used)
 
     def test_the_old_helium_scale_setting_still_applies(self):
         self.install("helium")
@@ -1272,6 +1384,8 @@ class SignInTests(CliTestCase):
             "FAKE_FLATPAK_DONE": str(Path(self.tmp.name) / "signed-in"),
             "FAKE_HELIUM_OPEN": callback,
             "FAKE_HELIUM_LOG": str(Path(self.tmp.name) / "helium.log"),
+            "FAKE_HELIUM_INPUT_LOG": str(Path(self.tmp.name) / "helium-input.log"),
+            "GTK_IM_MODULE": "Steam",
         }
         with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
@@ -1294,6 +1408,7 @@ class SignInTests(CliTestCase):
         [helium] = [json.loads(line) for line in (Path(self.tmp.name) / "helium.log").read_text().splitlines()]
         self.assertEqual((helium[0], helium[-1]), (f"--user-data-dir={profile}", authorize))
         self.assertIn("--ozone-platform=x11", helium)
+        self.assertEqual((Path(self.tmp.name) / "helium-input.log").read_text(), "simple\n")
         preferences = json.loads((profile / "Default" / "Preferences").read_text())
         self.assertTrue(preferences["protocol_handler"]["allowed_origin_protocol_pairs"]["https://account.example.org"]["io.element.desktop"])
         self.assertIn("opening the sign-in page at account.example.org in Helium", output)

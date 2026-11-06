@@ -212,7 +212,8 @@ class FilesLayoutTests(unittest.TestCase):
     def test_emulators_play_with_a_gamepad_and_the_trackpad_clicks_in_their_menus(self):
         deck = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(find(deck["right_trackpad"], "mode"), "absolute_mouse")
-        self.assertEqual(bindings(deck["right_trackpad"], "click"), ["mouse_button LEFT"])
+        self.assertEqual(bindings(deck["right_trackpad"], "click", "Soft_Press"), ["mouse_button LEFT"])
+        self.assertNotIn("JOYSTICK_RIGHT", vdf.dumps_pairs([("group", deck["right_trackpad"])]))
         self.assertEqual(bindings(deck["button_diamond"], "button_a"), ["xinput_button A"])
         self.assertEqual(bindings(deck["switch"], "button_menu"), ["xinput_button button_menu"])
         xbox = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
@@ -241,7 +242,7 @@ class FilesLayoutTests(unittest.TestCase):
                                   ["key_press RETURN, OK"]])
                 self.assertEqual(bindings(active["button_diamond"], "button_a"), ["xinput_button A"])
                 self.assertEqual(find(active["right_joystick"], "mode"), "joystick_move")
-                self.assertEqual(find(mappings, "revision"), "2")
+                self.assertEqual(find(mappings, "revision"), "3")
         alone = layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_xboxone_gamepad_joystick.vdf"))
         self.assertFalse(any(binding.endswith("modeshift") for _, binding in find(find(find(alone, "controller_mappings"), "preset"), "group_source_bindings")))
         (self.folder / layouts.EMULATOR.shift.template).unlink()

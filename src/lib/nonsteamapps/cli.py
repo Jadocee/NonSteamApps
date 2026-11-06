@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
     __version__, appmenu, apps, browser, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy, links, nx2,
-    presence, selfupdate, steam, steamclient, timer, ui, x11,
+    presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -207,21 +207,26 @@ Work = Tuple[App, steam.ShortcutSpec, Dict[str, Path], steam.LogoPosition]
 
 
 def _library_changes(root: Path, accounts: Sequence[int], work: Sequence[Work], found: Dict[str, Dict[str, str]], record: steam.ArtworkRecord) -> bool:
-    """Whether refreshing the shortcuts already there, keeping what the user changed, would change Steam's own files."""
+    """Whether refreshing the shortcuts already there, keeping what the user changed, would change Steam's own files.
+
+    A Steam Play tool forced on one of them counts: none of the apps runs under one (see :mod:`compat`).
+    """
+    appids = []
     for app, spec, artwork, logo in work:
         for result in steam.add_shortcut(root, accounts, spec, artwork, logo, overwrite=False, record=record, create=False, dry_run=True):
             if result.changed or (app.controller and controllers.pending(root, result.account, result.name, found[app.controller])):
                 return True
-    return False
+            appids.append(result.appid)
+    return bool(compat.forced(root, appids))
 
 
 def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True, overwrite: bool = True) -> None:
     """Add the apps to the Steam library of each account ``user`` selects.
 
     With ``overwrite``, as install and ``steam add`` do, each shortcut, its artwork and its controller layout
-    become NonSteamApps' again, the apps join the collection and no Steam Play tool stays forced. Without it, as
-    update does, only shortcuts already there are refreshed and what the user changed stays; Steam is closed only
-    when its own files must change.
+    become NonSteamApps' again and the apps join the collection. Without it, as update does, only shortcuts
+    already there are refreshed and what the user changed stays; Steam is closed only when its own files must
+    change. Either way, the shortcuts keep Steam's overlay off and no Steam Play tool stays forced on them.
     """
     root = _steam_root()
     if root is None:
@@ -269,12 +274,12 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
                     collection.update(path, name, add=appids)
                 else:
                     collection.delete(path)
-            native = compat.clear(root, owners)
+        native = compat.clear(root, owners)
     record.save()
-    if not overwrite:
-        return
     for appid, tool in sorted(native.items()):
         ui.ok(f"{owners[appid].name} no longer forces the Steam Play tool {tool}: like every NonSteamApps app, it runs natively")
+    if not overwrite:
+        return
     if name and len(waiting) < len(added):
         ui.ok(f'Put {_listing(chosen)} in the "{name}" collection')
     if name and waiting:
@@ -496,6 +501,7 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
             _add_to_desktop(paths, app)
     _open_ports(record, chosen)
     record.save()
+    _remote_only(paths, force=True)
 
     if args.auto_update:
         timer.install(paths)
@@ -551,11 +557,41 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     return 0
 
 
+def _desktop_text(paths: Paths, app: App, entry: Path) -> str:
+    """The app's desktop file: for a Helium app with an ``own`` entry, Helium's, starting the Helium that is installed.
+
+    Helium's release ships its menu entry and icon; without them, NonSteamApps writes an entry that still starts
+    Helium itself. Any other app's entry starts NonSteamApps' launcher.
+    """
+    if not app.desktop.own:
+        return desktop.entry_text(app.name, app.summary, paths.app_link(app.id), paths.artwork(app.id) / "icon.png", entry.stem,
+                                  app.desktop.generic, app.desktop.categories)
+    program = _runtime(paths).executable
+    shipped = program.parent / app.desktop.icon
+    icon = shipped if app.desktop.icon and shipped.is_file() else paths.artwork(app.id) / "icon.png"
+    try:
+        return desktop.program_entry((program.parent / app.desktop.own).read_text(encoding="utf-8"), program, icon, entry.stem)
+    except (OSError, UnicodeDecodeError):
+        return desktop.entry_text(app.name, app.summary, program, icon, entry.stem, app.desktop.generic, app.desktop.categories,
+                                  arguments=(f"--class={entry.stem}",))
+
+
+def _refresh_desktop(paths: Paths, app: App) -> None:
+    """Write the app's menu entry again where it is, as the release it starts may have changed, leaving the taskbar as it is."""
+    entry = paths.desktop_entry(app.id)
+    if not entry.is_file():
+        return
+    try:
+        if desktop.write_entry(entry, _desktop_text(paths, app, entry)):
+            ui.ok(f"Refreshed {app.name}'s entry in Desktop Mode's applications menu")
+    except OSError as exc:
+        ui.warn(f"could not refresh {app.name}'s entry in Desktop Mode's applications menu: {exc}")
+
+
 def _add_to_desktop(paths: Paths, app: App) -> None:
     """Add the app to Desktop Mode's applications menu and pin it to Plasma's taskbar (see :mod:`desktop`)."""
     entry = paths.desktop_entry(app.id)
-    text = desktop.entry_text(app.name, app.summary, paths.app_link(app.id), paths.artwork(app.id) / "icon.png", entry.stem,
-                              app.desktop.generic, app.desktop.categories)
+    text = _desktop_text(paths, app, entry)
     try:
         desktop.write_entry(entry, text)
     except OSError as exc:
@@ -576,6 +612,22 @@ def _remove_from_desktop(paths: Paths, app: App) -> None:
     if desktop.unpin(desktop.launcher(entry), paths.plasma_layout):
         ui.ok(f"Took {app.name} off Desktop Mode's taskbar")
     entry.unlink(missing_ok=True)
+
+
+def _remote_only(paths: Paths, force: bool) -> None:
+    """Keep Plasma Remote Controllers, which reads the TV's remote, to the remote (see :mod:`remote`)."""
+    if not remote.present():
+        return
+    if remote.remote_only(paths.config.parent / remote.FILE, paths.state / remote.RECORD, force):
+        remote.restart()
+        ui.ok("Plasma Remote Controllers, which reads the TV's remote, no longer types the controllers' presses as keys as well")
+
+
+def _restore_remote(paths: Paths) -> None:
+    """Put back what :func:`_remote_only` changed in Plasma Remote Controllers' settings."""
+    if remote.restore(paths.config.parent / remote.FILE, paths.state / remote.RECORD):
+        remote.restart()
+        ui.ok("Put back Plasma Remote Controllers' own settings for controllers")
 
 
 def _unlink_kyty_homes(paths: Paths) -> None:
@@ -652,6 +704,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     for wanted in app.settings:
         if not wanted.target(app.home(paths.home)).exists():
             wanted.apply(app.home(paths.home))
+    _share_keys(paths, app)
+    _graphics(paths, app, account)
     _place_userstyles(paths, app, account)
     games = _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
@@ -738,6 +792,27 @@ def _console_mode(paths: Paths, app: App, account: Optional[int], settings: Dict
         print(f"  {app.client} runs {'docked' if docked else 'handheld'}: {reason}", flush=True)
 
 
+def _graphics(paths: Paths, app: App, account: Optional[int]) -> None:
+    """Write the emulator's graphics settings for SteamOS's hardware, such as Vulkan, in case it saved another after a failed start."""
+    if not app.graphics or not isinstance(app.profile, apps.PortableProfile):
+        return
+    settings_file = app.profile.settings_file(app.home(paths.home), account)
+    if settings_file and apps.write_eden_settings(settings_file, app.graphics):
+        chosen = ", ".join(f"{key}={value}" for _, key, value in app.graphics if not key.endswith("\\default"))
+        print(f"  set {app.client}'s graphics: {chosen}", flush=True)
+
+
+def _share_keys(paths: Paths, app: App) -> None:
+    """Give the emulator the decryption keys installed in the one ``keys_from`` names, so that it does not ask for them at every start."""
+    origin = apps.by_id(app.keys_from) if app.keys_from else None
+    if not origin or not isinstance(app.profile, apps.PortableProfile) or not isinstance(origin.profile, apps.PortableProfile):
+        return
+    source = origin.profile.shared_path(origin.home(paths.home), apps.EDEN_KEYS)
+    copied = apps.copy_keys(source, app.profile.shared_path(app.home(paths.home), apps.EDEN_KEYS))
+    if copied:
+        print(f"  gave {app.client} the keys installed in {origin.client}: {', '.join(copied)}", flush=True)
+
+
 def _place_userstyles(paths: Paths, app: App, account: Optional[int]) -> None:
     folder = app.profile.data_folder(app.home(paths.home), account) if app.userstyles and app.profile else None
     if not folder:
@@ -791,6 +866,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
     services = config.enabled(settings.get(HELIUM_SERVICES), default=True)
     factor = display.scale(_scale_setting(settings), game_mode)
     environment = links.browser_environment(os.environ, paths.program / "share" / "sandbox", pipe, app.callbacks)
+    browser.single_keystrokes(environment)
     browsers: List[subprocess.Popen] = []
 
     def open_web(url: str) -> None:
@@ -846,6 +922,8 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     extensions = [paths.focus_extension, *(paths.extension(folder) for folder in app.browser.extensions)]
     command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, extensions), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
+    if browser.single_keystrokes(os.environ):
+        print(f"  typing through GTK's simple input method, as {browser.STEAM_INPUT_METHOD}'s types each key twice in Helium", flush=True)
     if window:
         x11.watch(name, os.getpid())
     os.execv(command[0], command)
@@ -1005,8 +1083,11 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
     if message:
         ui.info(message)
     timer.refresh(paths)
+    _remote_only(paths, force=False)
     for app in managed:
         _link(paths, app)
+        if app.desktop:
+            _refresh_desktop(paths, app)
     try:
         steam_add(paths, managed, "all", args.restart_steam, overwrite=False)
     except ui.Abort as exc:
@@ -1211,6 +1292,7 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
         _uninstall_flatpaks(flatpak, record, managed)
     if paths.nx2.exists():
         _nx2(paths, flatpak).remove()
+    _restore_remote(paths)
     timer.remove(paths)
     shutil.rmtree(paths.state, ignore_errors=True)
     _unlink_kyty_homes(paths)

@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -63,6 +64,7 @@ class CliTestCase(unittest.TestCase):
                                            ICON_THEMES=(self.system / "icons" / "breeze", self.system / "icons" / "hicolor")))
         self.downloads = {}
         patches.append(mock.patch("nonsteamapps.artwork.fetch", side_effect=self.download_icon))
+        patches.append(mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("the tests reach no network")))
         self.restart_remote = mock.MagicMock(return_value=True)
         patches.append(mock.patch("nonsteamapps.remote.restart", self.restart_remote))
         self.reload_cecd = mock.MagicMock(return_value=True)

@@ -1027,6 +1027,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
     environment = links.browser_environment(os.environ, paths.program / "share" / "sandbox", pipe, app.callbacks)
     browser.single_keystrokes(environment)
     browsers: List[subprocess.Popen] = []
+    relays: List[subprocess.Popen] = []
 
     def open_web(url: str) -> None:
         browser.prepare(profile, services, False, runtime.widevine)
@@ -1039,7 +1040,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
 
     def deliver(url: str) -> None:
         print(f"  handing the sign-in back to {app.client}", flush=True)
-        subprocess.Popen([*command, url])
+        relays.append(subprocess.Popen([*command, url]))
         links.stop(browsers)
 
     child = subprocess.Popen(command)
@@ -1049,6 +1050,7 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
     finally:
         signal.signal(signal.SIGTERM, previous)
         links.stop(browsers)
+        links.reap(relays)
         os.close(fd)
         pipe.unlink(missing_ok=True)
 

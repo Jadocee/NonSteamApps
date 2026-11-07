@@ -572,6 +572,11 @@ The owner answered the open questions. Where these answers differ from the text 
       - `e2e`: LocalSend installed and started in its sandbox, then removed with its runtime.
     - **Not verified:** a host with AppArmor, Podman, and an image built for SteamOS 3.10. CI is unchanged apart from ShellCheck, which now also checks the containers' scripts.
 
+72. **The sign-in hand-off waits for what it starts (owner request).** The test containers (item 71) showed, on every Python from 3.8 to 3.14, that a sign-in in Game Mode left two processes the launcher never waited for: the second start of the app that hands it the callback, and the Helium it closes. Each could stay a zombie while the app ran, and Python warned of both in the tests.
+    - **Fix:** `links.stop` now waits for the processes it ends. The launcher keeps each second start and waits for it once the app ends, by when it has usually long finished.
+    - **Bounded:** each wait gives up after ten seconds in all and leaves a process that outlasts it running, as before; nothing is ended that was not ended before.
+    - **Tests:** `links.stop` and `links.reap` are tested directly, and the sign-in tests check that a launch leaves no process it started unwaited.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources

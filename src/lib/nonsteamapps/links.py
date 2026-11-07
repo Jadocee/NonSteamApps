@@ -14,11 +14,13 @@ import os
 import select
 import signal
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 MAX_URL = 8192
 WEB_SCHEMES = ("http", "https")
+WAIT_SECONDS = 10.0
 
 
 def channel_dir(flatpak_id: str, environ: Mapping[str, str]) -> Path:
@@ -96,10 +98,21 @@ def serve(child: subprocess.Popen, fd: int, schemes: Sequence[str], open_web: Ca
 
 
 def stop(processes: Sequence[subprocess.Popen]) -> None:
-    """End each process that still runs, with the processes it started."""
+    """End each process that still runs, with the processes it started, and wait for each to end (see :func:`reap`)."""
     for process in processes:
         if process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
+    reap(processes)
+
+
+def reap(processes: Sequence[subprocess.Popen], timeout: float = WAIT_SECONDS) -> None:
+    """Wait up to ``timeout`` seconds in all for the processes to end, so that none is left a zombie; leave any still running."""
+    deadline = time.monotonic() + timeout
+    for process in processes:
+        try:
+            process.wait(max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            pass

@@ -1,6 +1,7 @@
 # A SteamOS-like system for NonSteamApps' tests, installed only from one SteamOS release's own repositories, the ones
-# a Steam Machine or a Steam Deck updates from, so that the tests run on SteamOS's Python, flatpak, bubblewrap, D-Bus,
-# Dolphin, kdialog, zenity and Chromium. It has no Steam, gamescope or Game Mode, and its file system is not read-only.
+# a Steam Machine or a Steam Deck updates from, so that the tests run on SteamOS's Python, GnuPG, D-Bus, Xvfb,
+# Chromium, flatpak and bubblewrap, beside its Dolphin, kdialog and zenity. It has no Steam, gamescope or Game Mode,
+# and its file system is not read-only.
 # An Arch Linux stage installs the packages into an empty root, as pacstrap does, which becomes the image. Opening
 # the system Flatpak installation once as root makes it as SteamOS has it, with the Flathub remote that SteamOS's
 # flatpak package ships.

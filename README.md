@@ -439,7 +439,7 @@ To add an app:
 | `unit`, `unit-py38` | The unit tests on Ubuntu 24.04's Python, as CI runs them, and on Python 3.8, the oldest NonSteamApps supports |
 | `lint` | ShellCheck, pyflakes and a compile of the artwork tool |
 | `sandbox` | `tests/sandbox.sh` |
-| `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own Python, flatpak, Dolphin, kdialog, zenity and Chromium |
+| `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own packages: its Python, GnuPG, D-Bus, Xvfb and Chromium |
 | `flathub` | Flathub still has every Flatpak NonSteamApps installs, under the ID and branch it installs |
 | `artwork` | Every app's artwork draws, in a copy of the repository |
 | `e2e` | A real install of LocalSend from Flathub with SteamOS's flatpak, a start in its sandbox, and its removal |

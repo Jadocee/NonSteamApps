@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, display, kyty, layouts, legacy,
-    lichii, links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, display, kyty, layouts, lichii,
+    links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -195,7 +195,6 @@ def _spec(paths: Paths, app: App) -> steam.ShortcutSpec:
         start_dir=str(paths.program),
         launch_options=f"--steam-account {steam.ACCOUNT_PLACEHOLDER}",
         overlay=False,
-        legacy_exes=app.legacy_exes,
     )
 
 
@@ -579,7 +578,6 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     if not _is_steamos():
         ui.warn("this does not look like SteamOS; continuing anyway")
     record = Record.load(paths.record)
-    old = legacy.Legacy.detect()
     chosen = _choose(args.apps)
     if not chosen:
         chosen = list(apps.APPS)
@@ -590,23 +588,15 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
             question += " The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept."
         if not ui.confirm(question, default=True):
             raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install APP..., or update the apps you have with: {paths.launcher} update")
-    youtube = apps.by_id("youtube")
-    if old.present() and youtube not in chosen:
-        chosen.insert(0, youtube)
-        ui.info("SteamOS YT is installed, so its YouTube shortcut moves to VacuumTube")
     if any(app.flatpak for app in chosen) and not flatpak.available():
         raise ui.Abort(f"flatpak is not installed; NonSteamApps installs {_listing([a for a in chosen if a.flatpak])} from Flathub")
 
     ui.log(f"Installing NonSteamApps {__version__} into {paths.program}")
     paths.state.mkdir(parents=True, exist_ok=True)
     selfupdate.remember(paths, os.environ)
-    fresh = not paths.settings.exists()
     message = config.install_defaults(paths.program / "share" / "config" / config.SETTINGS_FILE, paths.settings)
     if message:
         ui.info(message)
-    if fresh and old.separate_profiles() is False:
-        config.set_setting(paths.settings, PER_ACCOUNT, "0")
-        ui.info("Kept SteamOS YT's choice of one sign-in shared by all Steam accounts")
     separate = config.enabled(config.read_settings(paths.settings).get(PER_ACCOUNT), default=True)
 
     if any(app.browser for app in chosen):
@@ -655,14 +645,6 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     managed = _managed(record)
     if args.steam:
         steam_add(paths, chosen, args.steam_user, args.restart_steam)
-        if old.present():
-            if ui.confirm("Remove SteamOS YT, including its Helium browser and its YouTube sign-ins?", default=True):
-                for path in old.remove():
-                    ui.ok(f"Removed {path}")
-            else:
-                ui.info(f"Kept SteamOS YT's files; Steam now starts VacuumTube for YouTube. Remove them later with: {paths.launcher} install youtube")
-    elif old.present():
-        ui.info("Kept SteamOS YT, because its Steam shortcut was not moved to VacuumTube (--no-steam)")
     _summary(paths, managed, separate)
     return 0
 

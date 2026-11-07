@@ -265,27 +265,6 @@ def make_paths(home: Path) -> Paths:
     return Paths.detect(make_program(home / ".local/share/nonsteamapps"), {"HOME": str(home)})
 
 
-def make_legacy(home: Path, root: Path, shared_sign_in: bool = False):
-    """A SteamOS YT installation with its shortcut in every account; returns the old shortcut's app ID."""
-    program = home / ".local/share/steamos-yt"
-    (program / "bin").mkdir(parents=True)
-    (program / "lib").mkdir()
-    (program / "profiles" / str(ALPHA)).mkdir(parents=True)
-    (program / "bin" / "steamos-yt").write_text("#!/bin/sh\n")
-    (program / "lib" / "common.sh").write_text("")
-    settings = home / ".config/steamos-yt"
-    settings.mkdir(parents=True)
-    (settings / "steamos-yt.conf").write_text(f"YT_PROFILE_PER_STEAM_ACCOUNT={0 if shared_sign_in else 1}\n")
-    spec = steam.ShortcutSpec(
-        name="YouTube",
-        exe=str(program / "bin" / "steamos-yt"),
-        start_dir=str(program),
-        launch_options=f"--steam-account {steam.ACCOUNT_PLACEHOLDER}",
-    )
-    [first, *_] = steam.add_shortcut(root, steam.account_ids(root), spec)
-    return first.appid
-
-
 def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "FakeFirewall" = None) -> dict:
     env = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "DBUS_"))}
     env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1")

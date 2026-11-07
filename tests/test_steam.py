@@ -312,21 +312,6 @@ class ShortcutTests(unittest.TestCase):
         steam.add_shortcut(self.root, [ACCOUNT], options)
         self.assertEqual(self.load_entries().get("0").get("LaunchOptions"), f"--steam-account {ACCOUNT}")
 
-    def test_takes_over_a_legacy_shortcut_and_keeps_its_app_id(self):
-        old = "/home/deck/.local/share/steamos-yt/bin/steamos-yt"
-        [before] = self.add(spec=dataclasses.replace(spec("My Tube"), exe=old, launch_options="--steam-account 1 --x"))
-        moved = dataclasses.replace(spec(), launch_options=f"--steam-account {ACCOUNT}", legacy_exes=(old,))
-        [after] = self.add(spec=moved, overwrite=False)
-        self.assertFalse(after.created)
-        self.assertEqual((after.appid, after.name), (before.appid, "My Tube"))
-        entry = self.load_entries().get("0")
-        self.assertEqual(len(self.load_entries()), 1)
-        self.assertEqual(entry.get("Exe"), f'"{EXE}"')
-        self.assertEqual(entry.get("LaunchOptions"), f"--steam-account {ACCOUNT} --x")
-        [again] = self.add(spec=moved, overwrite=False)
-        self.assertEqual(again.appid, before.appid)
-        self.assertEqual(len(self.load_entries()), 1)
-
     def test_a_refresh_keeps_artwork_the_user_chose_and_renews_its_own(self):
         record = steam.ArtworkRecord(self.home / "artwork.json")
         [result] = self.add(record=record)

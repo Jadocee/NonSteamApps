@@ -566,11 +566,11 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Verified:** every service passes here, with Docker 29.9.2. `flathub` and `e2e` ran on copies of the images that trust this environment's proxy; the repository does not carry those copies.
       - `unit` and `unit-py38`: 402 tests, one skipped.
       - `lint` and `sandbox` pass.
-      - `steamos`: 402 tests, none skipped, and the sandbox.
+      - `steamos`: 402 tests, none skipped, and the sandbox, on SteamOS 3.8 and again on 3.9, with its Python 3.14.6, flatpak 1.18.4 and Chromium 150.
       - `artwork`: 23 apps drawn.
       - `flathub`: all 13 refs found.
       - `e2e`: LocalSend installed and started in its sandbox, then removed with its runtime.
-    - **Not verified:** a host with AppArmor, Podman, and an image built for another SteamOS release. CI is unchanged apart from ShellCheck, which now also checks the containers' scripts.
+    - **Not verified:** a host with AppArmor, Podman, and an image built for SteamOS 3.10. CI is unchanged apart from ShellCheck, which now also checks the containers' scripts.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

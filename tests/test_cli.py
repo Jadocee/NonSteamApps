@@ -245,26 +245,6 @@ class ExistingFlatpakTests(CliTestCase):
         self.assertEqual(self.entries(ALPHA), {})
 
 
-class MigrationTests(CliTestCase):
-    def test_takes_over_steamos_yt_and_its_shortcut(self):
-        appid = _fakes.make_legacy(self.home, self.root, shared_sign_in=True)
-        self.install("element")
-        for account in (ALPHA, BETA):
-            youtube = self.entries(account)["YouTube"]
-            self.assertEqual(steam.to_unsigned32(youtube.get("appid")), appid)
-            self.assertEqual(youtube.get("Exe"), f'"{self.paths.app_link("youtube")}"')
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "element"])
-        self.assertFalse((self.home / ".local/share/steamos-yt").exists())
-        self.assertFalse((self.home / ".config/steamos-yt").exists())
-        self.assertEqual(config.read_settings(self.paths.settings)[cli.PER_ACCOUNT], "0")
-
-    def test_keeps_steamos_yt_when_the_steam_library_is_left_alone(self):
-        _fakes.make_legacy(self.home, self.root)
-        self.assertEqual(self.run_cli("install", "youtube", "--yes", "--no-auto-update", "--no-steam"), 0, self.errors)
-        self.assertTrue((self.home / ".local/share/steamos-yt/bin/steamos-yt").exists())
-        self.assertIn("Kept SteamOS YT", self.errors)
-
-
 class LaunchTests(CliTestCase):
     def test_an_app_steam_starts_hides_the_account_from_friends_as_the_setting_says(self):
         watch = presence.Presence.watch

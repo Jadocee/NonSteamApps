@@ -44,7 +44,6 @@ class ShortcutSpec:
     launch_options: str = ""
     icon: str = ""
     overlay: bool = False
-    legacy_exes: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -316,10 +315,6 @@ class ShortcutsFile:
     def dumps(self) -> bytes:
         return vdf.dumps_binary(self.root)
 
-    def matches(self, spec: ShortcutSpec) -> List[vdf.KeyValues]:
-        """The shortcut for ``spec.exe``, or else one for any of ``spec.legacy_exes``."""
-        return self.find(spec.exe) or [entry for exe in spec.legacy_exes for entry in self.find(exe)]
-
     def find(self, exe: str) -> List[vdf.KeyValues]:
         return [entry for entry in self.entries() if _same_path(unquote(str(entry.get("Exe", ""))), exe)]
 
@@ -331,12 +326,10 @@ class ShortcutsFile:
     def upsert(self, spec: ShortcutSpec, overwrite: bool = True) -> Tuple[vdf.KeyValues, int, bool]:
         """Add or refresh the shortcut whose executable is ``spec.exe``.
 
-        Without one, an entry for any of ``spec.legacy_exes`` is taken over instead,
-        so the shortcut keeps its app ID, play time and per-game settings. ``overwrite``
-        sets the name and launch options back to ``spec``; without it, a name the user gave
-        and options they added stay. The overlay always follows ``spec``.
+        ``overwrite`` sets the name and launch options back to ``spec``; without it, a name
+        the user gave and options they added stay. The overlay always follows ``spec``.
         """
-        matches = self.matches(spec)
+        matches = self.find(spec.exe)
         if not matches:
             appid = shortcut_appid(quote(spec.exe), spec.name)
             entry = _new_entry(appid, spec)
@@ -533,7 +526,7 @@ def add_shortcut(
     for account in accounts:
         directory = config_dir(root, account)
         shortcuts = ShortcutsFile.load(directory / "shortcuts.vdf")
-        if not create and not shortcuts.matches(spec):
+        if not create and not shortcuts.find(spec.exe):
             continue
         before = shortcuts.dumps() if shortcuts.path.exists() else b""
         options = spec.launch_options.replace(ACCOUNT_PLACEHOLDER, str(account))

@@ -938,7 +938,6 @@ class App:
     profile: Optional[Profile] = None
     controller: str = ""
     logo_position: str = "BottomLeft:42:58"
-    legacy_exes: Tuple[str, ...] = ()
     tv_scale: Optional[TvScale] = None
     sandbox_off_when: Tuple[str, ...] = ()
     notice: str = ""
@@ -1036,7 +1035,6 @@ APPS: Tuple[App, ...] = (
         ),
         controller=YOUTUBE.title,
         userstyles=("nonsteamapps-steamos.css",),
-        legacy_exes=("~/.local/share/steamos-yt/bin/steamos-yt",),
         tv_scale=TvScale(
             argument="--force-device-scale-factor={factor}",
             layout=1080,

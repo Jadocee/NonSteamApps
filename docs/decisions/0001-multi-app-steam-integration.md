@@ -133,7 +133,7 @@ Superseded by the amendment: phases 1–3, 5 and 6 shipped together as NonSteamA
 
 The owner answered the open questions. Where these answers differ from the text above, they take precedence.
 
-1. **Name.** The project is **NonSteamApps**: the command is `nonsteamapps`, and it installs into `~/.local/share/nonsteamapps`. The GitHub repository keeps its address until it is renamed. No shim stays at SteamOS YT's old path. Instead, the installer takes over the old YouTube shortcut in place and keeps its app ID, which meets the aim of decision 6 without leaving old files behind.
+1. **Name.** The project is **NonSteamApps**: the command is `nonsteamapps`, and it installs into `~/.local/share/nonsteamapps`. The GitHub repository keeps its address until it is renamed. No shim stays at SteamOS YT's old path. Instead, the installer takes over the old YouTube shortcut in place and keeps its app ID, which meets the aim of decision 6 without leaving old files behind (removed in item 70).
 2. **YouTube.** VacuumTube replaces the Helium engine straight away, with no `youtube-helium` overlap. Helium, the companion extension and the `webapp` and `archive` backends are removed. A `webapp` backend can return, from history, if a web-only app ever needs it. This supersedes decision 5 and the backends listed in decision 2.
 3. **Apps.** Element and Jellyfin come next after VacuumTube. All three ship together.
 4. **Element's sign-in (decided here).** Steam starts Element with `--password-store=basic --storage-mode=allow-plaintext`. With this:
@@ -476,7 +476,7 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Closer drawings:** where no icon can be had, NonSteamApps' own artwork is used: the same template around a new icon of NonSteamApps' own for each app, in that app's colours and nearer its own (a blossom for Eden, a fruit for Lichii, a play button, a shield, a folder), never a copy of a logo. `tools/render-artwork.py` draws it with the same code and template, so both kinds look alike; it replaces the Node script. `APP_ICONS=0` keeps NonSteamApps' artwork for every app.
     - **Not verified:** Helium headless on the Steam Machine, and each site's icons as the sites serve them on the device. Without Helium, or when it fails, each app keeps NonSteamApps' artwork and the install says why.
 
-59. **The README without the move from SteamOS YT (owner request).** The owner asked for the move from SteamOS YT to leave the documentation. The README's section on it, its feature line and its entry in the source tree went. The installer still moves the YouTube shortcut of a device that has SteamOS YT, as the Migration section above describes, and this record keeps that history.
+59. **The README without the move from SteamOS YT (owner request).** The owner asked for the move from SteamOS YT to leave the documentation. The README's section on it, its feature line and its entry in the source tree went. The installer still moves the YouTube shortcut of a device that has SteamOS YT, as the Migration section above describes, and this record keeps that history (until item 70).
 
 60. **The projects' own artwork for Steam's library (owner request).** The owner asked for official artwork for Steam's library wherever it exists.
     - **Where it exists:** of the apps' projects, only Lichii's publishes such artwork, in `dist/branding` beside its icon: a portrait capsule of 1024 by 1536 pixels, Steam's 2:3; a square grid of 1254 pixels; and its wordmark, 1672 by 941 on a transparent ground [130]. No other app's repository holds any: Eden's and LocalSend's banners, 320 by 180, are for Android TV's home screen, and the rest keep icons and screenshots [131]. Community artwork, such as SteamGridDB's, is not a project's own and needs a key of the user's, so it is not used.
@@ -538,6 +538,15 @@ The owner answered the open questions. Where these answers differ from the text 
     - **The sign-in carries over:** at the next start of either app, or the next install, each account's profile that Proton Calendar, or Proton Mail before this change, kept on its own moves into the shared folder, where the account has none there yet. Where both kept one, the one used last moves, by when its `Local State` was written; the other stays where it is. A profile that a running Helium has open, as its `SingletonLock` names [157], waits for a later start. That check now serves the stale-lock clean-up too, so both count a lock as held only while it names a running Chromium browser.
     - **Removal:** removing one of the two with `--purge` keeps the shared profiles while the other is installed, and removing the last deletes them.
     - **Not verified:** on the Steam Machine, nor Proton's sign-in itself, as proton.me is outside this environment's network. The tests move a signed-in profile across, leave an open one until its Helium ends, choose the one used last, and keep shared profiles while the other app remains.
+
+70. **The move from SteamOS YT removed (owner request).** The owner asked for the SteamOS YT migration code to go.
+    - **What went:**
+      - the `legacy` module, which found SteamOS YT's files, read its one-sign-in setting and removed what it left behind;
+      - the installer's takeover of SteamOS YT's YouTube shortcut, which kept its app ID (the amendment's item 1);
+      - the installer's copy of SteamOS YT's one-sign-in choice, and its offer to remove SteamOS YT;
+      - `App.legacy_exes` and `ShortcutSpec.legacy_exes`, so Steam's shortcuts are now matched by NonSteamApps' own links alone.
+    - **What a device that still has SteamOS YT keeps:** SteamOS YT itself, with its own YouTube shortcut beside NonSteamApps', which is a new one with a new app ID. That means its `~/.local/share/steamos-yt`, `~/.config/steamos-yt`, `~/.local/state/steamos-yt` and `~/.cache/steamos-yt`, its `steamos-yt.desktop` and its `steamos-yt-update` timer. Removing them is now done by hand. A device on which NonSteamApps was installed while SteamOS YT was there has already had its shortcut moved.
+    - **What stays:** the GitHub repository's name, `jadocee/steamos-yt`, in the installer's and the updater's addresses; LocalSend's older settings location, which is LocalSend's own and has nothing to do with SteamOS YT; and this record's history of the move.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

@@ -606,6 +606,13 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Test:** a new `keyring` service in the SteamOS image repeats the KWallet checks, so that a SteamOS release that changes them shows up.
     - **Not verified:** on the Steam Machine itself, including its TPM and `dirlock`, which NonSteamApps neither runs nor sets up.
 
+74. **SteamDB (owner request).** The owner asked for SteamDB, as a Helium app; version 2.38.0.
+    - **The app:** SteamDB runs full screen in Helium at `https://steamdb.info/`, as ProtonDB does (item 15), with the Browser layout and a Helium profile for each Steam account. SteamDB is a third-party site, not Valve's [168].
+    - **Sign-in:** optional, and through Steam's OpenID, as third-party guides describe it; SteamDB's own pages could not be read here. Steam's OpenID sends a site the account's public SteamID and never its password [169]. Each Steam account's profile keeps its own sign-in.
+    - **Start page:** SteamDB's home page. Unlike ProtonDB (items 34 and 49), it does not open on a page for the account, as the owner asked for none.
+    - **Artwork:** drawn around the icon the site names, as for the other full-screen apps. NonSteamApps' own icon for it is a database in Steam's blues.
+    - **Not verified:** on the Steam Machine, nor the site itself, as steamdb.info is outside this environment's network.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -777,3 +784,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 165. Bitwarden desktop 2026.10.2, as in [43]: `apps/desktop/desktop_native/core/src/password/unix.rs`, its `oo7` keyring; `libs/angular/src/auth/components/set-pin.component.ts`, where **Lock with master password on restart** is ticked by default for an account with a master password (`AfterFirstUnlock`); and `libs/common/src/key-management/pin/pin.service.abstraction.ts`, an ephemeral PIN kept in memory and a persistent one on disk. With [oo7](https://github.com/bilelmoussaoui/oo7) 0.5.0, the version Bitwarden builds: `client/src/keyring.rs`, a file keyring keyed through the Secret portal inside a sandbox, and otherwise the Secret Service
 166. Valve's Steam Deck lock screen (May 2022), as [TechRadar](https://www.techradar.com/how-to/steam-deck-gets-a-lock-screen-heres-how-to-make-the-device-more-secure) and [GameSpot](https://www.gamespot.com/articles/steam-deck-update-adds-a-lock-screen-and-window-switching/1100-6502831/) report it: a PIN on waking, starting up, logging in and switching to Desktop Mode, under **Settings → Security**
 167. Bitwarden's help, [Vault timeout](https://bitwarden.com/help/vault-timeout/), as a web search gave it on 7 November 2026: the **Never** option keeps the encryption key unencrypted on the device, and Bitwarden strongly recommends another
+168. [SteamDB's FAQ](https://steamdb.info/faq/), as a web search gave it on 7 November 2026, steamdb.info being outside this environment's network: SteamDB is not affiliated with Valve or Steam
+169. [Steamworks documentation, User Authentication and Ownership](https://partner.steamgames.com/doc/features/auth): Steam as an OpenID 2.0 provider at `https://steamcommunity.com/openid/`, whose Claimed ID gives the user's SteamID

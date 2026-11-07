@@ -70,6 +70,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "netflix": ("#e50914", "#7a0a0f"),
     "disneyplus": ("#0063e5", "#00d5ff"),
     "protondb": ("#e0313f", "#ff8a5c"),
+    "steamdb": ("#2a475e", "#66c0f4"),
     "protonmail": ("#6d4aff", "#c9b9ff"),
     "protoncalendar": ("#6d4aff", "#a58bff"),
 }

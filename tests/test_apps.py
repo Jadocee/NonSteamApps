@@ -16,8 +16,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(
             apps.ids(),
             ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
-             "protontricks", "winetricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protonmail",
-             "protoncalendar"],
+             "protontricks", "winetricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "steamdb",
+             "protonmail", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -64,6 +64,7 @@ class ArgumentTests(unittest.TestCase):
                                    ("hbomax", "https://www.hbomax.com/", True), ("netflix", "https://www.netflix.com/", True),
                                    ("disneyplus", "https://www.disneyplus.com/", True),
                                    ("protondb", "https://www.protondb.com/", True),
+                                   ("steamdb", "https://steamdb.info/", True),
                                    ("protonmail", "https://mail.proton.me/", True),
                                    ("protoncalendar", "https://calendar.proton.me/", True)):
             app = apps.by_id(app_id)

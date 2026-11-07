@@ -117,8 +117,8 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
   - **On a TV:** in Game Mode, Bitwarden fills the screen and shows no menu bar. NonSteamApps stands in for a desktop's global menu while it runs, which Bitwarden's toolkit, Electron, takes as the place for its menu; its keyboard shortcuts still work. In Desktop Mode it keeps its window and menu bar.
   - **Controls (Bitwarden layout):** the D-pad, or the left stick, moves between items and controls by where they are on screen: up and down a list, and left and right between the sidebar, the list and the buttons in a row. **A** selects, opening a link or pressing a button, **B** goes back or closes a dialog, **Y** ticks a box, **X** shows the on-screen keyboard, and **R2** clicks where the right stick or right trackpad points. In a number field, such as the generator's length, up and down change the number; left or right moves on. In place of the menu bar, **Menu** opens the settings, **View** locks the vault, **L1** searches it, **R1** opens the password generator, and holding **Menu** quits. Logging out, syncing by hand, importing and exporting are only in the menu bar, so use Desktop Mode for them.
   - **Quitting:** closing its window quits it, so Steam sees it end. Bitwarden normally keeps running in the tray, which Game Mode does not have.
-  - **Unlocking:** set a PIN under **Settings → Security → Unlock with PIN** to unlock with the controller. Biometric unlock needs a polkit rule in a system folder that SteamOS keeps read-only, and the **Never** lock timeout needs a keyring.
-  - **Sign-in tokens:** they are kept unencrypted in the account's Bitwarden folder (`ACCESS_TOKEN_LOCATION=DISK`), so a keyring that is missing in one mode cannot sign you out. Your vault stays encrypted with your master password.
+  - **Unlocking:** set a PIN under **Settings → Security → Unlock with PIN** to unlock with the controller, and leave **Lock with master password on restart** ticked, as it is by default. The PIN then stays in memory, and each start asks for the master password first; unticked, a key protected only by the PIN is saved to disk. Biometric unlock needs a polkit rule in a system folder that SteamOS keeps read-only. Avoid the **Never** lock timeout, which keeps your vault's key on the device without protection (see [Protecting your data](#protecting-your-data)).
+  - **Sign-in tokens:** they are kept unencrypted in the account's Bitwarden folder (`ACCESS_TOKEN_LOCATION=DISK`), so a keyring that is missing in one mode cannot sign you out; SteamOS's keyring would protect them no better. They let Bitwarden fetch your vault, which stays encrypted with your master password.
   - **SSO and Duo:** in Game Mode, these open their pages in Helium in front of Bitwarden and return to it, as Element's sign-in does.
 - **LocalSend:** devices on the same network find each other while LocalSend is open on both. It starts dark, in its OLED colours; running the installer again puts them back. LocalSend listens on port 53317 (TCP and UDP). When SteamOS's firewall (firewalld) is running, the installer offers to open that port, both now and permanently, in every firewall zone in use. `sudo` then asks for your password. Removing LocalSend closes the port again, unless you keep the app with `--keep-app`.
   - **Receiving:** accept a transfer and the files land in `~/Downloads`.
@@ -288,10 +288,11 @@ No app's own icon or artwork is in this repository: each is taken on the device 
 
 Element normally protects its stored session secrets with the system keyring. Game Mode has no keyring, and a profile protected by KWallet in Desktop Mode cannot be opened in Game Mode. Steam therefore starts Element with `--password-store=basic --storage-mode=allow-plaintext`.
 
-The session secrets stay in the profile folder, encrypted with a fixed key rather than a password: hidden from casual view, but not protected from software running as your user. In exchange, the same profile works in both modes and Element never stops at a prompt a controller cannot answer.
+The session secrets stay in the profile folder, encrypted with a fixed key rather than a password: hidden from casual view, but not protected from software running as your user. In exchange, the same profile works in both modes and Element never stops at a prompt a controller cannot answer. SteamOS's own keyring would be no stronger, as its wallet has no password.
 
 To limit the risk:
 
+- encrypt your home folder (see [Protecting your data](#protecting-your-data));
 - set up Element's **Secure Backup** with a recovery key;
 - if the device is lost, sign it out from another device under **Settings → Sessions**.
 
@@ -303,9 +304,28 @@ Flathub's Signal keeps the key to its message database in plain text by default 
 
 On a first start with this store, Flathub's Signal asks for confirmation, with **No**, which quits, preselected. That is easy to answer wrongly with a controller. NonSteamApps skips the question by creating the account's settings file before the first start, and shows the same note after installing instead.
 
-The key can therefore be read by anyone who can read your files. If the device is lost, unlink it from your phone under **Settings → Linked devices**.
+The key can therefore be read by anyone who can read your files, as can anything in SteamOS's own keyring. Encrypting your home folder protects it (see [Protecting your data](#protecting-your-data)). If the device is lost, unlink it from your phone under **Settings → Linked devices**.
 
 Signal started from the applications menu keeps Flathub's own defaults, including the question.
+
+## Protecting your data
+
+Element, Signal and Bitwarden keep their data in each Steam account's folders, in your home folder. On SteamOS, a keyring would not protect that data better:
+
+- Game Mode starts no keyring, so apps that look for one find none.
+- Desktop Mode's KDE Wallet opens a wallet that SteamOS copies onto every device, and, unless you have given it a password, it opens without one. Anyone with a copy of its files can then read what it holds.
+
+NonSteamApps therefore keeps each app's own store. What does protect the data:
+
+- **Encrypt your home folder.** SteamOS includes `dirlock`, an experimental tool that encrypts your home folder. After it, each start-up stops at a login screen that asks for a PIN or password, with an on-screen keyboard, before Game Mode starts. If the device has a usable TPM, the PIN can be kept there, which limits repeated guesses. Follow [its instructions](https://gitlab.steamos.cloud/holo/dirlock/-/wikis/Enabling-disk-encryption-on-the-Steam-Deck) and back up first:
+  - it is set up as root over SSH, with `/usr/lib/steamos/steamos-enable-dirlock` and then `/usr/lib/steamos/steamos-encrypt-home`, and needs free space as large as your home folder plus 2 GB;
+  - your files are locked only when the device shuts down, not while it sleeps;
+  - `/usr/lib/steamos/steamos-decrypt-home` undoes it.
+- **Turn on Steam's lock screen** under **Settings → Security**. A PIN on waking, starting up and switching to Desktop Mode keeps others out of Desktop Mode, where all files can be opened.
+- **Bitwarden:** keep its default PIN set-up, and avoid the **Never** lock timeout (see Bitwarden under [Using the apps](#using-the-apps)).
+- **A lost device:** sign it out of Element from another session, and unlink it from Signal on your phone.
+
+None of these keeps one Steam account's data from another person who can sign in to the device. Bitwarden asks for its own master password; Element and Signal have no lock of their own.
 
 ## Configuration
 
@@ -442,6 +462,7 @@ To add an app:
 | `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own packages: its Python, GnuPG, D-Bus, Xvfb and Chromium |
 | `flathub` | Flathub still has every Flatpak NonSteamApps installs, under the ID and branch it installs |
 | `artwork` | Every app's artwork draws, in a copy of the repository |
+| `keyring` | SteamOS's KDE Wallet still starts only in Desktop Mode, and its wallet still opens without a password, as [Protecting your data](#protecting-your-data) says |
 | `e2e` | A real install of LocalSend from Flathub with SteamOS's flatpak, a start in its sandbox, and its removal |
 
 ```bash

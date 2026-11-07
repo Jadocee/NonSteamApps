@@ -133,13 +133,13 @@ class InstallTests(CliTestCase):
             [call[-1] for call in self.fake.calls("install")],
             ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
              "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2",
-             "com.github.Matoking.protontricks"],
+             "com.github.Matoking.protontricks", "org.winehq.Wine//stable"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks", "winetricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -174,7 +174,7 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual([call[-1] for call in self.fake.calls("install")],
                          ["rocks.shy.VacuumTube", "org.kde.Platform//6.11", nx2.APP_ID,
-                          *[app.flatpak for app in apps.APPS[1:] if app.flatpak and not app.from_source]])
+                          *[app.ref for app in apps.APPS[1:] if app.flatpak and not app.from_source]])
         entries = self.entries(ALPHA)
         self.assertEqual(sorted(entries), sorted(app.name for app in apps.APPS))
         self.assertEqual(entries["YouTube"].get("LaunchOptions"), f"--steam-account {ALPHA}")
@@ -578,6 +578,21 @@ class LaunchTests(CliTestCase):
         self.install("protonup")
         self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
         self.assertIn("Put back ProtonUp-Qt's TV settings (1 data folder)", self.errors)
+
+    def test_winetricks_starts_from_flathubs_wine_with_the_tools_layout_and_leaves_as_it_came(self):
+        self.install("winetricks")
+        self.assertEqual(self.fake.calls("install")[-1][-2:], ["flathub", "org.winehq.Wine//stable"])
+        self.assertEqual(self.fake.apps()["org.winehq.Wine"]["branch"], "stable")
+        self.assertIn("Installing Winetricks from Flathub (org.winehq.Wine//stable)", self.errors)
+        argv, _ = self.launch("winetricks", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--command=winetricks", "org.winehq.Wine"])
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+            argv, _ = self.launch("winetricks", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--command=winetricks", "--env=GDK_SCALE=3", "--env=GDK_BACKEND=x11", "org.winehq.Wine"])
+        self.assertEqual(self.run_cli("remove", "winetricks", "--yes"), 0, self.errors)
+        self.assertEqual(self.fake.calls("uninstall")[0][-1], "org.winehq.Wine//stable")
+        self.assertNotIn("org.winehq.Wine", self.fake.apps())
 
     def test_prism_gets_the_minecraft_layout(self):
         folder = _fakes.add_controller_templates(self.root)

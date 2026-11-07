@@ -16,7 +16,7 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(
             apps.ids(),
             ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
-             "protontricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
+             "protontricks", "winetricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -83,7 +83,7 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
             ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
-             "protontricks", "files"],
+             "protontricks", "winetricks", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -133,6 +133,17 @@ class ArgumentTests(unittest.TestCase):
         self.assertTrue(protonup.libraries and protontricks.libraries)
         self.assertEqual({protonup.controller, protontricks.controller}, {"Tools (NonSteamApps)"})
         self.assertEqual([app.id for app in apps.APPS if app.libraries], ["protonup", "protontricks"])
+
+    def test_winetricks_runs_in_flathubs_wine_on_its_stable_branch_with_protontricks_tv_set_up(self):
+        winetricks, protontricks = apps.by_id("winetricks"), apps.by_id("protontricks")
+        self.assertEqual((winetricks.flatpak, winetricks.ref, winetricks.icon), ("org.winehq.Wine", "org.winehq.Wine//stable", "winetricks"))
+        self.assertEqual(winetricks.run_options(HOME, 111), ["--command=winetricks"])
+        self.assertEqual(winetricks.arguments(HOME, 111), [])
+        self.assertEqual((winetricks.tv_scale, winetricks.game_mode_env, winetricks.controller),
+                         (protontricks.tv_scale, protontricks.game_mode_env, protontricks.controller))
+        self.assertFalse(winetricks.libraries or winetricks.profile)
+        self.assertEqual((protontricks.ref, protontricks.run_options(HOME, 111)), ("com.github.Matoking.protontricks", []))
+        self.assertEqual([app.id for app in apps.APPS if app.branch or app.command], ["winetricks"])
 
     def test_bitwarden_gets_each_accounts_folder_in_a_variable_and_keeps_its_tokens_on_disk(self):
         bitwarden = apps.by_id("bitwarden")

@@ -245,7 +245,7 @@ def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
     elif app.system:
         found = artwork.desktop_icon(app.system.command, APPLICATION_DIRS, ICON_THEMES)
     else:
-        found = artwork.flatpak_icon(app.flatpak, _flatpak_installations(paths)) if app.flatpak else None
+        found = artwork.flatpak_icon(app.flatpak, _flatpak_installations(paths), app.icon) if app.flatpak else None
     return artwork.Source("file", str(found)) if found and found.is_file() else None
 
 
@@ -468,8 +468,8 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
         ui.ok(f"{app.client}{version} is already installed ({found.installation} installation)")
         record.add(app.id, installed_flatpak=False)
     else:
-        ui.log(f"Installing {app.client} from Flathub ({app.flatpak})")
-        flatpak.install(app.flatpak)
+        ui.log(f"Installing {app.client} from Flathub ({app.ref})")
+        flatpak.install(app.ref)
         record.add(app.id, installed_flatpak=True)
         ui.ok(f"Installed {app.client}")
     _link(paths, app)
@@ -513,7 +513,7 @@ def _uninstall_flatpaks(flatpak: Flatpak, record: Record, chosen: Sequence[App])
             continue
         if record.owns_flatpak(app.id) and found.installation == "user":
             ui.log(f"Uninstalling {app.client}")
-            flatpak.uninstall(app.flatpak)
+            flatpak.uninstall(app.ref)
             removed = True
         else:
             ui.info(f"{app.client} stays installed: it was installed before NonSteamApps")

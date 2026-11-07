@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Stand-in for the flatpak command: records every call and keeps installed apps in a JSON file.
 
-FAKE_FLATPAK_STATE  JSON file of installed apps ({"apps": {id: {"version", "installation"[, "commit"]}}}),
-                    installed runtimes ("runtimes": [ref…]) and the newest commit of a local repository
+FAKE_FLATPAK_STATE  JSON file of installed apps ({"apps": {id: {"version", "installation"[, "branch"][, "commit"]}}}),
+                    installed runtimes ("runtimes": [ref…], those whose ID names a Platform or Sdk) and the newest
+                    commit of a local repository
 FAKE_FLATPAK_LOG    file that receives one JSON array of arguments per call
 FAKE_FLATPAK_FAIL   a subcommand (for example "install") that should fail
 FAKE_FLATPAK_BUILD_FAIL  the start of a command (for example "cmake --build") that fails in "flatpak build"
@@ -21,11 +22,15 @@ gives each export a new commit in the repository, which "install" from that repo
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
+
+
+RUNTIME = re.compile(r"\.(Platform|Sdk)(\.|$)")
 
 
 def exported_icon(app_id):
@@ -113,16 +118,17 @@ def main(argv):
         refs = positional(argv[1:])
         remote, names = (refs[0], refs[1:]) if len(refs) > 1 else ("", refs)
         for name in names:
-            if "//" in name:
+            app_id, _, branch = name.partition("//")
+            if branch and RUNTIME.search(app_id):
                 state["runtimes"].append(name)
             else:
-                state["apps"][name] = {"version": "1.0.0", "installation": "user"}
+                state["apps"][app_id] = {"version": "1.0.0", "installation": "user", **({"branch": branch} if branch else {})}
                 if remote == "nonsteamapps":
-                    state["apps"][name]["commit"] = state["repo_head"]
+                    state["apps"][app_id]["commit"] = state["repo_head"]
                 if os.environ.get("FAKE_FLATPAK_ICONS") == "1":
-                    icon = exported_icon(name)
+                    icon = exported_icon(app_id)
                     icon.parent.mkdir(parents=True, exist_ok=True)
-                    icon.write_bytes(b"\x89PNG\r\n\x1a\n" + name.encode())
+                    icon.write_bytes(b"\x89PNG\r\n\x1a\n" + app_id.encode())
     elif command == "info" and "--show-commit" in argv:
         found = state["apps"].get(argv[-1], {})
         if "commit" in found:
@@ -161,10 +167,11 @@ def main(argv):
         masked = masked - set(positional(argv[1:])) if "--remove" in argv else masked | set(positional(argv[1:]))
         state["masked"] = sorted(masked)
     elif command == "uninstall" and "--unused" not in argv:
-        if state["apps"].pop(argv[-1], None) is None:
+        app_id, _, branch = argv[-1].partition("//")
+        if (branch and branch != state["apps"].get(app_id, {}).get("branch", branch)) or state["apps"].pop(app_id, None) is None:
             print(f"error: {argv[-1]} not installed", file=sys.stderr)
             return 1
-        exported_icon(argv[-1]).unlink(missing_ok=True)
+        exported_icon(app_id).unlink(missing_ok=True)
     elif command == "run" and os.environ.get("FAKE_FLATPAK_OPEN"):
         act_as_app(argv)
     elif command == "run" and "--create-profile" in argv:

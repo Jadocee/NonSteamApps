@@ -890,8 +890,11 @@ class App:
     the firewall, when one is running, so other devices can reach the app.
 
     For a Flathub app, ``env`` is set for every start from Steam and ``game_mode_env`` for starts in Game
-    Mode. An ``x11`` app is given X11 for every start from Steam, even where Flatpak would give it only
-    Wayland (see :func:`flatpak.x11_options`); its ``env`` chooses X11 for its toolkit. ``settings`` are
+    Mode. ``command`` is the program in the Flatpak to run in place of its own, as Winetricks is in Flathub's
+    Wine; ``branch`` is the branch to install where Flathub publishes several; and ``icon`` names the app's own
+    icon inside the Flatpak, where it is not the one Flatpak exports. An ``x11`` app is given X11 for every
+    start from Steam, even where Flatpak would give it only Wayland (see :func:`flatpak.x11_options`); its
+    ``env`` chooses X11 for its toolkit. ``settings`` are
     NonSteamApps' TV set-up in the app's own folder, for an app without data per account: written when
     missing and put back by every install. ``libraries`` gives the app's sandbox
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
@@ -955,6 +958,14 @@ class App:
     desktop: Optional[DesktopEntry] = None
     from_source: bool = False
     appimage: bool = False
+    command: str = ""
+    branch: str = ""
+    icon: str = ""
+
+    @property
+    def ref(self) -> str:
+        """What ``flatpak install`` and ``flatpak uninstall`` are given: the app's ID, on its ``branch`` where it has one."""
+        return f"{self.flatpak}//{self.branch}" if self.branch else self.flatpak
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -967,7 +978,9 @@ class App:
 
     def run_options(self, user_home: Path, account: Optional[int]) -> List[str]:
         """Options for ``flatpak run`` itself, before the app ID."""
-        return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
+        if self.profile and account:
+            return self.profile.run_options(self.home(user_home), account)
+        return [f"--command={self.command}"] if self.command else []
 
 
 EDEN_SHARED_LINKS = (
@@ -1236,6 +1249,22 @@ APPS: Tuple[App, ...] = (
         game_mode_env=(("GDK_BACKEND", "x11"),),
         libraries=True,
         notice="Protontricks lists the Proton games started at least once; pick a game, then what to install into its prefix",
+    ),
+    App(
+        id="winetricks",
+        name="Winetricks",
+        client="Winetricks",
+        flatpak="org.winehq.Wine",
+        branch="stable",
+        command="winetricks",
+        icon="winetricks",
+        summary="Install Windows components, fonts and fixes into Wine prefixes, with Flathub's Wine, set up for a TV and a controller",
+        controller=TOOLS.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="GDK_SCALE", whole=True, text="GDK_DPI_SCALE"),
+        game_mode_env=(("GDK_BACKEND", "x11"),),
+        notice="Winetricks works on the Wine prefixes of Flathub's Wine, in ~/.var/app/org.winehq.Wine/data; "
+               "for Steam games and other Proton games, use Protontricks",
     ),
     App(
         id="files",

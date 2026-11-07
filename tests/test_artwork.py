@@ -59,6 +59,14 @@ class FinderTests(unittest.TestCase):
         vector = self.icon(f"system/{icons}/scalable/apps/org.example.App.svg", b"<svg/>")
         self.assertEqual(artwork.flatpak_icon("org.example.App", [user, system]), vector)
 
+    def test_an_apps_own_icon_inside_its_flatpak_comes_before_the_one_flatpak_exports(self):
+        user, system = self.dir / "user", self.dir / "system"
+        exported = self.icon("user/exports/share/icons/hicolor/scalable/apps/org.winehq.Wine.svg", b"<svg/>")
+        self.assertEqual(artwork.flatpak_icon("org.winehq.Wine", [user, system], "winetricks"), exported)
+        own = self.icon("system/app/org.winehq.Wine/current/active/files/share/icons/hicolor/scalable/apps/winetricks.svg", b"<svg/>")
+        self.assertEqual(artwork.flatpak_icon("org.winehq.Wine", [user, system], "winetricks"), own)
+        self.assertEqual(artwork.flatpak_icon("org.winehq.Wine", [user, system]), exported)
+
     def test_a_system_apps_icon_comes_from_its_menu_entry_through_the_icon_theme(self):
         applications, breeze, hicolor = self.dir / "applications", self.dir / "icons/breeze", self.dir / "icons/hicolor"
         (applications).mkdir()

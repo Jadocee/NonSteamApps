@@ -7,6 +7,7 @@
 #   steamos     unit tests and tests/sandbox.sh on SteamOS's own packages
 #   flathub     every Flatpak NonSteamApps installs is still on Flathub (needs the internet)
 #   artwork     every app's artwork draws with Chromium, in a copy of the repository
+#   keyring     SteamOS's KWallet and its default wallet still behave as the README's "Protecting your data" says
 #   e2e         a real install of LocalSend from Flathub, and its removal (needs the internet; not in docker compose up)
 #
 # The repository is mounted read-only, so no service changes it. STEAMOS chooses the SteamOS release the SteamOS
@@ -60,6 +61,9 @@ services:
   flathub:
     <<: *steamos
     command: tests/containers/steamos/flathub.sh
+  keyring:
+    <<: *steamos
+    command: tests/containers/steamos/keyring.sh
   artwork:
     <<: *steamos
     user: root

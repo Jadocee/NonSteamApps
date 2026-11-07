@@ -25,6 +25,7 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 | **Netflix** | Netflix in Helium | Helium, full screen | Netflix's streaming service, full screen with no browser interface. |
 | **Disney+** | Disney+ in Helium | Helium, full screen | Disney's streaming service, full screen with no browser interface. |
 | **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. It opens on the list of your Steam library's games. |
+| **SteamDB** | SteamDB in Helium | Helium, full screen | Steam's prices, sales, player counts and update history, full screen with no browser interface. Sign in once through Steam, for example with the Steam Mobile app's QR code; after that it signs itself in again. |
 | **Proton Mail** | Proton Mail in Helium | Helium, full screen | Proton's end-to-end encrypted email, full screen with no browser interface. Sign in with your Proton account, once for both Proton Mail and Proton Calendar; a link in a message opens in front of it, and **Menu** closes it again. |
 | **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. It shares Proton Mail's sign-in. |
 
@@ -35,7 +36,7 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 - **Each app's own icon.** The library's artwork follows Steam's own look: the app's icon and name on a dark ground in the app's colours, for the capsule, the wide capsule, the hero banner with its logo, and the icon. NonSteamApps draws it on your device around the icon each app ships, taken from the app itself, so the library shows the icons you know; this repository holds only NonSteamApps' own drawings, for an app whose icon cannot be had (see [Artwork](#artwork)).
 - **Native, never Proton.** Every app is a native Linux app, so the best Steam Play setting for each is none. Proton is for Windows programs, and the Steam Linux Runtime's container hides Flatpak and SteamOS's own apps, so either would stop an app starting. Every install and update removes a compatibility tool forced on an app under **Properties → Compatibility**, by you or by Steam.
 - **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend, ProtonUp-Qt, Protontricks, Winetricks and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
-- **Console-ready browser apps.** Helium, the streaming apps, ProtonDB, Proton Mail and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
+- **Console-ready browser apps.** Helium, the streaming apps, ProtonDB, SteamDB, Proton Mail and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
 - **Private by default.** Helium blocks ads and trackers with its built-in uBlock Origin. NonSteamApps' Helium profiles also send Global Privacy Control and keep no crash reports (see [Privacy, security and ad blocking](#privacy-security-and-ad-blocking)).
 - **Out of friends' sight.** While a non-Steam game runs, Steam shows friends "In non-Steam game" with its name, and its **Mark as Private** does not work for non-Steam games. So while an app Steam started runs, NonSteamApps makes your Steam account Invisible, and sets back your status, Online or Away, when the last app closes. Friends see you offline meanwhile; chat still works (see `INVISIBLE_WHILE_RUNNING` under [Configuration](#configuration)).
 - **Sign-ins in Game Mode.** In Game Mode, Steam's own browser opens apps' links, and it cannot hand a sign-in back to an app. Element's and Bitwarden's sign-in pages and links therefore open in Helium, in front of the app, and the sign-in returns to the app.
@@ -117,8 +118,8 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
   - **On a TV:** in Game Mode, Bitwarden fills the screen and shows no menu bar. NonSteamApps stands in for a desktop's global menu while it runs, which Bitwarden's toolkit, Electron, takes as the place for its menu; its keyboard shortcuts still work. In Desktop Mode it keeps its window and menu bar.
   - **Controls (Bitwarden layout):** the D-pad, or the left stick, moves between items and controls by where they are on screen: up and down a list, and left and right between the sidebar, the list and the buttons in a row. **A** selects, opening a link or pressing a button, **B** goes back or closes a dialog, **Y** ticks a box, **X** shows the on-screen keyboard, and **R2** clicks where the right stick or right trackpad points. In a number field, such as the generator's length, up and down change the number; left or right moves on. In place of the menu bar, **Menu** opens the settings, **View** locks the vault, **L1** searches it, **R1** opens the password generator, and holding **Menu** quits. Logging out, syncing by hand, importing and exporting are only in the menu bar, so use Desktop Mode for them.
   - **Quitting:** closing its window quits it, so Steam sees it end. Bitwarden normally keeps running in the tray, which Game Mode does not have.
-  - **Unlocking:** set a PIN under **Settings → Security → Unlock with PIN** to unlock with the controller. Biometric unlock needs a polkit rule in a system folder that SteamOS keeps read-only, and the **Never** lock timeout needs a keyring.
-  - **Sign-in tokens:** they are kept unencrypted in the account's Bitwarden folder (`ACCESS_TOKEN_LOCATION=DISK`), so a keyring that is missing in one mode cannot sign you out. Your vault stays encrypted with your master password.
+  - **Unlocking:** set a PIN under **Settings → Security → Unlock with PIN** to unlock with the controller, and leave **Lock with master password on restart** ticked, as it is by default. The PIN then stays in memory, and each start asks for the master password first; unticked, a key protected only by the PIN is saved to disk. Biometric unlock needs a polkit rule in a system folder that SteamOS keeps read-only. Avoid the **Never** lock timeout, which keeps your vault's key on the device without protection (see [Protecting your data](#protecting-your-data)).
+  - **Sign-in tokens:** they are kept unencrypted in the account's Bitwarden folder (`ACCESS_TOKEN_LOCATION=DISK`), so a keyring that is missing in one mode cannot sign you out; SteamOS's keyring would protect them no better. They let Bitwarden fetch your vault, which stays encrypted with your master password.
   - **SSO and Duo:** in Game Mode, these open their pages in Helium in front of Bitwarden and return to it, as Element's sign-in does.
 - **LocalSend:** devices on the same network find each other while LocalSend is open on both. It starts dark, in its OLED colours; running the installer again puts them back. LocalSend listens on port 53317 (TCP and UDP). When SteamOS's firewall (firewalld) is running, the installer offers to open that port, both now and permanently, in every firewall zone in use. `sudo` then asks for your password. Removing LocalSend closes the port again, unless you keep the app with `--keep-app`.
   - **Receiving:** accept a transfer and the files land in `~/Downloads`.
@@ -173,7 +174,7 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
 - **Files:** SteamOS's Dolphin, started with a TV profile that is kept apart from Desktop Mode's Dolphin. A single press opens a file or folder, the menu bar is hidden (the ☰ button holds the menu), and Files starts at your home folder each time. Thumbnails and the Places panel's icons are larger, zip files and other archives open like folders, and quitting with several tabs open does not ask first. In Game Mode it is scaled for the TV (`TV_SCALE`), opens as large as the screen, and is drawn in KDE's own style. Desktop Mode's settings, bookmarks, file associations and trash still apply. What you change in Files stays in its profile, as do the settings of apps you open from it.
   - **Controls (Files layout):** the D-pad or left stick moves the selection, **A** opens, **B** or **L1** goes back, **Y** or **R1** goes forward, **X** shows the on-screen keyboard to rename or search, **R2** clicks and **L2** opens the menu for the item under the pointer, which the right stick or right trackpad moves. **View** cancels, **Menu** closes the tab (closing the last one quits Files), and holding **Menu** quits Files at once.
   - **The layout:** NonSteamApps makes it from Steam's Web Browser layout, for each controller type Steam has a Gamepad layout for, and saves it in Steam's `controller_base/templates` folder. If a Steam update removes it, the weekly update or `nonsteamapps steam add files` puts it back.
-- **Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail and Proton Calendar:** see [Helium apps](#helium-apps).
+- **Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, SteamDB, Proton Mail and Proton Calendar:** see [Helium apps](#helium-apps).
 
 ### On a TV: use its full resolution
 
@@ -202,7 +203,7 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | Protontricks | Shared by every account: it changes each game's own Proton prefix |
 | Winetricks | Shared by every account: Flathub's Wine keeps its prefixes in `~/.var/app/org.winehq.Wine/data` |
 | Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
-| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
+| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, SteamDB | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
 | Proton Mail, Proton Calendar | One Helium profile they share, in `~/.local/share/nonsteamapps/profiles/proton/<ID>`, so one sign-in serves both |
 
 Started from the applications menu, VacuumTube, Element and Signal use their usual data instead, and Jellyfin uses its default profile. To give every account the same data, set `PROFILE_PER_STEAM_ACCOUNT=0` in `~/.config/nonsteamapps/nonsteamapps.conf`.
@@ -213,7 +214,7 @@ Helium publishes no Flatpak, so NonSteamApps installs its signed release itself.
 
 - **Helium** opens as a full browser: maximised in Desktop Mode, and in Game Mode as large as the screen, with its tabs and address bar.
   - **In Desktop Mode:** installing Helium also adds it to the applications menu, under Internet, and to the taskbar, after the launchers already there, for everyday browsing. That entry is Helium's own, with Helium's icon, its **New Window** and **New Incognito Window** actions and the links and files it opens, and it starts the Helium that NonSteamApps installed as a regular desktop browser: in Helium's own profile, `~/.config/net.imput.helium`, apart from the Steam accounts' profiles, and without the TV and controller set-up. Its windows group under that launcher, and `nonsteamapps update` writes the entry again from the Helium installed. Removing Helium takes both away again. If Plasma cannot be reached while installing, as over SSH, pin it from the applications menu instead. A launcher you take off the taskbar stays off until you install again.
-- **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB**, **Proton Mail** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, hold **Menu**, or press the Steam button and choose **Exit game**.
+- **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB**, **SteamDB**, **Proton Mail** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, hold **Menu**, or press the Steam button and choose **Exit game**.
 
 Each app has its own Helium profile for each Steam account, so signing in to one never signs you in to another. Proton Mail and Proton Calendar share one, because Proton's single sign-on works within one browser profile: signing in to either signs you in to both. With one of them open, opening the other brings it up in front, in the same Helium, while its own Steam shortcut ends at once; **Menu** closes it again. A Proton Calendar profile from before moves into the shared one at the next start of either app or the next install, keeping its sign-in, and removing one of them with `--purge` keeps the shared profile while the other is installed. Before every start, NonSteamApps sets up that profile for a console:
 
@@ -236,6 +237,13 @@ Each app has its own Helium profile for each Steam account, so signing in to one
 
 - **Your library:** ProtonDB opens on the list of the games in the Steam library of the account that started it, with each game's rating: its Explore page with **Restrict to library** on. ProtonDB lists every game you own, as it cannot tell which are installed. The first time, the account's dashboard shows for a moment while ProtonDB looks the account up and remembers it; after that, the list opens straight away. No sign-in is needed, but your Steam profile and its **Game details** must be public (Steam → Profile → Edit Profile → Privacy Settings); if they are not, the dashboard stays, saying so. With `PROFILE_PER_STEAM_ACCOUNT=0`, it opens on ProtonDB's home page.
 - **Report filters:** open the cog above a game's reports (**Filtering Settings**), set **GPU**, **CPU** and **Distro** (for example AMD, AMD and SteamOS) and tick **Persist Across Site?**. ProtonDB keeps the filters in the browser's own storage, not in cookies, so they stay in that Steam account's ProtonDB profile, and installing again leaves them alone. Matching reports are listed first, with the rest below. ProtonDB also remembers the **Steam Deck** or **PC** tab you last chose on a game page. Reports from a Steam Deck give their distro as SteamOS Holo.
+
+### SteamDB: signing in
+
+- **The first time:** choose **Sign in** on SteamDB, and Steam's sign-in page opens. Sign in there by scanning its QR code with the Steam Mobile app, or with your account name and password. Steam then asks you to confirm signing in to SteamDB, and NonSteamApps confirms it for you when the Steam account signed in is the one that started SteamDB.
+- **After that:** whenever SteamDB has signed you out, it starts its sign-in by itself, once each time it starts, and NonSteamApps confirms Steam's page again, so SteamDB opens signed in. If Steam has signed you out too, its sign-in page waits for you.
+- **Only SteamDB, only your account:** NonSteamApps confirms Steam's page only when it is asked for steamdb.info, and only for the Steam account that started SteamDB; anything else waits for you. SteamDB receives your public SteamID, never your password.
+- **Staying signed out:** sign out on SteamDB's sign-out page, `steamdb.info/signout/`, and it stays signed out until you sign in yourself. With `PROFILE_PER_STEAM_ACCOUNT=0`, the one shared profile belongs to no single account, so SteamDB never signs itself in.
 
 ### Privacy, security and ad blocking
 
@@ -276,7 +284,7 @@ Each app's library artwork is drawn in one family, after Steam's own: the app's 
 | Files | The icon SteamOS's icon theme gives Dolphin's applications menu entry |
 | Helium | `product_logo_256.png` from Helium's release |
 | KytyPS5, Lichii | The icon their project keeps at the release installed, downloaded from GitHub |
-| Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail, Proton Calendar | The icon the site names in its page or its web app manifest, found by loading the site in a private Helium window with no extensions: a vector icon, or the largest of at least 128 pixels |
+| Prime Video, HBO Max, Netflix, Disney+, ProtonDB, SteamDB, Proton Mail, Proton Calendar | The icon the site names in its page or its web app manifest, found by loading the site in a private Helium window with no extensions: a vector icon, or the largest of at least 128 pixels |
 
 NonSteamApps' own Helium draws it, headless, from the template `share/artwork/card.html`, at every install and update, before Steam's library is written; it draws an app again only once its icon, or the template, has changed. The drawings are kept in `~/.local/state/nonsteamapps/artwork`, and `nonsteamapps doctor` names each app's icon. An app whose icon cannot be had, or is smaller than 128 pixels, keeps NonSteamApps' own artwork, drawn from the same template around an icon of NonSteamApps' own in the app's colours, so the library stays in one style. So does every app when Helium is not installed, or when `APP_ICONS=0`. Artwork you choose yourself in Steam stays at an update, as before.
 
@@ -288,10 +296,11 @@ No app's own icon or artwork is in this repository: each is taken on the device 
 
 Element normally protects its stored session secrets with the system keyring. Game Mode has no keyring, and a profile protected by KWallet in Desktop Mode cannot be opened in Game Mode. Steam therefore starts Element with `--password-store=basic --storage-mode=allow-plaintext`.
 
-The session secrets stay in the profile folder, encrypted with a fixed key rather than a password: hidden from casual view, but not protected from software running as your user. In exchange, the same profile works in both modes and Element never stops at a prompt a controller cannot answer.
+The session secrets stay in the profile folder, encrypted with a fixed key rather than a password: hidden from casual view, but not protected from software running as your user. In exchange, the same profile works in both modes and Element never stops at a prompt a controller cannot answer. SteamOS's own keyring would be no stronger, as its wallet has no password.
 
 To limit the risk:
 
+- encrypt your home folder (see [Protecting your data](#protecting-your-data));
 - set up Element's **Secure Backup** with a recovery key;
 - if the device is lost, sign it out from another device under **Settings → Sessions**.
 
@@ -303,9 +312,28 @@ Flathub's Signal keeps the key to its message database in plain text by default 
 
 On a first start with this store, Flathub's Signal asks for confirmation, with **No**, which quits, preselected. That is easy to answer wrongly with a controller. NonSteamApps skips the question by creating the account's settings file before the first start, and shows the same note after installing instead.
 
-The key can therefore be read by anyone who can read your files. If the device is lost, unlink it from your phone under **Settings → Linked devices**.
+The key can therefore be read by anyone who can read your files, as can anything in SteamOS's own keyring. Encrypting your home folder protects it (see [Protecting your data](#protecting-your-data)). If the device is lost, unlink it from your phone under **Settings → Linked devices**.
 
 Signal started from the applications menu keeps Flathub's own defaults, including the question.
+
+## Protecting your data
+
+Element, Signal and Bitwarden keep their data in each Steam account's folders, in your home folder. On SteamOS, a keyring would not protect that data better:
+
+- Game Mode starts no keyring, so apps that look for one find none.
+- Desktop Mode's KDE Wallet opens a wallet that SteamOS copies onto every device, and, unless you have given it a password, it opens without one. Anyone with a copy of its files can then read what it holds.
+
+NonSteamApps therefore keeps each app's own store. What does protect the data:
+
+- **Encrypt your home folder.** SteamOS includes `dirlock`, an experimental tool that encrypts your home folder. After it, each start-up stops at a login screen that asks for a PIN or password, with an on-screen keyboard, before Game Mode starts. If the device has a usable TPM, the PIN can be kept there, which limits repeated guesses. Follow [its instructions](https://gitlab.steamos.cloud/holo/dirlock/-/wikis/Enabling-disk-encryption-on-the-Steam-Deck) and back up first:
+  - it is set up as root over SSH, with `/usr/lib/steamos/steamos-enable-dirlock` and then `/usr/lib/steamos/steamos-encrypt-home`, and needs free space as large as your home folder plus 2 GB;
+  - your files are locked only when the device shuts down, not while it sleeps;
+  - `/usr/lib/steamos/steamos-decrypt-home` undoes it.
+- **Turn on Steam's lock screen** under **Settings → Security**. A PIN on waking, starting up and switching to Desktop Mode keeps others out of Desktop Mode, where all files can be opened.
+- **Bitwarden:** keep its default PIN set-up, and avoid the **Never** lock timeout (see Bitwarden under [Using the apps](#using-the-apps)).
+- **A lost device:** sign it out of Element from another session, and unlink it from Signal on your phone.
+
+None of these keeps one Steam account's data from another person who can sign in to the device. Bitwarden asks for its own master password; Element and Signal have no lock of their own.
 
 ## Configuration
 
@@ -419,7 +447,7 @@ tools/render-artwork.py [APP...]               # draw assets/artwork/<app> aroun
 | `install.sh`, `uninstall.sh` | Entry points (work from a clone or through `curl … \| bash`) |
 | `src/bin/nonsteamapps` | Launcher: runs the command-line interface, or starts an app when called through its link |
 | `src/lib/nonsteamapps/` | Python standard-library package: `apps.py` (the apps), `flatpak.py`, `helium.py` (the signed Helium release), `browser.py` (console profiles and flags), `display.py` (TV scale), `controllers.py` (Steam layouts), `layouts.py` (NonSteamApps' own layouts), `collection.py` (the Steam collection), `compat.py` (Steam Play tools), `steam.py` and `vdf.py` (shortcuts and artwork), `steamclient.py`, `firewall.py` (LocalSend's port), `selfupdate.py` and `net.py` (updating NonSteamApps itself), `links.py` (sign-ins in Game Mode), `x11.py` (full-screen windows in Game Mode), `appmenu.py` (Bitwarden's hidden menu bar), `artwork.py` (artwork drawn around each app's own icon), `builds.py` (builds from GitHub releases), `kyty.py` (KytyPS5's builds and account folders), `lichii.py` (Lichii's AppImages), `cli.py` |
-| `src/share/` | Default settings, the update timer, Helium's public signing key (fingerprint `BE67 7C19 89D3 5EAB 2C5F 26C9 3516 01AD 01D6 378E`), Helium's focus extension, KytyPS5's stand-in terminal, VacuumTube's SteamOS theme (`userstyles/`) and the artwork's template (`artwork/card.html`), with the Inter Display font it is set in, cut down to Basic Latin (`artwork/OFL.txt`) |
+| `src/share/` | Default settings, the update timer, Helium's public signing key (fingerprint `BE67 7C19 89D3 5EAB 2C5F 26C9 3516 01AD 01D6 378E`), Helium's focus extension, ProtonDB's and SteamDB's extensions, KytyPS5's stand-in terminal, VacuumTube's SteamOS theme (`userstyles/`) and the artwork's template (`artwork/card.html`), with the Inter Display font it is set in, cut down to Basic Latin (`artwork/OFL.txt`) |
 | `assets/src/<app>/icon.svg`, `assets/artwork/<app>` | NonSteamApps' own icon for each app, and the artwork drawn around it, used where the app's own icon cannot be had |
 | `tests/fakes/` | Stand-ins for `flatpak`, `firewall-cmd`, `sudo`, `systemctl` and a headless Chromium's DevTools pipe (`devtools`), used by the tests; `tests/_fakes.py` also builds stand-in Helium, KytyPS5 and Lichii releases |
 | `compose.yaml`, `tests/containers/` | The test containers: an image like CI's (`ci/`), a SteamOS image (`steamos/`), and the scripts their services run |
@@ -442,6 +470,7 @@ To add an app:
 | `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own packages: its Python, GnuPG, D-Bus, Xvfb and Chromium |
 | `flathub` | Flathub still has every Flatpak NonSteamApps installs, under the ID and branch it installs |
 | `artwork` | Every app's artwork draws, in a copy of the repository |
+| `keyring` | SteamOS's KDE Wallet still starts only in Desktop Mode, and its wallet still opens without a password, as [Protecting your data](#protecting-your-data) says |
 | `e2e` | A real install of LocalSend from Flathub with SteamOS's flatpak, a start in its sandbox, and its removal |
 
 ```bash
@@ -468,6 +497,7 @@ The SteamOS image is installed only from one SteamOS release's repositories, tho
 - [LocalSend](https://github.com/localsend/localsend) by Tien Do Nam and contributors.
 - [Helium](https://github.com/imputnet/helium) by imput, built on ungoogled-chromium.
 - [ProtonDB](https://www.protondb.com), where players report how well games run with Proton.
+- [SteamDB](https://steamdb.info), which tracks Steam's apps, prices and players.
 - [Eden](https://git.eden-emu.dev/eden-emu/eden) by its contributors, a fork of yuzu, and the maintainers of its [Flathub package](https://github.com/flathub/dev.eden_emu.eden).
 - [Eden-NX2](https://git.eden-emu.dev/Takoroka/eden-nx2) by Takoroka, Eden with early Switch 2 support.
 - [Lichii](https://github.com/zortos293/Lichii) by zortos293 and contributors, which builds on Eglantine, Eden, yuzu and Sudachi.
@@ -480,4 +510,4 @@ The SteamOS image is installed only from one SteamOS release's repositories, tho
 - [Steam ROM Manager](https://github.com/SteamGridDB/steam-rom-manager): reference for Steam's shortcut, artwork and controller conventions.
 - [Inter](https://github.com/rsms/inter) by The Inter Project Authors, under the SIL Open Font License, which the artwork's names are set in.
 
-NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, Bitwarden, the Jellyfin project, LocalSend, imput, ProtonDB, Proton AG, KDE, the Prism Launcher project, the Eden project, Eden-NX2's author, the Lichii project, Nintendo, the KytyPS5 project, Sony Interactive Entertainment, the ProtonUp-Qt project, the Protontricks project, the Winetricks project, the Wine project, Mojang Studios, Microsoft, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; Minecraft is a trademark of Mojang Synergies AB; Nintendo Switch and Nintendo Switch 2 are trademarks of Nintendo; PlayStation and PS5 are trademarks of Sony Interactive Entertainment Inc.; other names belong to their owners. The artwork and icons in this repository are NonSteamApps' own; each app's own icon is taken on the device, from the app or site it belongs to, and is not in this repository.
+NonSteamApps is not affiliated with Valve, Google, Element, the Matrix.org Foundation, Signal Messenger, Bitwarden, the Jellyfin project, LocalSend, imput, ProtonDB, SteamDB, Proton AG, KDE, the Prism Launcher project, the Eden project, Eden-NX2's author, the Lichii project, Nintendo, the KytyPS5 project, Sony Interactive Entertainment, the ProtonUp-Qt project, the Protontricks project, the Winetricks project, the Wine project, Mojang Studios, Microsoft, Amazon, Warner Bros. Discovery, Netflix or The Walt Disney Company. YouTube is a trademark of Google LLC; Steam and SteamOS are trademarks of Valve Corporation; Minecraft is a trademark of Mojang Synergies AB; Nintendo Switch and Nintendo Switch 2 are trademarks of Nintendo; PlayStation and PS5 are trademarks of Sony Interactive Entertainment Inc.; other names belong to their owners. The artwork and icons in this repository are NonSteamApps' own; each app's own icon is taken on the device, from the app or site it belongs to, and is not in this repository.

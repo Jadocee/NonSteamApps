@@ -1086,6 +1086,18 @@ class HeliumAppTests(CliTestCase):
         argv, _ = self.launch("protondb", "--steam-account", str(BETA))
         self.assertEqual(argv[-1], "https://www.protondb.com/")
 
+    def test_steamdb_starts_with_its_sign_in_extension_and_the_account_in_the_address(self):
+        self.install("steamdb")
+        argv, _ = self.launch("steamdb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], f"https://steamdb.info/#nonsteamapps={76561197960265728 + BETA}")
+        self.assertIn(f"--load-extension={self.paths.focus_extension},{self.paths.extension('steamdb')}", argv)
+        for name in ("manifest.json", "steamdb.js", "openid.js"):
+            self.assertTrue((self.paths.extension("steamdb") / name).is_file(), name)
+        self.assertIn("--kiosk", argv)
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        argv, _ = self.launch("steamdb", "--steam-account", str(BETA))
+        self.assertEqual(argv[-1], "https://steamdb.info/")
+
     def test_the_settings_choose_the_scale_and_services(self):
         self.install("helium")
         config.set_setting(self.paths.settings, cli.TV_SCALE, "1.25")

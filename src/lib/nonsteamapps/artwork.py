@@ -70,6 +70,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "netflix": ("#e50914", "#7a0a0f"),
     "disneyplus": ("#0063e5", "#00d5ff"),
     "protondb": ("#e0313f", "#ff8a5c"),
+    "steamdb": ("#2a475e", "#66c0f4"),
     "protonmail": ("#6d4aff", "#c9b9ff"),
     "protoncalendar": ("#6d4aff", "#a58bff"),
 }
@@ -206,12 +207,16 @@ class Browser:
     """A headless Chromium, such as NonSteamApps' Helium, driven through the DevTools protocol on the pipe ``--remote-debugging-pipe`` opens.
 
     Chromium reads the protocol's messages on its file descriptor 3 and writes its own on 4, each ending in a NUL.
+    It loads no extension, unless ``extensions`` names unpacked ones, as the tests of NonSteamApps' own do; Google's
+    branded Chrome then needs ``DisableLoadExtensionCommandLineSwitch`` turned off to honour ``--load-extension``.
     """
 
-    def __init__(self, program: Path, timeout: float = 45.0, environment: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, program: Path, timeout: float = 45.0, environment: Optional[Dict[str, str]] = None,
+                 extensions: Sequence[Path] = ()) -> None:
         self.program = Path(program)
         self.timeout = timeout
         self.environment = environment
+        self.extensions = tuple(str(folder) for folder in extensions)
         self.process: Optional[subprocess.Popen] = None
         self.profile: Optional[str] = None
         self._reader = self._writer = -1
@@ -230,7 +235,8 @@ class Browser:
             os.close(from_browser[1])
         arguments = [
             "--headless", "--remote-debugging-pipe", f"--user-data-dir={self.profile}", "--no-first-run", "--no-default-browser-check",
-            "--disable-extensions", "--disable-sync", "--disable-background-networking", "--hide-scrollbars", "--mute-audio",
+            *([f"--load-extension={','.join(self.extensions)}", "--disable-features=DisableLoadExtensionCommandLineSwitch"]
+              if self.extensions else ["--disable-extensions"]), "--disable-sync", "--disable-background-networking", "--hide-scrollbars", "--mute-audio",
             "--force-device-scale-factor=1", "--allow-file-access-from-files", *(["--no-sandbox"] if os.geteuid() == 0 else []), "about:blank",
         ]
         script = f'exec "$@" 3<&{read_end} 4>&{write_end} {read_end}<&- {write_end}>&-'

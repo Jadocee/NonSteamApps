@@ -577,6 +577,58 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Bounded:** each wait gives up after ten seconds in all and leaves a process that outlasts it running, as before; nothing is ended that was not ended before.
     - **Tests:** `links.stop` and `links.reap` are tested directly, and the sign-in tests check that a launch leaves no process it started unwaited.
 
+73. **Keyrings for the Flatpak apps, and what protects their data instead (owner request, security first).** The owner asked whether the keyring problem of Bitwarden and the other Flatpak apps can be solved, or what could replace a keyring, putting security first.
+    - **Game Mode has no keyring.** SteamOS's KWallet 6.16 can be started on demand only under its own names, `org.kde.kwalletd6` and `org.kde.secretservicecompat`, not as the Secret Service, `org.freedesktop.secrets`, and nothing in Game Mode's session starts it. Game Mode also routes portals to Valve's `holo` and `gamescope` backends alone, and neither offers the Secret portal [162].
+    - **Desktop Mode's keyring protects nothing.** At the first Desktop Mode login, SteamOS copies in a wallet that its `steamdeck-kde-presets` package ships, the same on every device, and turns KWallet's first-use set-up off [162]. A secret moved into it would be no safer than in the fixed-key stores the apps use now. In the SteamOS image (item 71), with SteamOS's KWallet:
+      - the wallet opened without a password, and opened again after being locked;
+      - another home holding only a copy of its files read a stored secret back.
+    - **A wallet with a real password cannot be unlocked for the apps.** SteamOS logs in automatically, without a password, so nothing can unlock the wallet at login [162]. Every start-up would ask for its password. In Game Mode, KWallet's prompt would come from a process that Steam did not start, so Gamescope would not give it the app's ID or show it in front of the app [48]; this was not tried on a device. NonSteamApps could start KWallet itself for each app, but would then have to end it with the app. That means:
+      - a password at every app start;
+      - one wallet shared by every Steam account;
+      - Signal's keyring problems, the reason Flathub's Signal defaults to plain text [13][14].
+    - **The apps:**
+      - **Bitwarden** reaches a keyring through `oo7`. Inside Flatpak, `oo7` keeps a file keyring in the app's data folder, keyed through the Secret portal, and otherwise uses the Secret Service [164][165].
+        - Its vault stays encrypted with the master password, whatever the keyring.
+        - A PIN set with **Lock with master password on restart** ticked, the default, stays in memory; unticked, the key it protects is written to disk [165].
+        - The **Never** lock timeout keeps the vault's key on the device without protection, as Bitwarden itself warns [167].
+      - **Element's** Flatpak has no permission for the Secret Service or KWallet. **Signal's** has both, but defaults to plain text [164].
+    - **Decision:** the apps keep the stores items 4, 12 and 30 chose. The README gains "Protecting your data", which names what does protect the data:
+      - **Home-folder encryption.** SteamOS's `dirlock` encrypts the home folder with the kernel's fscrypt. SteamOS 3.8 includes it, turned off and marked experimental [163].
+        - When the folder is locked, the login screen asks for a PIN or password before Game Mode starts, with an on-screen keyboard. A TPM can hold the PIN and limit repeated guesses, though its support is still basic.
+        - It is set up as root over SSH, needs free space as large as the home folder plus 2 GB, and can be undone.
+        - Sleep does not lock the files; only a shutdown does.
+      - **Steam's lock screen**, with a PIN on waking, starting up and switching to Desktop Mode [166].
+      - **Bitwarden's own settings:** its default PIN set-up, and no **Never** timeout.
+    - **Not chosen:**
+      - a keyring in Game Mode, as above;
+      - **encrypted folders for each Steam account**, such as gocryptfs. This would keep accounts apart, which nothing above does, but SteamOS does not include it, so NonSteamApps would have to ship it. Each account's passphrase would be asked when its first app starts, and FUSE inside Flatpak's sandbox is untested. It is offered to the owner as an option;
+      - **keys bound to the TPM without a PIN**, through `systemd-creds`. No app reads them, and they protect only a disk taken out of the device.
+    - **Test:** a new `keyring` service in the SteamOS image repeats the KWallet checks, so that a SteamOS release that changes them shows up.
+    - **Not verified:** on the Steam Machine itself, including its TPM and `dirlock`, which NonSteamApps neither runs nor sets up.
+
+74. **SteamDB (owner request).** The owner asked for SteamDB, as a Helium app; version 2.38.0.
+    - **The app:** SteamDB runs full screen in Helium at `https://steamdb.info/`, as ProtonDB does (item 15), with the Browser layout and a Helium profile for each Steam account. SteamDB is a third-party site, not Valve's [168].
+    - **Sign-in:** optional, through Steam's OpenID, which gives SteamDB the account's public SteamID and never its password [168][169]. Each Steam account's profile keeps its own sign-in, which item 75 makes automatic.
+    - **Start page:** SteamDB's home page. Unlike ProtonDB (items 34 and 49), it does not open on a page for the account, as the owner asked for none.
+    - **Artwork:** drawn around the icon the site names, as for the other full-screen apps. NonSteamApps' own icon for it is a database in Steam's blues.
+    - **Not verified:** on the Steam Machine. SteamDB answers automated clients with Cloudflare's check, so of its pages only the FAQ was read here.
+
+75. **SteamDB signs itself in (owner request).** The owner asked for SteamDB's automatic sign-in. Of the two ways put to them, they chose one sign-in through Steam, then automatic. The other, copying the Steam client's own sign-in into Helium, would spread its session into a second browser profile.
+    - **How:** an extension of NonSteamApps' own, loaded only in SteamDB's profiles.
+      - **The account:** Steam starts SteamDB at `https://steamdb.info/#nonsteamapps=<SteamID64>`. The extension keeps the SteamID and clears the address before SteamDB's scripts run, and a fragment never reaches SteamDB's server.
+      - **Signing in again:** once this profile has been seen signed in, the extension follows a SteamDB page's **Sign in** link when its header shows one (`a.header-login` to `/login/`) [168], once in each start (the tab's session storage).
+      - **Steam's confirmation:** on `steamcommunity.com/openid/login`, the extension presses **Sign In** only when the request is an OpenID `checkid_setup` whose realm and return address are `https://steamdb.info`, and the account Steam names as signed in (`g_steamID`, or `application_config`'s user information) is the one that started SteamDB [170]. Otherwise the page waits for the user. It reads the form's attributes, because Steam's form has a field named `action`, which hides the form's own `action` property; the tests caught this.
+      - **Signing out:** opening SteamDB's sign-out page (`/signout/`) [168] stops it until the user signs in again.
+    - **The first sign-in:** on Steam's own page, where the Steam Mobile app's QR code avoids typing. Steam then asks for the confirmation above [170].
+    - **Security:** the extension asks only for its own storage, where it keeps the SteamID, which is public, and whether the profile has been signed in. It never reads or types a password, and confirms no other site. With shared profiles (`PROFILE_PER_STEAM_ACCOUNT=0`), there is no single account, so it does nothing.
+    - **Tests:** in a real Chromium, against stand-ins for SteamDB and Steam built on their markup [168][170]:
+      - the address is cleaned, and nothing signs in before the first time;
+      - once signed in, it signs in again through Steam;
+      - Steam is confirmed for SteamDB alone, and only for the account that started it;
+      - after signing out, it stays signed out;
+      - a failed sign-in is not tried again in the same start.
+    - **Not verified:** on the Steam Machine, or with a signed-in Steam account. The confirmation page's form and button (`openidForm`, `imageLogin`) are taken from Steam's long-standing markup, not seen here; failing them, the extension uses the page's one form that posts to `/openid/login`. SteamDB's signed-in header is inferred from its signed-out one.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -742,3 +794,12 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 159. [Flatpak](https://github.com/flatpak/flatpak/tree/1.16.6) 1.16.6: `common/flatpak-dir.c`, whose `flatpak_dir_check_parental_controls` asks malcontent on the system bus before an app is installed, fails without a system bus, and skips the check when no service on it answers; and whose `system_helper_maybe_ensure_repo` and `ensure_repo_opened` fail for a system installation that has no repository
 160. Docker's documentation, read on 7 November 2026: the [command-line reference](https://github.com/docker/cli/tree/master/docs/reference), `dockerd.md` (`--default-shm-size`, 64 MiB) and `commandline/container_run.md` (`--shm-size`, and `--security-opt` with `seccomp=unconfined`, `apparmor=` and `systempaths=unconfined`, for masked and read-only paths); the [seccomp page](https://github.com/docker/docs/blob/main/content/manuals/engine/security/seccomp.md), whose default profile denies new namespaces to `clone` and `unshare`; and Moby's [AppArmor template](https://github.com/moby/profiles/blob/4b8214f/apparmor/template.go) at `4b8214f`, with `deny mount,`
 161. [Linux](https://github.com/torvalds/linux) as read on 7 November 2026: `fs/namespace.c`, whose `mount_too_revealing` and `mnt_already_visible` let a user namespace mount a new `proc` only where a visible one has no locked mounts covering anything but empty directories
+162. SteamOS 3.8's packages, from its mirror [158], read on 7 November 2026: `extra-3.8/kwallet-6.16.0-1` (`ksecretd`, `kwalletd6`, the D-Bus services `org.kde.kwalletd6` and `org.kde.secretservicecompat`, and `kwallet.portal`, a Secret portal backend for KDE only); `jupiter-3.8/steamdeck-kde-presets-3.8.6-1` (`steamos-setup-kwallet`, started at Desktop Mode's login, which copies `/usr/share/kwalletd/kdewallet.kwl` and `kdewallet.salt` into the user's wallet folder and turns KWallet's first use off); `holo-3.8/steamos-customizations-git-3.8.20260721.1-1` (`/usr/lib/sddm/sddm.conf.d/steamos.conf`, with autologin); `jupiter-3.8/gamescope-3.16.23.6-1` (`gamescope-portals.conf`: `default=holo;gamescope`); `holo-3.8/xdg-desktop-portal-holo-0.1.18.5ad92bf-1` (`holo.portal`: AppChooser, Email, Lockdown and Settings only); and `core-3.8/systemd-257.7-2.51`, for `systemd-creds`
+163. `holo-3.8/dirlock-0.0.1.214.177064e-3.2`, built on 29 September 2026: `steamos-enable-dirlock`, `steamos-encrypt-home`, `steamos-decrypt-home`, `dirlock-sddm-helper` and `dirlock-sddm.service`; and the project's [README](https://gitlab.steamos.cloud/holo/dirlock) and wiki page [Enabling disk encryption on the Steam Deck](https://gitlab.steamos.cloud/holo/dirlock/-/wikis/Enabling-disk-encryption-on-the-Steam-Deck), read on 7 November 2026
+164. Flathub's manifests, read on 7 November 2026: [`com.bitwarden.desktop`](https://github.com/flathub/com.bitwarden.desktop) at `3a5cb97` (`--talk-name=org.freedesktop.secrets`); [`im.riot.Riot`](https://github.com/flathub/im.riot.Riot) at `c582b67` (no Secret Service or KWallet name); and [`org.signal.Signal`](https://github.com/flathub/org.signal.Signal) at `52e5556` (`org.freedesktop.secrets`, `org.kde.kwalletd6` and `SIGNAL_PASSWORD_STORE=basic`)
+165. Bitwarden desktop 2026.10.2, as in [43]: `apps/desktop/desktop_native/core/src/password/unix.rs`, its `oo7` keyring; `libs/angular/src/auth/components/set-pin.component.ts`, where **Lock with master password on restart** is ticked by default for an account with a master password (`AfterFirstUnlock`); and `libs/common/src/key-management/pin/pin.service.abstraction.ts`, an ephemeral PIN kept in memory and a persistent one on disk. With [oo7](https://github.com/bilelmoussaoui/oo7) 0.5.0, the version Bitwarden builds: `client/src/keyring.rs`, a file keyring keyed through the Secret portal inside a sandbox, and otherwise the Secret Service
+166. Valve's Steam Deck lock screen (May 2022), as [TechRadar](https://www.techradar.com/how-to/steam-deck-gets-a-lock-screen-heres-how-to-make-the-device-more-secure) and [GameSpot](https://www.gamespot.com/articles/steam-deck-update-adds-a-lock-screen-and-window-switching/1100-6502831/) report it: a PIN on waking, starting up, logging in and switching to Desktop Mode, under **Settings → Security**
+167. Bitwarden's help, [Vault timeout](https://bitwarden.com/help/vault-timeout/), as a web search gave it on 7 November 2026: the **Never** option keeps the encryption key unencrypted on the device, and Bitwarden strongly recommends another
+168. [SteamDB's FAQ](https://steamdb.info/faq/), read on 7 November 2026: SteamDB is not affiliated with Valve or Steam; it signs in through Steam's official OpenID provider and receives only the public SteamID; its header's sign-in link, `a.header-login` to `/login/?page=…` in `.header-user`; and its sign-out page, `/signout/`
+169. [Steamworks documentation, User Authentication and Ownership](https://partner.steamgames.com/doc/features/auth): Steam as an OpenID 2.0 provider at `https://steamcommunity.com/openid/`, whose Claimed ID gives the user's SteamID
+170. Steam Community's OpenID pages, read signed out on 7 November 2026: a `checkid_setup` request to `https://steamcommunity.com/openid/login` for `https://steamdb.info/` sends a signed-out browser to `/openid/loginform/?goto=` that request, Steam's sign-in page, with `g_steamID = false;` and `application_config`'s `data-userinfo` of `{"logged_in":false,…}`

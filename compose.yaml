@@ -1,0 +1,75 @@
+# NonSteamApps' tests in containers, run from the repository's root: docker compose run --rm SERVICE
+#
+#   unit        unit tests on Ubuntu 24.04's Python, as CI runs them
+#   unit-py38   unit tests on Python 3.8, the oldest that NonSteamApps supports
+#   lint        ShellCheck, pyflakes and a compile of the artwork tool
+#   sandbox     tests/sandbox.sh: install, launch, update and uninstall with stand-ins
+#   steamos     unit tests and tests/sandbox.sh on SteamOS's own packages
+#   flathub     every Flatpak NonSteamApps installs is still on Flathub (needs the internet)
+#   artwork     every app's artwork draws with Chromium, in a copy of the repository
+#   e2e         a real install of LocalSend from Flathub, and its removal (needs the internet; not in docker compose up)
+#
+# The repository is mounted read-only, so no service changes it. STEAMOS chooses the SteamOS release the SteamOS
+# image is built from, 3.8 unless set (see tests/containers/steamos/Containerfile). Chromium, which the steamos and
+# artwork services draw with, needs more shared memory than Docker gives by default. Chromium's and Flatpak's
+# sandboxes make namespaces, which Docker's default seccomp profile refuses, and mounts, which its AppArmor profile
+# refuses, so the services that start them as a user lift both. Flatpak's also mounts a /proc of its own, which the
+# kernel allows only once the parts of the container's that Docker masks are unmasked (systempaths).
+name: nonsteamapps-tests
+
+x-ci: &ci
+  image: nonsteamapps-test-ci
+  build:
+    context: tests/containers/ci
+    dockerfile: Containerfile
+  volumes:
+    - .:/src:ro
+  working_dir: /src
+
+x-steamos: &steamos
+  image: nonsteamapps-test-steamos:${STEAMOS:-3.8}
+  build:
+    context: tests/containers/steamos
+    dockerfile: Containerfile
+    args:
+      STEAMOS: ${STEAMOS:-3.8}
+  volumes:
+    - .:/src:ro
+  working_dir: /src
+
+services:
+  unit:
+    <<: *ci
+    command: python3 -m unittest discover -s tests
+  unit-py38:
+    <<: *ci
+    command: python3.8 -m unittest discover -s tests
+  lint:
+    <<: *ci
+    command: tests/containers/lint.sh
+  sandbox:
+    <<: *ci
+    command: tests/sandbox.sh
+  steamos:
+    <<: *steamos
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    shm_size: 1gb
+    command: tests/containers/steamos/check.sh
+  flathub:
+    <<: *steamos
+    command: tests/containers/steamos/flathub.sh
+  artwork:
+    <<: *steamos
+    user: root
+    shm_size: 1gb
+    command: tests/containers/artwork.sh
+  e2e:
+    <<: *steamos
+    profiles: [e2e]
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    command: tests/containers/steamos/e2e.sh

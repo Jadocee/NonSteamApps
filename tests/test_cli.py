@@ -887,12 +887,14 @@ class FilesTests(CliTestCase):
 
     def test_without_dolphin_files_says_what_is_missing(self):
         (self.bin / "dolphin").unlink()
-        self.install("files")
-        self.assertIn("Dolphin (dolphin) was not found", self.errors)
-        self.assertEqual(self.run_cli("list"), 0)
-        self.assertIn("not found (dolphin)", self.output)
-        self.assertNotEqual(self.run_cli("launch", "files", "--verbose"), 0)
-        self.assertIn("Dolphin (dolphin) is not installed", self.errors)
+        which = shutil.which
+        with mock.patch("shutil.which", side_effect=lambda name, *args, **kwargs: None if name == "dolphin" else which(name, *args, **kwargs)):
+            self.install("files")
+            self.assertIn("Dolphin (dolphin) was not found", self.errors)
+            self.assertEqual(self.run_cli("list"), 0)
+            self.assertIn("not found (dolphin)", self.output)
+            self.assertNotEqual(self.run_cli("launch", "files", "--verbose"), 0)
+            self.assertIn("Dolphin (dolphin) is not installed", self.errors)
 
     def test_files_gets_its_own_controller_layout_until_it_is_removed(self):
         folder = _fakes.add_controller_templates(self.root)
@@ -1700,9 +1702,17 @@ class SignInTests(CliTestCase):
             "FAKE_HELIUM_INPUT_LOG": str(Path(self.tmp.name) / "helium-input.log"),
             "GTK_IM_MODULE": "Steam",
         }
-        with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), \
+        started = []
+
+        class Recorded(subprocess.Popen):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                started.append(self)
+
+        with mock.patch.dict(os.environ, variables), mock.patch("nonsteamapps.cli._redirect"), mock.patch("subprocess.Popen", Recorded), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
             status = cli.main(["launch", app_id, "--steam-account", str(ALPHA)], self.paths, self.flatpak)
+        self.assertEqual([process.args for process in started if process.returncode is None], [], "started and never waited for")
         return status, output.getvalue(), runtime
 
     def test_in_game_mode_element_signs_in_in_helium_and_the_callback_returns_to_it(self):

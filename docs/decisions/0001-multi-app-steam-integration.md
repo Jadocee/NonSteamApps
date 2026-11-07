@@ -548,6 +548,35 @@ The owner answered the open questions. Where these answers differ from the text 
     - **What a device that still has SteamOS YT keeps:** SteamOS YT itself, with its own YouTube shortcut beside NonSteamApps', which is a new one with a new app ID. That means its `~/.local/share/steamos-yt`, `~/.config/steamos-yt`, `~/.local/state/steamos-yt` and `~/.cache/steamos-yt`, its `steamos-yt.desktop` and its `steamos-yt-update` timer. Removing them is now done by hand. A device on which NonSteamApps was installed while SteamOS YT was there has already had its shortcut moved.
     - **What stays:** the GitHub repository's name, `jadocee/steamos-yt`, in the installer's and the updater's addresses; LocalSend's older settings location, which is LocalSend's own and has nothing to do with SteamOS YT; and this record's history of the move.
 
+71. **Test containers (owner request).** The owner asked for sandbox and compose files to support future tests, and chose both containers offered: one like CI's, and one like SteamOS.
+    - **What runs:** `compose.yaml`, at the repository's root, has one service for each check, as the README's Development section lists them. Every service mounts the repository read-only, so none changes it.
+    - **The CI image:** Ubuntu 24.04, as GitHub's `ubuntu-24.04` runner, with its Python, ShellCheck, pyflakes, D-Bus and Xvfb. Python 3.8, the oldest that NonSteamApps supports, is copied in from Docker's official Python image, so no third-party package source is needed. Ubuntu ships Chromium only as a snap, so the one test that draws with Chromium is skipped there; the SteamOS image runs it.
+    - **The SteamOS image:**
+      - Its packages come only from Valve's mirror, from one SteamOS release's repositories, those a Steam Machine updates from, and are verified with Valve's own keys, `holo-keyring` [158]. `STEAMOS` chooses the release, 3.8 unless set; the image's package list also resolves on 3.9 and 3.10.
+      - An Arch Linux stage installs them into an empty root, as pacstrap does, and that root becomes the image (`FROM scratch`), so no newer Arch package is left in it. Not chosen: moving Arch's own image back to SteamOS's packages, which stopped on files that packages have since moved between them.
+      - Opening the system Flatpak installation once as root makes it as SteamOS has it, with the Flathub remote that SteamOS's flatpak package ships [158]. Without one, a user's `flatpak list`, from which NonSteamApps learns what is installed, fails [159].
+      - It has no Steam, gamescope or Game Mode, and its root file system is writable.
+    - **What Docker must allow:**
+      - Chromium draws in shared memory, which Docker limits to 64 MiB [160], too little for the artwork's screenshots, so `steamos` and `artwork` get 1 GB.
+      - Chromium's and Flatpak's sandboxes make namespaces, which Docker's default seccomp profile refuses; on hosts with AppArmor, Docker's profile also refuses mounts [160]. `steamos` and `e2e`, which start the sandboxes as a user, lift both profiles. `artwork` runs as root instead, where NonSteamApps starts Chromium without its sandbox.
+      - Flatpak's sandbox also mounts a `/proc` of its own. The kernel allows that only where the container's `/proc` has nothing hidden [161], and Docker hides parts of it, so `e2e` unmasks them (`systempaths=unconfined`).
+    - **The real install (`e2e`):**
+      - The container has no D-Bus, yet flatpak asks the system bus whether an app may be installed [159]. A private bus therefore serves as both session and system bus; no service answers on it, so flatpak skips the check [159].
+      - LocalSend, its runtime and the throwaway home go with the container, so each run starts clean. A cache kept between runs would have kept little: removal uninstalls the runtimes no app uses.
+    - **Verified:** every service passes here, with Docker 29.9.2. `flathub` and `e2e` ran on copies of the images that trust this environment's proxy; the repository does not carry those copies.
+      - `unit` and `unit-py38`: 402 tests, one skipped.
+      - `lint` and `sandbox` pass.
+      - `steamos`: 402 tests, none skipped, and the sandbox, on SteamOS 3.8 and again on 3.9, with its Python 3.14.6, flatpak 1.18.4 and Chromium 150.
+      - `artwork`: 23 apps drawn.
+      - `flathub`: all 13 refs found.
+      - `e2e`: LocalSend installed and started in its sandbox, then removed with its runtime.
+    - **Not verified:** a host with AppArmor, Podman, and an image built for SteamOS 3.10. CI is unchanged apart from ShellCheck, which now also checks the containers' scripts.
+
+72. **The sign-in hand-off waits for what it starts (owner request).** The test containers (item 71) showed, on every Python from 3.8 to 3.14, that a sign-in in Game Mode left two processes the launcher never waited for: the second start of the app that hands it the callback, and the Helium it closes. Each could stay a zombie while the app ran, and Python warned of both in the tests.
+    - **Fix:** `links.stop` now waits for the processes it ends. The launcher keeps each second start and waits for it once the app ends, by when it has usually long finished.
+    - **Bounded:** each wait gives up after ten seconds in all and leaves a process that outlasts it running, as before; nothing is ended that was not ended before.
+    - **Tests:** `links.stop` and `links.reap` are tested directly, and the sign-in tests check that a launch leaves no process it started unwaited.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -709,3 +738,7 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 155. [Proton's blog post on single sign-on across its web apps](https://proton.me/blog/sso-beta), as a web search gave it on 7 November 2026, proton.me being outside this environment's network: the web app at mail.proton.me, one sign-in for Proton Mail, Contacts and Calendar, and sessions that end after 60 days unused
 156. [Flathub `me.proton.Mail`](https://github.com/flathub/me.proton.Mail) at `b87f2b8` (10 October 2026): `me.proton.Mail.yml`, an Electron app built from [Proton's WebClients](https://github.com/ProtonMail/WebClients), and `me.proton.Mail.metainfo.xml`, with Proton AG as its developer
 157. [Chromium](https://github.com/chromium/chromium) as read on 7 November 2026: `chrome/browser/process_singleton_posix.cc`, whose second start on a profile sends its command line to the browser running on it and exits, and whose `SingletonLock` links to `<host>-<process ID>`
+158. [SteamOS's package mirror](https://steamdeck-packages.steamos.cloud/archlinux-mirror/), read on 7 November 2026: the `jupiter`, `holo`, `core`, `extra` and `multilib` repositories of each release from 3.5 to 3.10, beside `main`, `rel` and `staging` ones; in 3.8's, `holo-keyring`, Python 3.13.5, bubblewrap 0.12.0, Chromium 138 and flatpak `1:1.16.6+r51+g80b7aa9eb91c-1.1`, built by Valve's CI, which ships `/usr/share/flatpak/remotes.d/flathub.flatpakrepo`; and in 3.9's, Python 3.14.6 and flatpak 1.18.4
+159. [Flatpak](https://github.com/flatpak/flatpak/tree/1.16.6) 1.16.6: `common/flatpak-dir.c`, whose `flatpak_dir_check_parental_controls` asks malcontent on the system bus before an app is installed, fails without a system bus, and skips the check when no service on it answers; and whose `system_helper_maybe_ensure_repo` and `ensure_repo_opened` fail for a system installation that has no repository
+160. Docker's documentation, read on 7 November 2026: the [command-line reference](https://github.com/docker/cli/tree/master/docs/reference), `dockerd.md` (`--default-shm-size`, 64 MiB) and `commandline/container_run.md` (`--shm-size`, and `--security-opt` with `seccomp=unconfined`, `apparmor=` and `systempaths=unconfined`, for masked and read-only paths); the [seccomp page](https://github.com/docker/docs/blob/main/content/manuals/engine/security/seccomp.md), whose default profile denies new namespaces to `clone` and `unshare`; and Moby's [AppArmor template](https://github.com/moby/profiles/blob/4b8214f/apparmor/template.go) at `4b8214f`, with `deny mount,`
+161. [Linux](https://github.com/torvalds/linux) as read on 7 November 2026: `fs/namespace.c`, whose `mount_too_revealing` and `mnt_already_visible` let a user namespace mount a new `proc` only where a visible one has no locked mounts covering anything but empty directories

@@ -1,0 +1,16 @@
+# NonSteamApps' tests on the system GitHub's CI runs, Ubuntu 24.04 and its Python, with the oldest Python that
+# NonSteamApps supports, 3.8, taken from the official Python image. compose.yaml builds and runs it.
+FROM python:3.8-slim-bookworm AS python38
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates dbus gpg gpg-agent gpgv procps python3 python3-pyflakes shellcheck xvfb xz-utils \
+        libbz2-1.0 libexpat1 libffi8 liblzma5 libncursesw6 libreadline8t64 libsqlite3-0 libssl3t64 libuuid1 libx11-6 zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1001 runner
+COPY --from=python38 /usr/local/bin/python3.8 /usr/local/bin/
+COPY --from=python38 /usr/local/lib/python3.8 /usr/local/lib/python3.8
+COPY --from=python38 /usr/local/lib/libpython3.8.so.1.0 /usr/local/lib/
+RUN ldconfig && python3.8 -c "import bz2, ctypes, lzma, sqlite3, ssl, zlib"
+USER runner

@@ -408,8 +408,8 @@ nonsteamapps launch APP [--steam-account ID] [--verbose] [-- ARGS]
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests          # apps, Flatpak, Helium (with real signatures), Steam, layouts, migration and command-line flows
-shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin src/share/sandbox/xdg-open src/share/kytyps5/terminal
+python3 -m unittest discover -s tests          # apps, Flatpak, Helium (with real signatures), Steam, layouts and command-line flows
+shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin src/share/sandbox/xdg-open src/share/kytyps5/terminal tests/containers/*.sh tests/containers/steamos/*.sh
 tests/sandbox.sh                               # install.sh, launches through the links Steam runs, uninstall.sh
 tools/render-artwork.py [APP...]               # draw assets/artwork/<app> around assets/src/<app>/icon.svg, in a headless Chromium
 ```
@@ -422,12 +422,35 @@ tools/render-artwork.py [APP...]               # draw assets/artwork/<app> aroun
 | `src/share/` | Default settings, the update timer, Helium's public signing key (fingerprint `BE67 7C19 89D3 5EAB 2C5F 26C9 3516 01AD 01D6 378E`), Helium's focus extension, KytyPS5's stand-in terminal, VacuumTube's SteamOS theme (`userstyles/`) and the artwork's template (`artwork/card.html`), with the Inter Display font it is set in, cut down to Basic Latin (`artwork/OFL.txt`) |
 | `assets/src/<app>/icon.svg`, `assets/artwork/<app>` | NonSteamApps' own icon for each app, and the artwork drawn around it, used where the app's own icon cannot be had |
 | `tests/fakes/` | Stand-ins for `flatpak`, `firewall-cmd`, `sudo`, `systemctl` and a headless Chromium's DevTools pipe (`devtools`), used by the tests; `tests/_fakes.py` also builds stand-in Helium, KytyPS5 and Lichii releases |
+| `compose.yaml`, `tests/containers/` | The test containers: an image like CI's (`ci/`), a SteamOS image (`steamos/`), and the scripts their services run |
 
 To add an app:
 
 1. Add an `App` to `apps.py` with its Flathub ID, arguments and per-account data.
 2. Draw its icon in `assets/src/<app>/icon.svg`, give it its colours in `artwork.COLOURS`, and run `tools/render-artwork.py <app>`.
 3. Extend the tests.
+
+### In containers
+
+`compose.yaml` runs the checks above in containers, with others that need more than a clone. Run them from the repository's root with Docker Compose; each service mounts the repository read-only:
+
+| Service | What it checks |
+| --- | --- |
+| `unit`, `unit-py38` | The unit tests on Ubuntu 24.04's Python, as CI runs them, and on Python 3.8, the oldest NonSteamApps supports |
+| `lint` | ShellCheck, pyflakes and a compile of the artwork tool |
+| `sandbox` | `tests/sandbox.sh` |
+| `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own packages: its Python, GnuPG, D-Bus, Xvfb and Chromium |
+| `flathub` | Flathub still has every Flatpak NonSteamApps installs, under the ID and branch it installs |
+| `artwork` | Every app's artwork draws, in a copy of the repository |
+| `e2e` | A real install of LocalSend from Flathub with SteamOS's flatpak, a start in its sandbox, and its removal |
+
+```bash
+docker compose run --rm steamos                # one service; the first run builds its image
+STEAMOS=3.9 docker compose run --rm steamos    # on another SteamOS release
+docker compose up --abort-on-container-failure # every service but e2e, at once; a failure stops the rest
+```
+
+The SteamOS image is installed only from one SteamOS release's repositories, those Steam Machines and Steam Decks update from; 3.8 unless `STEAMOS` names another. It has no Steam, gamescope or Game Mode. `flathub` and `e2e` need the internet, and `e2e` needs about 2 GB for LocalSend and its runtime, which it downloads afresh each time.
 
 ## Roadmap
 

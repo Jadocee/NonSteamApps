@@ -1,4 +1,5 @@
 import os
+import signal
 import stat
 import subprocess
 import tempfile
@@ -68,14 +69,25 @@ class ChannelTests(unittest.TestCase):
         child = subprocess.Popen(["sh", "-c", "kill -TERM $$"])
         self.assertEqual(links.serve(child, self.fd, SCHEMES, print, print), 128 + 15)
 
-    def test_stop_ends_a_browser_with_the_processes_it_started(self):
+    def test_stop_ends_a_browser_with_the_processes_it_started_and_waits_for_it(self):
         browser = subprocess.Popen(["sh", "-c", "sleep 30 & sleep 30"], start_new_session=True)
         links.stop([browser])
-        self.assertIsNotNone(browser.wait(timeout=5))
+        self.assertEqual(browser.returncode, -signal.SIGTERM)
         time.sleep(0.2)
         group = subprocess.run(["pgrep", "-g", str(browser.pid)], capture_output=True, text=True)
         self.assertEqual(group.stdout.strip(), "")
 
+
+    def test_reap_waits_for_each_process_until_its_deadline(self):
+        relay = subprocess.Popen(["true"])
+        lingering = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(lingering.wait)
+        self.addCleanup(lingering.kill)
+        started = time.monotonic()
+        links.reap([relay, lingering], timeout=0.3)
+        self.assertEqual(relay.returncode, 0)
+        self.assertIsNone(lingering.returncode)
+        self.assertLess(time.monotonic() - started, 5)
 
 class XdgOpenTests(unittest.TestCase):
     def setUp(self):

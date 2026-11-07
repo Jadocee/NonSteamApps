@@ -608,10 +608,26 @@ The owner answered the open questions. Where these answers differ from the text 
 
 74. **SteamDB (owner request).** The owner asked for SteamDB, as a Helium app; version 2.38.0.
     - **The app:** SteamDB runs full screen in Helium at `https://steamdb.info/`, as ProtonDB does (item 15), with the Browser layout and a Helium profile for each Steam account. SteamDB is a third-party site, not Valve's [168].
-    - **Sign-in:** optional, and through Steam's OpenID, as third-party guides describe it; SteamDB's own pages could not be read here. Steam's OpenID sends a site the account's public SteamID and never its password [169]. Each Steam account's profile keeps its own sign-in.
+    - **Sign-in:** optional, through Steam's OpenID, which gives SteamDB the account's public SteamID and never its password [168][169]. Each Steam account's profile keeps its own sign-in, which item 75 makes automatic.
     - **Start page:** SteamDB's home page. Unlike ProtonDB (items 34 and 49), it does not open on a page for the account, as the owner asked for none.
     - **Artwork:** drawn around the icon the site names, as for the other full-screen apps. NonSteamApps' own icon for it is a database in Steam's blues.
-    - **Not verified:** on the Steam Machine, nor the site itself, as steamdb.info is outside this environment's network.
+    - **Not verified:** on the Steam Machine. SteamDB answers automated clients with Cloudflare's check, so of its pages only the FAQ was read here.
+
+75. **SteamDB signs itself in (owner request).** The owner asked for SteamDB's automatic sign-in. Of the two ways put to them, they chose one sign-in through Steam, then automatic. The other, copying the Steam client's own sign-in into Helium, would spread its session into a second browser profile.
+    - **How:** an extension of NonSteamApps' own, loaded only in SteamDB's profiles.
+      - **The account:** Steam starts SteamDB at `https://steamdb.info/#nonsteamapps=<SteamID64>`. The extension keeps the SteamID and clears the address before SteamDB's scripts run, and a fragment never reaches SteamDB's server.
+      - **Signing in again:** once this profile has been seen signed in, the extension follows a SteamDB page's **Sign in** link when its header shows one (`a.header-login` to `/login/`) [168], once in each start (the tab's session storage).
+      - **Steam's confirmation:** on `steamcommunity.com/openid/login`, the extension presses **Sign In** only when the request is an OpenID `checkid_setup` whose realm and return address are `https://steamdb.info`, and the account Steam names as signed in (`g_steamID`, or `application_config`'s user information) is the one that started SteamDB [170]. Otherwise the page waits for the user. It reads the form's attributes, because Steam's form has a field named `action`, which hides the form's own `action` property; the tests caught this.
+      - **Signing out:** opening SteamDB's sign-out page (`/signout/`) [168] stops it until the user signs in again.
+    - **The first sign-in:** on Steam's own page, where the Steam Mobile app's QR code avoids typing. Steam then asks for the confirmation above [170].
+    - **Security:** the extension asks only for its own storage, where it keeps the SteamID, which is public, and whether the profile has been signed in. It never reads or types a password, and confirms no other site. With shared profiles (`PROFILE_PER_STEAM_ACCOUNT=0`), there is no single account, so it does nothing.
+    - **Tests:** in a real Chromium, against stand-ins for SteamDB and Steam built on their markup [168][170]:
+      - the address is cleaned, and nothing signs in before the first time;
+      - once signed in, it signs in again through Steam;
+      - Steam is confirmed for SteamDB alone, and only for the account that started it;
+      - after signing out, it stays signed out;
+      - a failed sign-in is not tried again in the same start.
+    - **Not verified:** on the Steam Machine, or with a signed-in Steam account. The confirmation page's form and button (`openidForm`, `imageLogin`) are taken from Steam's long-standing markup, not seen here; failing them, the extension uses the page's one form that posts to `/openid/login`. SteamDB's signed-in header is inferred from its signed-out one.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
@@ -784,5 +800,6 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 165. Bitwarden desktop 2026.10.2, as in [43]: `apps/desktop/desktop_native/core/src/password/unix.rs`, its `oo7` keyring; `libs/angular/src/auth/components/set-pin.component.ts`, where **Lock with master password on restart** is ticked by default for an account with a master password (`AfterFirstUnlock`); and `libs/common/src/key-management/pin/pin.service.abstraction.ts`, an ephemeral PIN kept in memory and a persistent one on disk. With [oo7](https://github.com/bilelmoussaoui/oo7) 0.5.0, the version Bitwarden builds: `client/src/keyring.rs`, a file keyring keyed through the Secret portal inside a sandbox, and otherwise the Secret Service
 166. Valve's Steam Deck lock screen (May 2022), as [TechRadar](https://www.techradar.com/how-to/steam-deck-gets-a-lock-screen-heres-how-to-make-the-device-more-secure) and [GameSpot](https://www.gamespot.com/articles/steam-deck-update-adds-a-lock-screen-and-window-switching/1100-6502831/) report it: a PIN on waking, starting up, logging in and switching to Desktop Mode, under **Settings → Security**
 167. Bitwarden's help, [Vault timeout](https://bitwarden.com/help/vault-timeout/), as a web search gave it on 7 November 2026: the **Never** option keeps the encryption key unencrypted on the device, and Bitwarden strongly recommends another
-168. [SteamDB's FAQ](https://steamdb.info/faq/), as a web search gave it on 7 November 2026, steamdb.info being outside this environment's network: SteamDB is not affiliated with Valve or Steam
+168. [SteamDB's FAQ](https://steamdb.info/faq/), read on 7 November 2026: SteamDB is not affiliated with Valve or Steam; it signs in through Steam's official OpenID provider and receives only the public SteamID; its header's sign-in link, `a.header-login` to `/login/?page=…` in `.header-user`; and its sign-out page, `/signout/`
 169. [Steamworks documentation, User Authentication and Ownership](https://partner.steamgames.com/doc/features/auth): Steam as an OpenID 2.0 provider at `https://steamcommunity.com/openid/`, whose Claimed ID gives the user's SteamID
+170. Steam Community's OpenID pages, read signed out on 7 November 2026: a `checkid_setup` request to `https://steamcommunity.com/openid/login` for `https://steamdb.info/` sends a signed-out browser to `/openid/loginform/?goto=` that request, Steam's sign-in page, with `g_steamID = false;` and `application_config`'s `data-userinfo` of `{"logged_in":false,…}`

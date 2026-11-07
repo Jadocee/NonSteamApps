@@ -1365,7 +1365,12 @@ APPS: Tuple[App, ...] = (
         name="SteamDB",
         client="Helium",
         summary="Steam's prices, sales, player counts and update history, full screen in Helium",
-        browser=Browser(url="https://steamdb.info/", kiosk=True),
+        browser=Browser(
+            url="https://steamdb.info/",
+            kiosk=True,
+            account_url="https://steamdb.info/#nonsteamapps={steam_id}",
+            extensions=("steamdb",),
+        ),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

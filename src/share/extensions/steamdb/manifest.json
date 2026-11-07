@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "NonSteamApps SteamDB sign-in",
+  "version": "1",
+  "description": "Signs SteamDB in again through Steam, once it has been signed in, with the Steam account that started it.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://steamdb.info/*"],
+      "js": ["steamdb.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://steamcommunity.com/openid/login*"],
+      "js": ["openid.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

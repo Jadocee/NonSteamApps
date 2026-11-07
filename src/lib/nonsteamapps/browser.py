@@ -185,21 +185,36 @@ def allow_callbacks(profile: Path, url: str, schemes: Sequence[str]) -> List[str
     return allowed
 
 
-def clear_stale_lock(profile: Path) -> bool:
-    """Remove a lock left by a Helium that is no longer running, which would block the next start."""
-    lock = Path(profile) / "SingletonLock"
+def _lock(profile: Path) -> Optional[str]:
+    """Where the profile's ``SingletonLock`` points, ``<host>-<process ID>``, or ``None`` when it has none."""
     try:
-        target = os.readlink(lock)
+        return os.readlink(Path(profile) / "SingletonLock")
+    except OSError:
+        return None
+
+
+def _browser_running(lock: str) -> bool:
+    pid = lock.rsplit("-", 1)[-1]
+    if not pid.isdecimal():
+        return False
+    try:
+        exe = os.path.basename(os.readlink(f"/proc/{pid}/exe")).replace(" (deleted)", "")
     except OSError:
         return False
-    pid = target.rsplit("-", 1)[-1]
-    if pid.isdecimal():
-        try:
-            exe = os.path.basename(os.readlink(f"/proc/{pid}/exe")).replace(" (deleted)", "")
-        except OSError:
-            exe = ""
-        if exe in BROWSER_BINARIES:
-            return False
+    return exe in BROWSER_BINARIES
+
+
+def in_use(profile: Path) -> bool:
+    """Whether a running Helium has ``profile`` open: its ``SingletonLock`` names a process that is a Chromium browser."""
+    lock = _lock(profile)
+    return lock is not None and _browser_running(lock)
+
+
+def clear_stale_lock(profile: Path) -> bool:
+    """Remove a lock left by a Helium that is no longer running, which would block the next start."""
+    lock = _lock(profile)
+    if lock is None or _browser_running(lock):
+        return False
     for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
         path = Path(profile) / name
         if path.is_symlink() or path.exists():
@@ -215,6 +230,14 @@ def link_widevine(profile: Path, shared: Path) -> None:
         link.unlink()
     if not link.exists():
         link.symlink_to(shared, target_is_directory=True)
+
+
+def last_used(profile: Path) -> float:
+    """When ``profile`` was last used, as the time its ``Local State`` was written, which every start does; 0 for one never used."""
+    try:
+        return (Path(profile) / "Local State").stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:

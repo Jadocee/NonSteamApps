@@ -805,12 +805,16 @@ class Browser:
 
     ``account_url``, with ``{steam_id}`` in it, opens in place of ``url`` when Steam starts the app for an account.
     ``extensions`` are folders of NonSteamApps' ``share/extensions`` that the app loads beside the focus outline.
+    ``profile`` names a folder of Helium profiles, one for each Steam account, that the apps naming it share, as
+    Proton Mail and Proton Calendar do, whose single sign-on works within one browser profile; an app without one
+    has its own.
     """
 
     url: str = ""
     kiosk: bool = False
     account_url: str = ""
     extensions: Tuple[str, ...] = ()
+    profile: str = ""
 
     def start_url(self, account: Optional[int]) -> str:
         """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
@@ -961,6 +965,11 @@ class App:
     command: str = ""
     branch: str = ""
     icon: str = ""
+
+    @property
+    def profiles_name(self) -> str:
+        """The folder of NonSteamApps' profiles that holds the app's data: the one its Helium profiles are shared in, or its own."""
+        return self.browser.profile if self.browser and self.browser.profile else self.id
 
     @property
     def ref(self) -> str:
@@ -1358,7 +1367,7 @@ APPS: Tuple[App, ...] = (
         name="Proton Mail",
         client="Helium",
         summary="Proton's end-to-end encrypted email, full screen in Helium",
-        browser=Browser(url="https://mail.proton.me/", kiosk=True),
+        browser=Browser(url="https://mail.proton.me/", kiosk=True, profile="proton"),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
@@ -1367,11 +1376,18 @@ APPS: Tuple[App, ...] = (
         name="Proton Calendar",
         client="Helium",
         summary="Proton's end-to-end encrypted calendar, full screen in Helium",
-        browser=Browser(url="https://calendar.proton.me/", kiosk=True),
+        browser=Browser(url="https://calendar.proton.me/", kiosk=True, profile="proton"),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
 )
+
+
+def sharing_profiles(app: App) -> Tuple[App, ...]:
+    """The other apps that share ``app``'s Helium profiles."""
+    if not (app.browser and app.browser.profile):
+        return ()
+    return tuple(other for other in APPS if other is not app and other.browser and other.browser.profile == app.browser.profile)
 
 
 def by_id(app_id: str) -> App:

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -986,6 +987,48 @@ class HeliumAppTests(CliTestCase):
         self.assertEqual(json.loads((profile / "Local State").read_text())["helium"]["crash_reporting"]["mode"], -1)
         self.assertEqual((profile / "WidevineCdm").resolve(), runtime.widevine.resolve())
         redirect.assert_called_once_with(self.paths.log("primevideo"))
+
+    def test_proton_mail_and_calendar_share_one_sign_in_for_each_account_and_calendars_moves_in(self):
+        self.install("protoncalendar")
+        calendar, shared = self.paths.profiles / "protoncalendar", self.paths.profiles / "proton"
+        (calendar / str(BETA) / "Default").mkdir(parents=True)
+        (calendar / str(BETA) / "Default" / "Cookies").write_bytes(b"signed in")
+        program = Path(self.tmp.name) / "helium"
+        shutil.copy2(shutil.which("sleep"), program)
+        running = subprocess.Popen([str(program), "30"])
+        self.addCleanup(running.wait)
+        self.addCleanup(running.kill)
+        (calendar / str(ALPHA)).mkdir()
+        (calendar / str(ALPHA) / "SingletonLock").symlink_to(f"steamdeck-{running.pid}")
+        self.install("protonmail")
+        self.assertIn("Proton Mail and Proton Calendar now share one Helium profile for each Steam account, so one sign-in serves them", self.errors)
+        self.assertEqual((shared / str(BETA) / "Default" / "Cookies").read_bytes(), b"signed in")
+        self.assertTrue((calendar / str(ALPHA)).is_dir())
+        for app, url in (("protonmail", "https://mail.proton.me/"), ("protoncalendar", "https://calendar.proton.me/")):
+            argv, _ = self.launch(app, "--steam-account", str(BETA))
+            self.assertEqual((argv[1], argv[-1]), (f"--user-data-dir={shared / str(BETA)}", url))
+        running.kill()
+        running.wait()
+        argv, _ = self.launch("protonmail", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1], f"--user-data-dir={shared / str(ALPHA)}")
+        self.assertFalse(calendar.exists())
+        self.assertFalse((shared / str(ALPHA) / "SingletonLock").is_symlink())
+        self.assertEqual(self.run_cli("remove", "protonmail", "--purge", "--yes"), 0, self.errors)
+        self.assertIn("Proton Mail's sign-ins stay, as Proton Calendar shares them", self.errors)
+        self.assertTrue((shared / str(BETA) / "Default" / "Cookies").is_file())
+        self.assertEqual(self.run_cli("remove", "protoncalendar", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse(shared.exists())
+
+    def test_the_profile_used_last_moves_in_when_both_proton_apps_kept_one(self):
+        self.install("protonmail", "protoncalendar")
+        for app, when in (("protonmail", 1000), ("protoncalendar", 2000)):
+            profile = self.paths.profiles / app / str(ALPHA)
+            profile.mkdir(parents=True)
+            (profile / "Local State").write_text(json.dumps({"from": app}))
+            os.utime(profile / "Local State", (when, when))
+        self.launch("protonmail", "--steam-account", str(ALPHA))
+        self.assertEqual(json.loads((self.paths.profiles / "proton" / str(ALPHA) / "Local State").read_text())["from"], "protoncalendar")
+        self.assertTrue((self.paths.profiles / "protonmail" / str(ALPHA)).is_dir())
 
     def test_helium_joins_desktop_modes_menu_and_taskbar_and_leaves_them_when_removed(self):
         layout = self.paths.plasma_layout

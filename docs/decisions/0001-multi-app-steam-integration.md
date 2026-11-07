@@ -527,10 +527,17 @@ The owner answered the open questions. Where these answers differ from the text 
 
 68. **Proton Mail (owner request).** The owner asked for Proton Mail, as a Helium app.
     - **The app:** Proton Mail runs full screen in Helium at `https://mail.proton.me/`, its web app's address [155], as Proton Calendar does (item 23): with the Browser layout and a Helium profile for each Steam account. A link in a message opens in a new full-screen window, which Menu (Ctrl+W) closes, and the profiles refuse notification requests, so new messages do not pop up.
-    - **Sign-in:** Proton's single sign-on carries one sign-in across its web apps in the same browser, and a session lasts until it goes 60 days unused [155]. Each NonSteamApps app has a Helium profile of its own, so Proton Mail and Proton Calendar each need their own sign-in.
+    - **Sign-in (changed in item 69):** Proton's single sign-on carries one sign-in across its web apps in the same browser, and a session lasts until it goes 60 days unused [155]. Each NonSteamApps app has a Helium profile of its own, so Proton Mail and Proton Calendar each need their own sign-in.
     - **Not chosen:** Proton's desktop app, which Flathub builds from Proton's own web client as `me.proton.Mail`, with Proton AG as its developer [156], as the owner asked for Helium; it could be added beside it.
     - **Artwork:** drawn around the icon the site names, as for the other full-screen apps; NonSteamApps' own icon for it is an envelope on Proton Calendar's purple.
     - **Not verified:** on the Steam Machine, nor the sign-in, as proton.me is outside this environment's network.
+
+69. **One sign-in for Proton's apps (owner request).** The owner asked for one sign-in between the Proton apps, Proton Mail and Proton Calendar.
+    - **How:** Proton's single sign-on works within one browser profile [155], so the two now share one Helium profile for each Steam account, in `profiles/proton/<ID>`, which their entries name (`Browser.profile`); signing in to either signs in both. Every other app keeps a profile of its own. Not chosen: sharing parts of two profiles, such as their cookies, as Chromium keeps a profile to the one browser that has it open [157], so the parts could not be kept in step.
+    - **Both open:** a second start on a profile hands its command line to the browser already running on it and ends [157]. Opening one of the two while the other runs brings it up in front, in the same Helium, while its own Steam shortcut ends at once; Menu closes it again.
+    - **The sign-in carries over:** at the next start of either app, or the next install, each account's profile that Proton Calendar, or Proton Mail before this change, kept on its own moves into the shared folder, where the account has none there yet. Where both kept one, the one used last moves, by when its `Local State` was written; the other stays where it is. A profile that a running Helium has open, as its `SingletonLock` names [157], waits for a later start. That check now serves the stale-lock clean-up too, so both count a lock as held only while it names a running Chromium browser.
+    - **Removal:** removing one of the two with `--purge` keeps the shared profiles while the other is installed, and removing the last deletes them.
+    - **Not verified:** on the Steam Machine, nor Proton's sign-in itself, as proton.me is outside this environment's network. The tests move a signed-in profile across, leave an open one until its Helium ends, choose the one used last, and keep shared profiles while the other app remains.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
@@ -692,3 +699,4 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 154. [Wine](https://gitlab.winehq.org/wine/wine) 11.0, as its GitHub mirror `wine-mirror/wine` has it at `wine-11.0`: `loader/wine.desktop`
 155. [Proton's blog post on single sign-on across its web apps](https://proton.me/blog/sso-beta), as a web search gave it on 7 November 2026, proton.me being outside this environment's network: the web app at mail.proton.me, one sign-in for Proton Mail, Contacts and Calendar, and sessions that end after 60 days unused
 156. [Flathub `me.proton.Mail`](https://github.com/flathub/me.proton.Mail) at `b87f2b8` (10 October 2026): `me.proton.Mail.yml`, an Electron app built from [Proton's WebClients](https://github.com/ProtonMail/WebClients), and `me.proton.Mail.metainfo.xml`, with Proton AG as its developer
+157. [Chromium](https://github.com/chromium/chromium) as read on 7 November 2026: `chrome/browser/process_singleton_posix.cc`, whose second start on a profile sends its command line to the browser running on it and exits, and whose `SingletonLock` links to `<host>-<process ID>`

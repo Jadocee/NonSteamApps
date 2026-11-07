@@ -25,8 +25,8 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 | **Netflix** | Netflix in Helium | Helium, full screen | Netflix's streaming service, full screen with no browser interface. |
 | **Disney+** | Disney+ in Helium | Helium, full screen | Disney's streaming service, full screen with no browser interface. |
 | **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. It opens on the list of your Steam library's games. |
-| **Proton Mail** | Proton Mail in Helium | Helium, full screen | Proton's end-to-end encrypted email, full screen with no browser interface. Sign in with your Proton account; a link in a message opens in front of it, and **Menu** closes it again. |
-| **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. Sign in with your Proton account. |
+| **Proton Mail** | Proton Mail in Helium | Helium, full screen | Proton's end-to-end encrypted email, full screen with no browser interface. Sign in with your Proton account, once for both Proton Mail and Proton Calendar; a link in a message opens in front of it, and **Menu** closes it again. |
+| **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. It shares Proton Mail's sign-in. |
 
 ## Features
 
@@ -202,7 +202,8 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | Protontricks | Shared by every account: it changes each game's own Proton prefix |
 | Winetricks | Shared by every account: Flathub's Wine keeps its prefixes in `~/.var/app/org.winehq.Wine/data` |
 | Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
-| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail, Proton Calendar | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
+| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
+| Proton Mail, Proton Calendar | One Helium profile they share, in `~/.local/share/nonsteamapps/profiles/proton/<ID>`, so one sign-in serves both |
 
 Started from the applications menu, VacuumTube, Element and Signal use their usual data instead, and Jellyfin uses its default profile. To give every account the same data, set `PROFILE_PER_STEAM_ACCOUNT=0` in `~/.config/nonsteamapps/nonsteamapps.conf`.
 
@@ -214,7 +215,7 @@ Helium publishes no Flatpak, so NonSteamApps installs its signed release itself.
   - **In Desktop Mode:** installing Helium also adds it to the applications menu, under Internet, and to the taskbar, after the launchers already there, for everyday browsing. That entry is Helium's own, with Helium's icon, its **New Window** and **New Incognito Window** actions and the links and files it opens, and it starts the Helium that NonSteamApps installed as a regular desktop browser: in Helium's own profile, `~/.config/net.imput.helium`, apart from the Steam accounts' profiles, and without the TV and controller set-up. Its windows group under that launcher, and `nonsteamapps update` writes the entry again from the Helium installed. Removing Helium takes both away again. If Plasma cannot be reached while installing, as over SSH, pin it from the applications menu instead. A launcher you take off the taskbar stays off until you install again.
 - **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB**, **Proton Mail** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, hold **Menu**, or press the Steam button and choose **Exit game**.
 
-Each app has its own Helium profile for each Steam account, so signing in to one never signs you in to another. Before every start, NonSteamApps sets up that profile for a console:
+Each app has its own Helium profile for each Steam account, so signing in to one never signs you in to another. Proton Mail and Proton Calendar share one, because Proton's single sign-on works within one browser profile: signing in to either signs you in to both. With one of them open, opening the other brings it up in front, in the same Helium, while its own Steam shortcut ends at once; **Menu** closes it again. A Proton Calendar profile from before moves into the shared one at the next start of either app or the next install, keeping its sign-in, and removing one of them with `--purge` keeps the shared profile while the other is installed. Before every start, NonSteamApps sets up that profile for a console:
 
 - **No interruptions:** onboarding and welcome pages are marked as seen, and the last session is recorded as closed cleanly. Steam ends apps by signalling them, which would otherwise bring up "Restore pages?".
 - **Fewer prompts:** sites cannot ask to send notifications, so Proton Mail's new messages and Proton Calendar's reminders do not pop up; see them on your phone or computer instead. The full-screen apps also turn off translation, password and address saving, and permission prompts.

@@ -147,6 +147,13 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((protontricks.ref, protontricks.run_options(HOME, 111)), ("com.github.Matoking.protontricks", []))
         self.assertEqual([app.id for app in apps.APPS if app.branch or app.command], ["winetricks"])
 
+    def test_protons_apps_share_one_helium_profile_for_each_account_for_its_single_sign_on(self):
+        mail, calendar = apps.by_id("protonmail"), apps.by_id("protoncalendar")
+        self.assertEqual((mail.browser.profile, calendar.browser.profile, mail.profiles_name, calendar.profiles_name), ("proton",) * 4)
+        self.assertEqual((apps.sharing_profiles(mail), apps.sharing_profiles(calendar)), ((calendar,), (mail,)))
+        self.assertEqual([app.id for app in apps.APPS if app.profiles_name != app.id], ["protonmail", "protoncalendar"])
+        self.assertEqual((apps.sharing_profiles(apps.by_id("protondb")), apps.by_id("netflix").profiles_name), ((), "netflix"))
+
     def test_bitwarden_gets_each_accounts_folder_in_a_variable_and_keeps_its_tokens_on_disk(self):
         bitwarden = apps.by_id("bitwarden")
         self.assertEqual(bitwarden.arguments(HOME, 111), ["--enable-spatial-navigation"])

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -133,13 +134,13 @@ class InstallTests(CliTestCase):
             [call[-1] for call in self.fake.calls("install")],
             ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
              "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2",
-             "com.github.Matoking.protontricks"],
+             "com.github.Matoking.protontricks", "org.winehq.Wine//stable"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks"],
+            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks", "winetricks"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -174,7 +175,7 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual([call[-1] for call in self.fake.calls("install")],
                          ["rocks.shy.VacuumTube", "org.kde.Platform//6.11", nx2.APP_ID,
-                          *[app.flatpak for app in apps.APPS[1:] if app.flatpak and not app.from_source]])
+                          *[app.ref for app in apps.APPS[1:] if app.flatpak and not app.from_source]])
         entries = self.entries(ALPHA)
         self.assertEqual(sorted(entries), sorted(app.name for app in apps.APPS))
         self.assertEqual(entries["YouTube"].get("LaunchOptions"), f"--steam-account {ALPHA}")
@@ -579,6 +580,21 @@ class LaunchTests(CliTestCase):
         self.assertEqual(config_ini.read_text(), "[pupgui2]\ntheme=steam\n\n[pupgui]\ninstalldir = /home/deck/.steam/root/compatibilitytools.d/\n")
         self.assertIn("Put back ProtonUp-Qt's TV settings (1 data folder)", self.errors)
 
+    def test_winetricks_starts_from_flathubs_wine_with_the_tools_layout_and_leaves_as_it_came(self):
+        self.install("winetricks")
+        self.assertEqual(self.fake.calls("install")[-1][-2:], ["flathub", "org.winehq.Wine//stable"])
+        self.assertEqual(self.fake.apps()["org.winehq.Wine"]["branch"], "stable")
+        self.assertIn("Installing Winetricks from Flathub (org.winehq.Wine//stable)", self.errors)
+        argv, _ = self.launch("winetricks", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--command=winetricks", "org.winehq.Wine"])
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+            argv, _ = self.launch("winetricks", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--command=winetricks", "--env=GDK_SCALE=3", "--env=GDK_BACKEND=x11", "org.winehq.Wine"])
+        self.assertEqual(self.run_cli("remove", "winetricks", "--yes"), 0, self.errors)
+        self.assertEqual(self.fake.calls("uninstall")[0][-1], "org.winehq.Wine//stable")
+        self.assertNotIn("org.winehq.Wine", self.fake.apps())
+
     def test_prism_gets_the_minecraft_layout(self):
         folder = _fakes.add_controller_templates(self.root)
         self.install("prism")
@@ -971,6 +987,48 @@ class HeliumAppTests(CliTestCase):
         self.assertEqual(json.loads((profile / "Local State").read_text())["helium"]["crash_reporting"]["mode"], -1)
         self.assertEqual((profile / "WidevineCdm").resolve(), runtime.widevine.resolve())
         redirect.assert_called_once_with(self.paths.log("primevideo"))
+
+    def test_proton_mail_and_calendar_share_one_sign_in_for_each_account_and_calendars_moves_in(self):
+        self.install("protoncalendar")
+        calendar, shared = self.paths.profiles / "protoncalendar", self.paths.profiles / "proton"
+        (calendar / str(BETA) / "Default").mkdir(parents=True)
+        (calendar / str(BETA) / "Default" / "Cookies").write_bytes(b"signed in")
+        program = Path(self.tmp.name) / "helium"
+        shutil.copy2(shutil.which("sleep"), program)
+        running = subprocess.Popen([str(program), "30"])
+        self.addCleanup(running.wait)
+        self.addCleanup(running.kill)
+        (calendar / str(ALPHA)).mkdir()
+        (calendar / str(ALPHA) / "SingletonLock").symlink_to(f"steamdeck-{running.pid}")
+        self.install("protonmail")
+        self.assertIn("Proton Mail and Proton Calendar now share one Helium profile for each Steam account, so one sign-in serves them", self.errors)
+        self.assertEqual((shared / str(BETA) / "Default" / "Cookies").read_bytes(), b"signed in")
+        self.assertTrue((calendar / str(ALPHA)).is_dir())
+        for app, url in (("protonmail", "https://mail.proton.me/"), ("protoncalendar", "https://calendar.proton.me/")):
+            argv, _ = self.launch(app, "--steam-account", str(BETA))
+            self.assertEqual((argv[1], argv[-1]), (f"--user-data-dir={shared / str(BETA)}", url))
+        running.kill()
+        running.wait()
+        argv, _ = self.launch("protonmail", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[1], f"--user-data-dir={shared / str(ALPHA)}")
+        self.assertFalse(calendar.exists())
+        self.assertFalse((shared / str(ALPHA) / "SingletonLock").is_symlink())
+        self.assertEqual(self.run_cli("remove", "protonmail", "--purge", "--yes"), 0, self.errors)
+        self.assertIn("Proton Mail's sign-ins stay, as Proton Calendar shares them", self.errors)
+        self.assertTrue((shared / str(BETA) / "Default" / "Cookies").is_file())
+        self.assertEqual(self.run_cli("remove", "protoncalendar", "--purge", "--yes"), 0, self.errors)
+        self.assertFalse(shared.exists())
+
+    def test_the_profile_used_last_moves_in_when_both_proton_apps_kept_one(self):
+        self.install("protonmail", "protoncalendar")
+        for app, when in (("protonmail", 1000), ("protoncalendar", 2000)):
+            profile = self.paths.profiles / app / str(ALPHA)
+            profile.mkdir(parents=True)
+            (profile / "Local State").write_text(json.dumps({"from": app}))
+            os.utime(profile / "Local State", (when, when))
+        self.launch("protonmail", "--steam-account", str(ALPHA))
+        self.assertEqual(json.loads((self.paths.profiles / "proton" / str(ALPHA) / "Local State").read_text())["from"], "protoncalendar")
+        self.assertTrue((self.paths.profiles / "protonmail" / str(ALPHA)).is_dir())
 
     def test_helium_joins_desktop_modes_menu_and_taskbar_and_leaves_them_when_removed(self):
         layout = self.paths.plasma_layout

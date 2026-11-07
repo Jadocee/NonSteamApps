@@ -245,7 +245,7 @@ def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
     elif app.system:
         found = artwork.desktop_icon(app.system.command, APPLICATION_DIRS, ICON_THEMES)
     else:
-        found = artwork.flatpak_icon(app.flatpak, _flatpak_installations(paths)) if app.flatpak else None
+        found = artwork.flatpak_icon(app.flatpak, _flatpak_installations(paths), app.icon) if app.flatpak else None
     return artwork.Source("file", str(found)) if found and found.is_file() else None
 
 
@@ -468,17 +468,51 @@ def _install_app(paths: Paths, flatpak: Flatpak, record: Record, app: App, found
         ui.ok(f"{app.client}{version} is already installed ({found.installation} installation)")
         record.add(app.id, installed_flatpak=False)
     else:
-        ui.log(f"Installing {app.client} from Flathub ({app.flatpak})")
-        flatpak.install(app.flatpak)
+        ui.log(f"Installing {app.client} from Flathub ({app.ref})")
+        flatpak.install(app.ref)
         record.add(app.id, installed_flatpak=True)
         ui.ok(f"Installed {app.client}")
     _link(paths, app)
 
 
+def _share_profiles(paths: Paths, app: App) -> List[str]:
+    """Move the Helium profiles that ``app`` and the apps sharing its profiles kept on their own into the shared folder.
+
+    For each Steam account with no profile there yet, the one used last moves in, so that its sign-in carries over,
+    unless a Helium has it open, in which case a later start moves it; any other stays where it is. Returns the
+    accounts moved.
+    """
+    shared = paths.profiles / app.profiles_name
+    owners = [paths.profiles / member.id for member in (app, *apps.sharing_profiles(app)) if paths.profiles / member.id != shared]
+    found: Dict[str, List[Path]] = {}
+    for own in owners:
+        for profile in sorted(own.iterdir()) if own.is_dir() else []:
+            if profile.is_dir():
+                found.setdefault(profile.name, []).append(profile)
+    moved = []
+    for account, profiles in sorted(found.items()):
+        latest = max(profiles, key=browser.last_used)
+        if (shared / account).exists() or browser.in_use(latest):
+            continue
+        shared.mkdir(parents=True, exist_ok=True)
+        os.replace(latest, shared / account)
+        moved.append(account)
+    for own in owners:
+        try:
+            own.rmdir()
+        except OSError:
+            pass
+    return moved
+
+
 def _reset(paths: Paths, app: App, separate: bool) -> int:
     """Put NonSteamApps' TV settings back in the app's existing data, keeping sign-ins; return the data folders changed."""
     if app.browser:
-        return sum(browser.reset(folder, app.browser.kiosk) for folder in sorted((paths.profiles / app.id).glob("*")) if folder.is_dir())
+        moved = _share_profiles(paths, app)
+        if moved:
+            ui.ok(f"{_names([app, *apps.sharing_profiles(app)])} now share one Helium profile for each Steam account, so one sign-in serves "
+                  f"them; moved the one used last ({len(moved)} Steam account{'s' if len(moved) > 1 else ''})")
+        return sum(browser.reset(folder, app.browser.kiosk) for folder in sorted((paths.profiles / app.profiles_name).glob("*")) if folder.is_dir())
     if app.system:
         return int(app.system.reset(paths.profile(app.id, None)))
     if app.release:
@@ -491,9 +525,14 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
     return count
 
 
-def _purge(paths: Paths, app: App) -> None:
+def _purge(paths: Paths, app: App, remaining: Sequence[App] = ()) -> None:
+    """Delete the app's data for every Steam account, but not Helium profiles it shares with an app in ``remaining``."""
     if app.browser or app.system or app.release or app.appimage:
-        folders = [paths.profiles / app.id] if (paths.profiles / app.id).is_dir() else []
+        folders = [folder for folder in dict.fromkeys((paths.profiles / app.profiles_name, paths.profiles / app.id)) if folder.is_dir()]
+        sharing = [other for other in apps.sharing_profiles(app) if other in remaining]
+        if sharing and paths.profiles / app.profiles_name in folders:
+            folders.remove(paths.profiles / app.profiles_name)
+            ui.info(f"{app.name}'s sign-ins stay, as {_names(sharing)} {'shares' if len(sharing) == 1 else 'share'} them")
     else:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
         if app.callbacks and (paths.profiles / app.id).is_dir():
@@ -513,7 +552,7 @@ def _uninstall_flatpaks(flatpak: Flatpak, record: Record, chosen: Sequence[App])
             continue
         if record.owns_flatpak(app.id) and found.installation == "user":
             ui.log(f"Uninstalling {app.client}")
-            flatpak.uninstall(app.flatpak)
+            flatpak.uninstall(app.ref)
             removed = True
         else:
             ui.info(f"{app.client} stays installed: it was installed before NonSteamApps")
@@ -637,12 +676,13 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     if not ui.confirm(question, default=not args.purge):
         raise ui.Abort("cancelled")
     steam_remove(paths, chosen, "all", args.restart_steam)
+    remaining = [app for app in _managed(record) if app not in chosen]
     for app in chosen:
         paths.app_link(app.id).unlink(missing_ok=True)
         _remove_from_desktop(paths, app)
         _studio(paths).forget(app.id)
         if args.purge:
-            _purge(paths, app)
+            _purge(paths, app, remaining)
     if not args.keep_app:
         _close_ports(record, chosen)
         _uninstall_flatpaks(flatpak, record, chosen)
@@ -1051,7 +1091,9 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
         raise ui.Abort(f"Helium is not installed; run: {paths.launcher} install {app.id}")
     settings = config.read_settings(paths.settings)
     game_mode = steamclient.in_game_mode()
-    profile = paths.profile(app.id, account)
+    if _share_profiles(paths, app):
+        print(f"  {_names([app, *apps.sharing_profiles(app)])} now share one Helium profile for each Steam account, for one sign-in", flush=True)
+    profile = paths.profile(app.profiles_name, account)
     browser.prepare(profile, config.enabled(settings.get(HELIUM_SERVICES), default=True), app.browser.kiosk, runtime.widevine)
     factor = display.scale(_scale_setting(settings), game_mode)
     name = f"nonsteamapps-{app.id}"
@@ -1452,7 +1494,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
             for tool in sorted(set(compat.forced(root, [result.appid for result in results]).values())):
                 print(f"  {'':<10} forced to the Steam Play tool {tool}, so it may not start; run: {paths.launcher} steam add {app.id}")
         if app.browser or app.system or app.release or app.appimage:
-            folders = sorted(path for path in (paths.profiles / app.id).glob("*") if path.is_dir())
+            folders = sorted(path for name in dict.fromkeys((app.profiles_name, app.id)) for path in (paths.profiles / name).glob("*") if path.is_dir())
         else:
             folders = app.profile.existing(app.home(paths.home)) if app.profile else []
         for folder in folders:

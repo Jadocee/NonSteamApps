@@ -62,6 +62,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "kytyps5": ("#3d7fe6", "#1c47b0"),
     "protonup": ("#7e4de0", "#2fb5ff"),
     "protontricks": ("#a3243b", "#e2a03a"),
+    "winetricks": ("#c1121f", "#9aa3ad"),
     "files": ("#3daee9", "#1d99f3"),
     "helium": ("#4aa3ff", "#b6d8ff"),
     "primevideo": ("#00a8e1", "#1a6cff"),
@@ -69,6 +70,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "netflix": ("#e50914", "#7a0a0f"),
     "disneyplus": ("#0063e5", "#00d5ff"),
     "protondb": ("#e0313f", "#ff8a5c"),
+    "protonmail": ("#6d4aff", "#c9b9ff"),
     "protoncalendar": ("#6d4aff", "#a58bff"),
 }
 SITE_ICONS = r"""
@@ -136,18 +138,27 @@ def _size_of(folder: str) -> int:
     return int(match.group(1)) * int(match.group(3) or 1) if match else 0
 
 
-def flatpak_icon(app_id: str, installations: Sequence[Path]) -> Optional[Path]:
-    """The icon a Flatpak installation exports for ``app_id``: its scalable one, or else its largest of at least :data:`MIN_SIZE` pixels."""
+def flatpak_icon(app_id: str, installations: Sequence[Path], name: str = "") -> Optional[Path]:
+    """The icon a Flatpak installation exports for ``app_id``: its scalable one, or else its largest of at least :data:`MIN_SIZE` pixels.
+
+    With ``name``, the icon of that name among the app's current files comes first, as Winetricks' does in
+    Flathub's Wine, which exports Wine's.
+    """
+    own = _hicolor_icon([Path(folder) / "app" / app_id / "current" / "active" / "files" for folder in installations], name) if name else None
+    return own or _hicolor_icon([Path(folder) / "exports" for folder in installations], app_id)
+
+
+def _hicolor_icon(roots: Sequence[Path], name: str) -> Optional[Path]:
     best: Tuple[int, Optional[Path]] = (0, None)
-    for installation in installations:
-        icons = Path(installation) / "exports" / "share" / "icons" / "hicolor"
-        scalable = icons / "scalable" / "apps" / f"{app_id}.svg"
+    for root in roots:
+        icons = root / "share" / "icons" / "hicolor"
+        scalable = icons / "scalable" / "apps" / f"{name}.svg"
         if scalable.is_file():
             return scalable
         if not icons.is_dir():
             continue
         for folder in icons.iterdir():
-            size, candidate = _size_of(folder.name), folder / "apps" / f"{app_id}.png"
+            size, candidate = _size_of(folder.name), folder / "apps" / f"{name}.png"
             if size > best[0] and candidate.is_file():
                 best = (size, candidate)
     return best[1] if best[0] >= MIN_SIZE else None

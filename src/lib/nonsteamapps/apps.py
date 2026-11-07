@@ -805,12 +805,16 @@ class Browser:
 
     ``account_url``, with ``{steam_id}`` in it, opens in place of ``url`` when Steam starts the app for an account.
     ``extensions`` are folders of NonSteamApps' ``share/extensions`` that the app loads beside the focus outline.
+    ``profile`` names a folder of Helium profiles, one for each Steam account, that the apps naming it share, as
+    Proton Mail and Proton Calendar do, whose single sign-on works within one browser profile; an app without one
+    has its own.
     """
 
     url: str = ""
     kiosk: bool = False
     account_url: str = ""
     extensions: Tuple[str, ...] = ()
+    profile: str = ""
 
     def start_url(self, account: Optional[int]) -> str:
         """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
@@ -890,8 +894,11 @@ class App:
     the firewall, when one is running, so other devices can reach the app.
 
     For a Flathub app, ``env`` is set for every start from Steam and ``game_mode_env`` for starts in Game
-    Mode. An ``x11`` app is given X11 for every start from Steam, even where Flatpak would give it only
-    Wayland (see :func:`flatpak.x11_options`); its ``env`` chooses X11 for its toolkit. ``settings`` are
+    Mode. ``command`` is the program in the Flatpak to run in place of its own, as Winetricks is in Flathub's
+    Wine; ``branch`` is the branch to install where Flathub publishes several; and ``icon`` names the app's own
+    icon inside the Flatpak, where it is not the one Flatpak exports. An ``x11`` app is given X11 for every
+    start from Steam, even where Flatpak would give it only Wayland (see :func:`flatpak.x11_options`); its
+    ``env`` chooses X11 for its toolkit. ``settings`` are
     NonSteamApps' TV set-up in the app's own folder, for an app without data per account: written when
     missing and put back by every install. ``libraries`` gives the app's sandbox
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
@@ -955,6 +962,19 @@ class App:
     desktop: Optional[DesktopEntry] = None
     from_source: bool = False
     appimage: bool = False
+    command: str = ""
+    branch: str = ""
+    icon: str = ""
+
+    @property
+    def profiles_name(self) -> str:
+        """The folder of NonSteamApps' profiles that holds the app's data: the one its Helium profiles are shared in, or its own."""
+        return self.browser.profile if self.browser and self.browser.profile else self.id
+
+    @property
+    def ref(self) -> str:
+        """What ``flatpak install`` and ``flatpak uninstall`` are given: the app's ID, on its ``branch`` where it has one."""
+        return f"{self.flatpak}//{self.branch}" if self.branch else self.flatpak
 
     def home(self, user_home: Path) -> Path:
         """The app's own folder, which Flatpak keeps in ``~/.var/app``."""
@@ -967,7 +987,9 @@ class App:
 
     def run_options(self, user_home: Path, account: Optional[int]) -> List[str]:
         """Options for ``flatpak run`` itself, before the app ID."""
-        return self.profile.run_options(self.home(user_home), account) if self.profile and account else []
+        if self.profile and account:
+            return self.profile.run_options(self.home(user_home), account)
+        return [f"--command={self.command}"] if self.command else []
 
 
 EDEN_SHARED_LINKS = (
@@ -1238,6 +1260,22 @@ APPS: Tuple[App, ...] = (
         notice="Protontricks lists the Proton games started at least once; pick a game, then what to install into its prefix",
     ),
     App(
+        id="winetricks",
+        name="Winetricks",
+        client="Winetricks",
+        flatpak="org.winehq.Wine",
+        branch="stable",
+        command="winetricks",
+        icon="winetricks",
+        summary="Install Windows components, fonts and fixes into Wine prefixes, with Flathub's Wine, set up for a TV and a controller",
+        controller=TOOLS.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="GDK_SCALE", whole=True, text="GDK_DPI_SCALE"),
+        game_mode_env=(("GDK_BACKEND", "x11"),),
+        notice="Winetricks works on the Wine prefixes of Flathub's Wine, in ~/.var/app/org.winehq.Wine/data; "
+               "for Steam games and other Proton games, use Protontricks",
+    ),
+    App(
         id="files",
         name="Files",
         client="Dolphin",
@@ -1325,15 +1363,31 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
     ),
     App(
+        id="protonmail",
+        name="Proton Mail",
+        client="Helium",
+        summary="Proton's end-to-end encrypted email, full screen in Helium",
+        browser=Browser(url="https://mail.proton.me/", kiosk=True, profile="proton"),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
         id="protoncalendar",
         name="Proton Calendar",
         client="Helium",
         summary="Proton's end-to-end encrypted calendar, full screen in Helium",
-        browser=Browser(url="https://calendar.proton.me/", kiosk=True),
+        browser=Browser(url="https://calendar.proton.me/", kiosk=True, profile="proton"),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),
 )
+
+
+def sharing_profiles(app: App) -> Tuple[App, ...]:
+    """The other apps that share ``app``'s Helium profiles."""
+    if not (app.browser and app.browser.profile):
+        return ()
+    return tuple(other for other in APPS if other is not app and other.browser and other.browser.profile == app.browser.profile)
 
 
 def by_id(app_id: str) -> App:

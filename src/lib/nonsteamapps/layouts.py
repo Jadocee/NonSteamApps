@@ -31,10 +31,10 @@ layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` 
   gamepad for the game. Holding View shifts the right stick and the face buttons into Web Browser's for every
   controller, for the emulators' own windows: the stick points (its click clicks), A clicks, B is Escape,
   Y is Enter and X the on-screen keyboard. Valve does not let a mode shift change triggers or bumpers.
-- **Tools**, for ProtonUp-Qt and Protontricks, starts from Web Browser. Their windows are lists, check boxes
-  and buttons, so the D-pad moves up and down a list and left and right between controls (Shift+Tab and Tab),
-  A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses both Enter and
-  Space, which would tick a box and close its dialog at once.
+- **Tools**, for ProtonUp-Qt, Protontricks and Winetricks, starts from Web Browser. Their windows are lists,
+  check boxes and buttons, so the D-pad moves up and down a list and left and right between controls
+  (Shift+Tab and Tab), A selects or ticks (Space), Y confirms (Enter) and B cancels (Escape). Valve's A presses
+  both Enter and Space, which would tick a box and close its dialog at once.
 - **Bitwarden** starts from Web Browser, for Bitwarden's web interface, in which the arrow keys move between
   controls by where they are on screen (Chromium's spatial navigation, see :mod:`apps`): the D-pad, and the left
   stick instead of scrolling, send them. A presses Enter, which opens a link, presses a button or sends a form

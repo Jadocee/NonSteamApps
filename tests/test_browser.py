@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -146,6 +148,27 @@ class ProfileTests(unittest.TestCase):
         self.assertFalse(os.path.lexists(self.profile / "SingletonLock"))
         self.assertFalse(os.path.lexists(self.profile / "SingletonSocket"))
         self.assertFalse(browser.clear_stale_lock(self.profile))
+
+    def test_a_profile_is_in_use_while_a_running_helium_holds_its_lock(self):
+        self.assertFalse(browser.in_use(self.profile))
+        program = self.dir / "helium"
+        shutil.copy2(shutil.which("sleep"), program)
+        helium = subprocess.Popen([str(program), "30"])
+        self.addCleanup(helium.wait)
+        self.addCleanup(helium.kill)
+        lock = self.profile / "SingletonLock"
+        lock.symlink_to(f"steamdeck-{helium.pid}")
+        self.assertTrue(browser.in_use(self.profile))
+        self.assertFalse(browser.clear_stale_lock(self.profile))
+        lock.unlink()
+        lock.symlink_to(f"steamdeck-{os.getpid()}")
+        self.assertFalse(browser.in_use(self.profile))
+
+    def test_a_profile_was_last_used_when_its_local_state_was_written(self):
+        self.assertEqual(browser.last_used(self.profile), 0.0)
+        (self.profile / "Local State").write_text("{}")
+        os.utime(self.profile / "Local State", (1000, 1000))
+        self.assertEqual(browser.last_used(self.profile), 1000)
 
     def test_new_profiles_start_with_crash_reports_off_and_keep_a_later_choice(self):
         state = browser.write_local_state(self.profile)

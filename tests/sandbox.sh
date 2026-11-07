@@ -151,10 +151,10 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
     cat "$WORK/install.log"
     exit 1
 }
-everything="Bitwarden Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 Lichii LocalSend Netflix Prime Video Prism Launcher Proton Calendar ProtonDB ProtonUp-Qt Protontricks Signal YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 21
+everything="Bitwarden Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 Lichii LocalSend Netflix Prime Video Prism Launcher Proton Calendar Proton Mail ProtonDB ProtonUp-Qt Protontricks Signal Winetricks YouTube"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 23
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 21
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 23
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
 check "KytyPS5 was unpacked and made current" test -x "$PROGRAM/kytyps5/current/kyty_launcher"
 check "Lichii's AppImage was installed and made current" test -x "$PROGRAM/lichii/current/lichii.AppImage"
@@ -163,8 +163,9 @@ check "Helium's hero was drawn around the icon in Helium's release" test "$(head
 check "a site that names no icon keeps NonSteamApps' artwork" cmp -s "$(grid_file 222 Netflix p.png)" "$PROGRAM/artwork/netflix/capsule.png"
 check "Eden-NX2 was built from its source in the SDK" grep -qF "\"git\", \"-C\", \"/run/nonsteamapps/source\", \"fetch\", \"-q\", \"--depth\", \"1\", \"https://git.eden-emu.dev/Takoroka/eden-nx2.git\", \"$NX2_COMMIT\"]" "$WORK/flatpak.log"
 check "Eden-NX2 was installed from NonSteamApps' own repository" grep -qF "[\"install\", \"--user\", \"--noninteractive\", \"-y\", \"nonsteamapps\", \"$NX2_ID\"]" "$WORK/flatpak.log"
+check "Winetricks came with Flathub's Wine, from its stable branch" grep -qF '["install", "--user", "--noninteractive", "-y", "flathub", "org.winehq.Wine//stable"]' "$WORK/flatpak.log"
 check "Eden-NX2's build files and staging folder were cleared, its caches kept" test ! -e "$PROGRAM/eden-nx2/build" -a ! -e "$PROGRAM/eden-nx2/app" -a -d "$PROGRAM/eden-nx2/cpm"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "21 21"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "23 23"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
@@ -175,7 +176,7 @@ check "Helium's entry has Helium's own icon" grep -qxF "Icon=$PROGRAM/helium/cur
 if [ "$PLASMA_HERE" = 0 ]; then
     check "Helium joined the taskbar, after Plasma's own launchers" grep -qxF "launchers=applications:systemsettings.desktop,applications:org.kde.discover.desktop,preferred://filemanager,preferred://browser,applications:nonsteamapps-helium.desktop" "$LAYOUT"
 fi
-check "ProtonUp-Qt and Protontricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
+check "ProtonUp-Qt, Protontricks and Winetricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
@@ -239,6 +240,8 @@ check "ProtonUp-Qt started without its own gamepad input and with every Steam li
 check "ProtonUp-Qt starts in the Steam Deck theme" grep -qxF "theme=steam" "$HOME_DIR/.var/app/net.davidotek.pupgui2/config/pupgui/config.ini"
 run "$PROGRAM/apps/protontricks" --steam-account 222
 check "Protontricks opened its game picker with the SD card's library" grep -qF "\"--filesystem=$WORK/sdcard\", \"com.github.Matoking.protontricks\", \"--no-term\", \"--gui\"]" "$WORK/flatpak.log"
+run "$PROGRAM/apps/winetricks" --steam-account 222
+check "Winetricks opened its menu in Flathub's Wine" grep -qF '["run", "--command=winetricks", "org.winehq.Wine"]' "$WORK/flatpak.log"
 
 KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
 run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
@@ -275,7 +278,7 @@ run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/
     exit 1
 }
 check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
-check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 21
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 23
 check "update kept the Eden-NX2 build it could not compare with its branch" grep -qF "could not update Eden-NX2, so the build installed stays" "$WORK/update.log"
 check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
 check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"

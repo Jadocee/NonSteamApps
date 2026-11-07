@@ -1354,6 +1354,15 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
     ),
     App(
+        id="protonmail",
+        name="Proton Mail",
+        client="Helium",
+        summary="Proton's end-to-end encrypted email, full screen in Helium",
+        browser=Browser(url="https://mail.proton.me/", kiosk=True),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
         id="protoncalendar",
         name="Proton Calendar",
         client="Helium",

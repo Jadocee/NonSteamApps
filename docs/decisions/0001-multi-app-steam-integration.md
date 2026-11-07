@@ -525,6 +525,13 @@ The owner answered the open questions. Where these answers differ from the text 
     - **What comes with it:** Wine's menu entry, hidden from the menu, opens `.exe`, `.msi`, `.lnk`, `.bat` and `.url` files [154], so Files and Desktop Mode's file manager can start Windows programs in Flathub's Wine.
     - **Not verified:** on the Steam Machine. The tests check the install from the `stable` branch, the command and the TV options, the uninstall and the icon.
 
+68. **Proton Mail (owner request).** The owner asked for Proton Mail, as a Helium app.
+    - **The app:** Proton Mail runs full screen in Helium at `https://mail.proton.me/`, its web app's address [155], as Proton Calendar does (item 23): with the Browser layout and a Helium profile for each Steam account. A link in a message opens in a new full-screen window, which Menu (Ctrl+W) closes, and the profiles refuse notification requests, so new messages do not pop up.
+    - **Sign-in:** Proton's single sign-on carries one sign-in across its web apps in the same browser, and a session lasts until it goes 60 days unused [155]. Each NonSteamApps app has a Helium profile of its own, so Proton Mail and Proton Calendar each need their own sign-in.
+    - **Not chosen:** Proton's desktop app, which Flathub builds from Proton's own web client as `me.proton.Mail`, with Proton AG as its developer [156], as the owner asked for Helium; it could be added beside it.
+    - **Artwork:** drawn around the icon the site names, as for the other full-screen apps; NonSteamApps' own icon for it is an envelope on Proton Calendar's purple.
+    - **Not verified:** on the Steam Machine, nor the sign-in, as proton.me is outside this environment's network.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -683,3 +690,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 152. [Winetricks](https://github.com/Winetricks/winetricks) 20260125: `src/winetricks` (`winetricks_detect_gui`, with zenity or kdialog only; `w_info` and `w_warn`, which bring up dialogs once those are chosen; options handled before start-up; `winetricks_latest_version_check` and `WINETRICKS_LATEST_VERSION_CHECK`; `winetricks_set_wineprefix`; the menu with no arguments), `src/winetricks.desktop` (`Exec=winetricks --gui`), `src/winetricks.svg` and the `Makefile`; and `files/LATEST`, 20260125, read on 7 November 2026
 153. [Flathub `com.github.Matoking.protontricks`](https://github.com/flathub/com.github.Matoking.protontricks) at `9bbd8a1` (4 October 2026): Protontricks 1.15.0 with yad and Protontricks' fork of Winetricks, and no Wine; and [Protontricks](https://github.com/Matoking/protontricks) 1.15.0, `src/protontricks/gui.py` and `src/protontricks/cli/main.py`
 154. [Wine](https://gitlab.winehq.org/wine/wine) 11.0, as its GitHub mirror `wine-mirror/wine` has it at `wine-11.0`: `loader/wine.desktop`
+155. [Proton's blog post on single sign-on across its web apps](https://proton.me/blog/sso-beta), as a web search gave it on 7 November 2026, proton.me being outside this environment's network: the web app at mail.proton.me, one sign-in for Proton Mail, Contacts and Calendar, and sessions that end after 60 days unused
+156. [Flathub `me.proton.Mail`](https://github.com/flathub/me.proton.Mail) at `b87f2b8` (10 October 2026): `me.proton.Mail.yml`, an Electron app built from [Proton's WebClients](https://github.com/ProtonMail/WebClients), and `me.proton.Mail.metainfo.xml`, with Proton AG as its developer

@@ -25,6 +25,7 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 | **Netflix** | Netflix in Helium | Helium, full screen | Netflix's streaming service, full screen with no browser interface. |
 | **Disney+** | Disney+ in Helium | Helium, full screen | Disney's streaming service, full screen with no browser interface. |
 | **ProtonDB** | ProtonDB in Helium | Helium, full screen | Player reports on how well games run with Proton, full screen with no browser interface. It opens on the list of your Steam library's games. |
+| **Proton Mail** | Proton Mail in Helium | Helium, full screen | Proton's end-to-end encrypted email, full screen with no browser interface. Sign in with your Proton account; a link in a message opens in front of it, and **Menu** closes it again. |
 | **Proton Calendar** | Proton Calendar in Helium | Helium, full screen | Proton's end-to-end encrypted calendar, full screen with no browser interface. Sign in with your Proton account. |
 
 ## Features
@@ -34,7 +35,7 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 - **Each app's own icon.** The library's artwork follows Steam's own look: the app's icon and name on a dark ground in the app's colours, for the capsule, the wide capsule, the hero banner with its logo, and the icon. NonSteamApps draws it on your device around the icon each app ships, taken from the app itself, so the library shows the icons you know; this repository holds only NonSteamApps' own drawings, for an app whose icon cannot be had (see [Artwork](#artwork)).
 - **Native, never Proton.** Every app is a native Linux app, so the best Steam Play setting for each is none. Proton is for Windows programs, and the Steam Linux Runtime's container hides Flatpak and SteamOS's own apps, so either would stop an app starting. Every install and update removes a compatibility tool forced on an app under **Properties → Compatibility**, by you or by Steam.
 - **Separate sign-ins.** Each Steam account has its own data in every app except LocalSend, ProtonUp-Qt, Protontricks, Winetricks and Files, which have no sign-in, so their settings are shared (see [Several Steam accounts](#several-steam-accounts)).
-- **Console-ready browser apps.** Helium, the streaming apps, ProtonDB and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
+- **Console-ready browser apps.** Helium, the streaming apps, ProtonDB, Proton Mail and Proton Calendar open without first-run pages, prompts or a "Restore pages?" bubble after Steam closes them. The arrow keys move between links and buttons, the interface is dark, and in Game Mode pages are scaled for the TV (see [Helium apps](#helium-apps)).
 - **Private by default.** Helium blocks ads and trackers with its built-in uBlock Origin. NonSteamApps' Helium profiles also send Global Privacy Control and keep no crash reports (see [Privacy, security and ad blocking](#privacy-security-and-ad-blocking)).
 - **Out of friends' sight.** While a non-Steam game runs, Steam shows friends "In non-Steam game" with its name, and its **Mark as Private** does not work for non-Steam games. So while an app Steam started runs, NonSteamApps makes your Steam account Invisible, and sets back your status, Online or Away, when the last app closes. Friends see you offline meanwhile; chat still works (see `INVISIBLE_WHILE_RUNNING` under [Configuration](#configuration)).
 - **Sign-ins in Game Mode.** In Game Mode, Steam's own browser opens apps' links, and it cannot hand a sign-in back to an app. Element's and Bitwarden's sign-in pages and links therefore open in Helium, in front of the app, and the sign-in returns to the app.
@@ -172,7 +173,7 @@ Open them from the **NonSteamApps** collection or **Library → Non-Steam**, in 
 - **Files:** SteamOS's Dolphin, started with a TV profile that is kept apart from Desktop Mode's Dolphin. A single press opens a file or folder, the menu bar is hidden (the ☰ button holds the menu), and Files starts at your home folder each time. Thumbnails and the Places panel's icons are larger, zip files and other archives open like folders, and quitting with several tabs open does not ask first. In Game Mode it is scaled for the TV (`TV_SCALE`), opens as large as the screen, and is drawn in KDE's own style. Desktop Mode's settings, bookmarks, file associations and trash still apply. What you change in Files stays in its profile, as do the settings of apps you open from it.
   - **Controls (Files layout):** the D-pad or left stick moves the selection, **A** opens, **B** or **L1** goes back, **Y** or **R1** goes forward, **X** shows the on-screen keyboard to rename or search, **R2** clicks and **L2** opens the menu for the item under the pointer, which the right stick or right trackpad moves. **View** cancels, **Menu** closes the tab (closing the last one quits Files), and holding **Menu** quits Files at once.
   - **The layout:** NonSteamApps makes it from Steam's Web Browser layout, for each controller type Steam has a Gamepad layout for, and saves it in Steam's `controller_base/templates` folder. If a Steam update removes it, the weekly update or `nonsteamapps steam add files` puts it back.
-- **Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB and Proton Calendar:** see [Helium apps](#helium-apps).
+- **Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail and Proton Calendar:** see [Helium apps](#helium-apps).
 
 ### On a TV: use its full resolution
 
@@ -201,7 +202,7 @@ Each Steam account's shortcut starts the app with `--steam-account <ID>`. NonSte
 | Protontricks | Shared by every account: it changes each game's own Proton prefix |
 | Winetricks | Shared by every account: Flathub's Wine keeps its prefixes in `~/.var/app/org.winehq.Wine/data` |
 | Files | Shared by every account: a TV profile in `~/.local/share/nonsteamapps/profiles/files/shared`, over Desktop Mode's Dolphin settings |
-| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Calendar | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
+| Helium, Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail, Proton Calendar | A Helium profile in `~/.local/share/nonsteamapps/profiles/<app>/<ID>` |
 
 Started from the applications menu, VacuumTube, Element and Signal use their usual data instead, and Jellyfin uses its default profile. To give every account the same data, set `PROFILE_PER_STEAM_ACCOUNT=0` in `~/.config/nonsteamapps/nonsteamapps.conf`.
 
@@ -211,12 +212,12 @@ Helium publishes no Flatpak, so NonSteamApps installs its signed release itself.
 
 - **Helium** opens as a full browser: maximised in Desktop Mode, and in Game Mode as large as the screen, with its tabs and address bar.
   - **In Desktop Mode:** installing Helium also adds it to the applications menu, under Internet, and to the taskbar, after the launchers already there, for everyday browsing. That entry is Helium's own, with Helium's icon, its **New Window** and **New Incognito Window** actions and the links and files it opens, and it starts the Helium that NonSteamApps installed as a regular desktop browser: in Helium's own profile, `~/.config/net.imput.helium`, apart from the Steam accounts' profiles, and without the TV and controller set-up. Its windows group under that launcher, and `nonsteamapps update` writes the entry again from the Helium installed. Removing Helium takes both away again. If Plasma cannot be reached while installing, as over SSH, pin it from the applications menu instead. A launcher you take off the taskbar stays off until you install again.
-- **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, hold **Menu**, or press the Steam button and choose **Exit game**.
+- **Prime Video**, **HBO Max**, **Netflix**, **Disney+**, **ProtonDB**, **Proton Mail** and **Proton Calendar** each open their site full screen (kiosk mode), with no address bar or tabs. To leave, hold **Menu**, or press the Steam button and choose **Exit game**.
 
 Each app has its own Helium profile for each Steam account, so signing in to one never signs you in to another. Before every start, NonSteamApps sets up that profile for a console:
 
 - **No interruptions:** onboarding and welcome pages are marked as seen, and the last session is recorded as closed cleanly. Steam ends apps by signalling them, which would otherwise bring up "Restore pages?".
-- **Fewer prompts:** sites cannot ask to send notifications, so Proton Calendar's reminders do not pop up; see them on your phone or computer instead. The full-screen apps also turn off translation, password and address saving, and permission prompts.
+- **Fewer prompts:** sites cannot ask to send notifications, so Proton Mail's new messages and Proton Calendar's reminders do not pop up; see them on your phone or computer instead. The full-screen apps also turn off translation, password and address saving, and permission prompts.
 - **Navigation:** the arrow keys move between links and buttons, as on a TV (Chromium's spatial navigation), and a blue outline marks the one they reach, even on sites that hide it. The outline is for the D-pad and keyboard only: a click with the trackpad shows none, and a video player never gets one. It comes from a small style-only extension of NonSteamApps' own (`share/extensions/focus`), listed in Helium's extensions.
 - **Full-screen video:** no "Press Esc to exit full screen" bubble covers the picture; **View** (Escape) leaves full screen.
 - **Dark:** Helium's interface is dark, and so are sites that offer a dark theme. In the Helium app, **Settings → Appearance → Mode** switches back to light.
@@ -274,7 +275,7 @@ Each app's library artwork is drawn in one family, after Steam's own: the app's 
 | Files | The icon SteamOS's icon theme gives Dolphin's applications menu entry |
 | Helium | `product_logo_256.png` from Helium's release |
 | KytyPS5, Lichii | The icon their project keeps at the release installed, downloaded from GitHub |
-| Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Calendar | The icon the site names in its page or its web app manifest, found by loading the site in a private Helium window with no extensions: a vector icon, or the largest of at least 128 pixels |
+| Prime Video, HBO Max, Netflix, Disney+, ProtonDB, Proton Mail, Proton Calendar | The icon the site names in its page or its web app manifest, found by loading the site in a private Helium window with no extensions: a vector icon, or the largest of at least 128 pixels |
 
 NonSteamApps' own Helium draws it, headless, from the template `share/artwork/card.html`, at every install and update, before Steam's library is written; it draws an app again only once its icon, or the template, has changed. The drawings are kept in `~/.local/state/nonsteamapps/artwork`, and `nonsteamapps doctor` names each app's icon. An app whose icon cannot be had, or is smaller than 128 pixels, keeps NonSteamApps' own artwork, drawn from the same template around an icon of NonSteamApps' own in the app's colours, so the library stays in one style. So does every app when Helium is not installed, or when `APP_ICONS=0`. Artwork you choose yourself in Steam stays at an update, as before.
 

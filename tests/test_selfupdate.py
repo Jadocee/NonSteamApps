@@ -44,10 +44,17 @@ class SelfUpdateTests(unittest.TestCase):
         (clone / "install.sh").unlink()
         self.assertEqual(selfupdate.source(self.paths), selfupdate.DEFAULT_SOURCE)
 
+    def test_an_archive_recorded_under_the_repositorys_former_name_comes_from_its_new_one(self):
+        self.assertEqual(selfupdate.DEFAULT_SOURCE, "https://github.com/Jadocee/NonSteamApps/archive/main.tar.gz")
+        selfupdate.remember(self.paths, {selfupdate.SOURCE_VARIABLE: "https://github.com/jadocee/steamos-yt/archive/main.tar.gz"})
+        self.assertEqual(selfupdate.source(self.paths), selfupdate.DEFAULT_SOURCE)
+        selfupdate.remember(self.paths, {selfupdate.SOURCE_VARIABLE: "https://github.com/jadocee/steamos-yt/archive/test.tar.gz"})
+        self.assertEqual(selfupdate.source(self.paths), "https://github.com/jadocee/steamos-yt/archive/test.tar.gz")
+
     def test_an_archive_is_unpacked_without_githubs_top_folder_and_a_local_copy_is_used_as_it_is(self):
         archive = self.archive({
-            "steamos-yt-main/install.sh": b"#!/bin/bash\n",
-            "steamos-yt-main/src/lib/nonsteamapps/__init__.py": b'__version__ = "9.9.9"\n',
+            "NonSteamApps-main/install.sh": b"#!/bin/bash\n",
+            "NonSteamApps-main/src/lib/nonsteamapps/__init__.py": b'__version__ = "9.9.9"\n',
         })
         tree = selfupdate.fetch(archive.as_uri(), self.work)
         self.assertEqual((tree / "src/lib/nonsteamapps/__init__.py").read_text(), '__version__ = "9.9.9"\n')

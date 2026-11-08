@@ -4,7 +4,7 @@
 # each Steam account.
 #
 #   ./install.sh [APP...] [options]
-#   curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- [APP...]
+#   curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash -s -- [APP...]
 #
 # When piped, the rest of the project is fetched from GitHub (NONSTEAMAPPS_REPO,
 # NONSTEAMAPPS_REF) or from the archive URL in NONSTEAMAPPS_SOURCE_URL. The install
@@ -15,7 +15,7 @@
 set -Eeuo pipefail
 
 REF="${NONSTEAMAPPS_REF:-main}"
-REPO="${NONSTEAMAPPS_REPO:-jadocee/steamos-yt}"
+REPO="${NONSTEAMAPPS_REPO:-Jadocee/NonSteamApps}"
 APP_HOME="${NONSTEAMAPPS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/nonsteamapps}"
 PAYLOAD=(src/bin:bin src/lib:lib src/share:share assets/artwork:artwork)
 

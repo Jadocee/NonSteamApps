@@ -1,6 +1,6 @@
 [Unit]
 Description=Update the apps NonSteamApps installed
-Documentation=https://github.com/jadocee/steamos-yt
+Documentation=https://github.com/Jadocee/NonSteamApps
 
 [Service]
 Type=oneshot

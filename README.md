@@ -55,13 +55,13 @@ Living-room apps for SteamOS, added to the Steam library with artwork in the sty
 In Desktop Mode, open Konsole and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash
 ```
 
 This installs every app in the table above. To choose, name them:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jadocee/steamos-yt/main/install.sh | bash -s -- youtube jellyfin
+curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash -s -- youtube jellyfin
 ```
 
 From a clone, run `./install.sh [APP...]`. Steam must be closed while its library is changed, so the installer offers to close Steam and starts it again afterwards. It cannot do that from Game Mode.

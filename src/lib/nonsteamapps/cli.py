@@ -235,7 +235,7 @@ def _flatpak_installations(paths: Paths) -> List[Path]:
 def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
     """Where the app's own icon is: its Flatpak's, its release's or the icon theme's on this machine, its project's, or its site's."""
     if app.browser and app.browser.kiosk:
-        return artwork.Source("site", app.browser.url)
+        return artwork.Source("site", app.browser.url, app.browser.manifest)
     if app.release or app.appimage:
         url = (_kyty(paths) if app.release else _lichii(paths)).icon_url()
         return artwork.Source("url", url) if url else None

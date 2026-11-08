@@ -75,7 +75,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "protoncalendar": ("#6d4aff", "#a58bff"),
 }
 SITE_ICONS = r"""
-(async () => {
+(async (extra) => {
   const found = [];
   const add = (href, sizes, type, kind) => {
     try { found.push({url: new URL(href, document.baseURI).href, sizes: sizes || "", type: type || "", kind}); } catch (error) {}
@@ -86,10 +86,17 @@ SITE_ICONS = r"""
       add(link.getAttribute("href"), link.getAttribute("sizes"), link.getAttribute("type"), rel.includes("icon") ? "icon" : "touch");
     }
   }
-  const manifest = document.querySelector('link[rel~="manifest"][href]');
-  if (manifest) {
+  const manifests = new Set();
+  const named = document.querySelector('link[rel~="manifest"][href]');
+  if (named) {
+    manifests.add(named.href);
+  }
+  for (const href of extra) {
+    try { manifests.add(new URL(href, document.baseURI).href); } catch (error) {}
+  }
+  for (const href of manifests) {
     try {
-      const response = await fetch(manifest.href, {credentials: "omit"});
+      const response = await fetch(href, {credentials: "omit"});
       const data = await response.json();
       for (const icon of data.icons || []) {
         const purpose = String(icon.purpose || "any");
@@ -101,7 +108,7 @@ SITE_ICONS = r"""
   }
   add("/apple-touch-icon.png", "180x180", "image/png", "guess");
   return found;
-})()
+})
 """
 CARD_READY = """
 new Promise((resolve) => {
@@ -123,15 +130,22 @@ class BrowserError(ArtworkError):
 class Source:
     """Where an app's own icon comes from: a ``file`` on this machine, a ``url`` of its project's, or the ``site`` it opens.
 
-    A site names its icons itself, in its page and its web app manifest.
+    A site names its icons itself, in its page and its web app manifest. ``manifest`` is a web app manifest that a
+    site publishes without naming it in the page it opens on, as SteamDB's home page does not; its icons count too.
     """
 
     kind: str
     location: str
+    manifest: str = ""
 
     @property
     def key(self) -> str:
-        return f"{self.kind}:{self.location}"
+        return f"{self.kind}:{self.location}" + (f" {self.manifest}" if self.manifest else "")
+
+
+def site_icons(manifests: Sequence[str] = ()) -> str:
+    """The script that lists the icons a loaded page names, reading the ``manifests`` beside the one the page names."""
+    return f"{SITE_ICONS.strip()}({json.dumps(list(manifests))})"
 
 
 def _size_of(folder: str) -> int:
@@ -532,11 +546,11 @@ class Studio:
             return f"it is smaller than {MIN_SIZE} pixels"
         return None
 
-    def _site_icons(self, url: str) -> List[str]:
+    def _site_icons(self, url: str, manifests: Sequence[str] = ()) -> List[str]:
         browser, session = self._page()
         browser.load(session, url, 1280, 720, transparent=False, timeout=25)
         try:
-            found = browser.evaluate(session, SITE_ICONS, timeout=20)
+            found = browser.evaluate(session, site_icons(manifests), timeout=20)
         except BrowserError:
             found = []
         browser.load(session, "about:blank", 256, 256)
@@ -551,7 +565,7 @@ class Studio:
         elif source.kind == "url":
             candidates = [source.location]
         else:
-            candidates = self._site_icons(source.location)
+            candidates = self._site_icons(source.location, [source.manifest] if source.manifest else [])
             if not candidates:
                 raise ArtworkError(f"{urllib.parse.urlsplit(source.location).netloc} names no icon")
         reasons = []

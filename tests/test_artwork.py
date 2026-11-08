@@ -1,9 +1,12 @@
+import functools
 import hashlib
+import http.server
 import json
 import os
 import shutil
 import struct
 import tempfile
+import threading
 import unittest
 import zlib
 from pathlib import Path
@@ -206,6 +209,20 @@ class StudioTests(unittest.TestCase):
         with self.assertRaisesRegex(artwork.ArtworkError, "www.disneyplus.com names no icon"):
             self.studio.make("disneyplus", "Disney+", artwork.Source("site", "https://www.disneyplus.com/"))
 
+    def test_a_manifest_the_site_does_not_name_is_read_too_and_names_the_source(self):
+        self.environment["FAKE_DEVTOOLS_SITE_ICONS"] = json.dumps([{"url": "https://steamdb.info/static/logos/512px.png", "sizes": "512x512", "kind": "manifest"}])
+        self.downloads = {"https://steamdb.info/static/logos/512px.png": png(4, 4)}
+        plain = artwork.Source("site", "https://steamdb.info/")
+        named = artwork.Source("site", "https://steamdb.info/", "https://steamdb.info/steamdb.webmanifest")
+        self.assertEqual(plain.key, "site:https://steamdb.info/")
+        self.assertNotEqual(named.key, plain.key)
+        self.assertEqual(self.studio.make("steamdb", "SteamDB", named), "made")
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        scripts = [call["params"].get("expression", "") for call in calls if call["method"] == "Runtime.evaluate"]
+        self.assertTrue(any(script.endswith('(["https://steamdb.info/steamdb.webmanifest"])') for script in scripts))
+        self.assertEqual(json.loads((self.dir / "made/steamdb" / artwork.RECORD).read_text())["source"], named.key)
+        self.assertEqual(self.studio.make("steamdb", "SteamDB", named), "kept")
+
     def test_a_projects_icon_is_downloaded_once_for_each_address(self):
         url = "https://raw.githubusercontent.com/zortos293/Lichii/build-83/dist/branding/lichii_icon.png"
         with self.assertRaisesRegex(artwork.ArtworkError, "offline"):
@@ -306,3 +323,51 @@ class ChromiumTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuietSite(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+class SiteIconTests(unittest.TestCase):
+    """The script that lists a site's icons, in a real Chromium, on a small site served here; skipped where none starts."""
+
+    def setUp(self):
+        program = chromium()
+        if program is None:
+            self.skipTest("no Chromium on this machine")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        site = Path(self.tmp.name)
+        mark = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
+        (site / "index.html").write_text(f'<!doctype html><title>Site</title><link rel="icon" href="{mark}">')
+        (site / "named.html").write_text('<!doctype html><title>Named</title><link rel="manifest" href="/app.webmanifest">')
+        (site / "app.webmanifest").write_text(json.dumps({"icons": [
+            {"src": "/logos/512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/logos/maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ]}))
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietSite, directory=str(site)))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.browser = artwork.Browser(program, timeout=30)
+        try:
+            self.browser.start()
+        except artwork.BrowserError as exc:
+            self.skipTest(f"Chromium did not start here: {exc}")
+        self.addCleanup(self.browser.close)
+        self.session = self.browser.page()
+
+    def icons(self, page, manifests=()):
+        self.assertTrue(self.browser.load(self.session, f"{self.base}/{page}", 640, 480, transparent=False))
+        found = self.browser.evaluate(self.session, artwork.site_icons(manifests))
+        return [(icon["url"].replace(self.base, ""), icon["kind"]) for icon in found]
+
+    def test_a_manifest_the_page_does_not_name_is_read_when_given_and_maskable_icons_are_left_out(self):
+        self.assertEqual([kind for _, kind in self.icons("index.html")], ["icon", "guess"])
+        self.assertEqual(self.icons("index.html", [f"{self.base}/app.webmanifest"])[1:],
+                         [("/logos/512.png", "manifest"), ("/apple-touch-icon.png", "guess")])
+        self.assertEqual(self.icons("named.html", [f"{self.base}/app.webmanifest"]),
+                         [("/logos/512.png", "manifest"), ("/apple-touch-icon.png", "guess")])

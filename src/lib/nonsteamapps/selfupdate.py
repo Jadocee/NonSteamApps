@@ -20,7 +20,8 @@ from .fsutil import atomic_write_json
 SOURCE_VARIABLE = "NONSTEAMAPPS_SOURCE"
 COPY_ONLY_VARIABLE = "NONSTEAMAPPS_COPY_ONLY"
 UPDATED_FROM_VARIABLE = "NONSTEAMAPPS_UPDATED_FROM"
-DEFAULT_SOURCE = "https://github.com/jadocee/steamos-yt/archive/main.tar.gz"
+DEFAULT_SOURCE = "https://github.com/Jadocee/NonSteamApps/archive/main.tar.gz"
+RENAMED_SOURCE = "https://github.com/jadocee/steamos-yt/archive/main.tar.gz"
 
 
 class UpdateError(RuntimeError):
@@ -35,7 +36,10 @@ def remember(paths: Paths, environ: Mapping[str, str]) -> None:
 
 
 def source(paths: Paths) -> str:
-    """The recorded source, or NonSteamApps' GitHub archive when there is none or the recorded folder is gone."""
+    """The recorded source, or NonSteamApps' GitHub archive when there is none or the recorded folder is gone.
+
+    An archive recorded under the repository's former name, ``steamos-yt``, is read as the archive under its own.
+    """
     try:
         value = json.loads(paths.source.read_text(encoding="utf-8")).get("source")
     except (OSError, ValueError, AttributeError):
@@ -43,6 +47,8 @@ def source(paths: Paths) -> str:
     if not isinstance(value, str) or not value.strip():
         return DEFAULT_SOURCE
     if os.path.isabs(value) and not (Path(value) / "install.sh").is_file():
+        return DEFAULT_SOURCE
+    if value.strip().lower() == RENAMED_SOURCE:
         return DEFAULT_SOURCE
     return value
 

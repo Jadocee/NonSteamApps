@@ -807,7 +807,8 @@ class Browser:
     ``extensions`` are folders of NonSteamApps' ``share/extensions`` that the app loads beside the focus outline.
     ``profile`` names a folder of Helium profiles, one for each Steam account, that the apps naming it share, as
     Proton Mail and Proton Calendar do, whose single sign-on works within one browser profile; an app without one
-    has its own.
+    has its own. ``manifest`` is a web app manifest the site publishes without naming it in ``url``'s page, read for
+    the site's icons as well.
     """
 
     url: str = ""
@@ -815,6 +816,7 @@ class Browser:
     account_url: str = ""
     extensions: Tuple[str, ...] = ()
     profile: str = ""
+    manifest: str = ""
 
     def start_url(self, account: Optional[int]) -> str:
         """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
@@ -1370,6 +1372,7 @@ APPS: Tuple[App, ...] = (
             kiosk=True,
             account_url="https://steamdb.info/#nonsteamapps={steam_id}",
             extensions=("steamdb",),
+            manifest="https://steamdb.info/steamdb.webmanifest",
         ),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",

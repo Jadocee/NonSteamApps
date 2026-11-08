@@ -1086,6 +1086,11 @@ class HeliumAppTests(CliTestCase):
         argv, _ = self.launch("protondb", "--steam-account", str(BETA))
         self.assertEqual(argv[-1], "https://www.protondb.com/")
 
+    def test_steamdb_reads_its_icons_from_the_manifest_its_home_page_does_not_name(self):
+        source = cli._icon_source(self.paths, apps.by_id("steamdb"))
+        self.assertEqual(source, artwork.Source("site", "https://steamdb.info/", "https://steamdb.info/steamdb.webmanifest"))
+        self.assertEqual(cli._icon_source(self.paths, apps.by_id("protondb")), artwork.Source("site", "https://www.protondb.com/"))
+
     def test_steamdb_starts_with_its_sign_in_extension_and_the_account_in_the_address(self):
         self.install("steamdb")
         argv, _ = self.launch("steamdb", "--steam-account", str(BETA))

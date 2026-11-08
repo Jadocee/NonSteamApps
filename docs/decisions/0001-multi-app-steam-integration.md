@@ -629,6 +629,20 @@ The owner answered the open questions. Where these answers differ from the text 
       - a failed sign-in is not tried again in the same start.
     - **Not verified:** on the Steam Machine, or with a signed-in Steam account. The confirmation page's form and button (`openidForm`, `imageLogin`) are taken from Steam's long-standing markup, not seen here; failing them, the extension uses the page's one form that posts to `/openid/login`. SteamDB's signed-in header is inferred from its signed-out one.
 
+76. **SteamDB's own icon (bug fix, owner report); version 2.38.1.** On the owner's device, drawing SteamDB's artwork logged a 403 and fell back to NonSteamApps' own.
+    - **Why:** SteamDB's home page names only an inline `data:` SVG, which NonSteamApps does not take, as it keeps https addresses alone, and no web app manifest. The only candidate left was the `/apple-touch-icon.png` that NonSteamApps guesses for every site, and SteamDB answers that address with 403, inside a browser too. Cloudflare was not blocking NonSteamApps: SteamDB's real icons download with NonSteamApps' usual downloader [171].
+    - **Fix:** a full-screen app can name a web app manifest that its site publishes without naming it in its start page (`Browser.manifest`). The page script that lists a site's icons reads it beside any manifest the page names, once each, keeping the same rules.
+      - SteamDB names `https://steamdb.info/steamdb.webmanifest`, whose largest icon for any purpose, `/static/logos/512px.png`, is SteamDB's white logo on black [171].
+      - The manifest is part of the icon's source in the artwork's record, so a device draws SteamDB's artwork again at its next install or update. Other apps' sources, and so their artwork, are unchanged.
+    - **Tests:** the script in a real Chromium, on a site served by the test whose page names no manifest; the manifest in the Studio's script and record; and SteamDB's icon source. Drawn here from the live site, through the device's own steps, SteamDB's artwork used its 512-pixel icon.
+    - **Not verified:** on the Steam Machine.
+
+77. **The repository's new name (owner request).** The owner renamed the GitHub repository from `jadocee/steamos-yt` to `Jadocee/NonSteamApps`, and asked for NonSteamApps' addresses to follow. Item 70 had kept the old name in them.
+    - **Changed:** the installer's one-line command, its default repository, the updater's default archive (`https://github.com/Jadocee/NonSteamApps/archive/main.tar.gz`) and the update timer's documentation link.
+    - **Devices already installed:** the installer records the archive it came from, so a device installed with the one-line command recorded the old address. The updater now reads that exact address as the new one. Any other recorded source, such as a clone or another branch's archive, stays as it is.
+    - **Why:** GitHub redirects the old name for now; its archive answers `301` with the new address [172]. The redirects stop working if a repository with the old name is ever created [173].
+    - **Not tried here:** downloading the new archive, because this environment's network refuses GitHub's archives. The new name's Git repository and its `install.sh` both answer [172].
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -803,3 +817,6 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 168. [SteamDB's FAQ](https://steamdb.info/faq/), read on 7 November 2026: SteamDB is not affiliated with Valve or Steam; it signs in through Steam's official OpenID provider and receives only the public SteamID; its header's sign-in link, `a.header-login` to `/login/?page=…` in `.header-user`; and its sign-out page, `/signout/`
 169. [Steamworks documentation, User Authentication and Ownership](https://partner.steamgames.com/doc/features/auth): Steam as an OpenID 2.0 provider at `https://steamcommunity.com/openid/`, whose Claimed ID gives the user's SteamID
 170. Steam Community's OpenID pages, read signed out on 7 November 2026: a `checkid_setup` request to `https://steamcommunity.com/openid/login` for `https://steamdb.info/` sends a signed-out browser to `/openid/loginform/?goto=` that request, Steam's sign-in page, with `g_steamID = false;` and `application_config`'s `data-userinfo` of `{"logged_in":false,…}`
+171. SteamDB, read on 8 November 2026: its home page's only icon, an inline `data:image/svg+xml` one, and no `link rel="manifest"`; `/steamdb.webmanifest`, whose icons are 16, 32, 192 and 512 pixels for any purpose and one of 512 pixels that is maskable; `/static/logos/512px.png` and `/static/logos/vector_prefers_schema.svg`, both downloaded with Python's urllib; and 403 for `/apple-touch-icon.png`, from urllib and from inside a browser alike
+172. GitHub, on 8 November 2026: `git ls-remote` of `Jadocee/NonSteamApps` and of `jadocee/steamos-yt` gives the same `HEAD`; `https://github.com/jadocee/steamos-yt/archive/main.tar.gz` answers `301` to `https://github.com/Jadocee/NonSteamApps/archive/main.tar.gz`; and `https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh` answers `200`
+173. GitHub's documentation, [Renaming a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/renaming-a-repository), as a web search gave it on 8 November 2026: web traffic and Git operations to the old name are redirected, until a new repository is created with the old name

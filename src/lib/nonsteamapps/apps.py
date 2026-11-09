@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Uni
 from . import nx2
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BROWSER, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, YOUTUBE
+from .layouts import BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, VLC, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -405,6 +405,7 @@ LOCALSEND_SETTINGS = JsonSettings(
     new=(("flutter.ls_whats_new", "1.18.2"),),
     legacy="data/localsend_app/shared_preferences.json",
 )
+DISCORD_SETTINGS = JsonSettings("discord/settings.json", (("MINIMIZE_TO_TRAY", False),))
 BITWARDEN_SETTINGS = JsonSettings(
     "data.json",
     (("global_desktopSettings_runInBackground", False), ("global_desktopSettings_openAtLogin", False), ("global_theming_selection", "dark")),
@@ -1086,6 +1087,26 @@ APPS: Tuple[App, ...] = (
         notice="Signal keeps its database key unencrypted on disk, as Flathub's Signal does by default; see the README",
     ),
     App(
+        id="discord",
+        name="Discord",
+        client="Discord",
+        flatpak="com.discordapp.Discord",
+        summary="Chat, voice and video with your friends and servers, set up for a TV and a controller",
+        args=("--password-store=basic", "--enable-spatial-navigation"),
+        controller=DISCORD.title,
+        profile=ScriptProfile(
+            "config/Discord-steam-{account}",
+            "XDG_CONFIG_HOME={folder}",
+            shared="config",
+            settings=(DISCORD_SETTINGS,),
+            command="com.discordapp.Discord",
+        ),
+        logo_position="BottomLeft:44:56",
+        tv_scale=CHROMIUM_SCALE,
+        fullscreen_class="discord",
+        notice="Discord keeps its sign-in unencrypted on disk, as Flathub's Discord does, whose sandbox reaches no keyring; see the README",
+    ),
+    App(
         id="bitwarden",
         name="Bitwarden",
         client="Bitwarden",
@@ -1119,6 +1140,19 @@ APPS: Tuple[App, ...] = (
         controller=JELLYFIN.title,
         logo_position="BottomLeft:44:56",
         tv_scale=TvScale(argument="--scale-factor={factor}"),
+    ),
+    App(
+        id="vlc",
+        name="VLC",
+        client="VLC media player",
+        flatpak="org.videolan.VLC",
+        summary="Your own videos and music, from this device, discs or your network's shares, set up for a TV and a controller",
+        args=("--fullscreen", "--no-qt-video-autoresize", "--qt-continue=2", "--qt-dark-palette", "--no-qt-privacy-ask"),
+        profile=ScriptProfile("config/VLC-steam-{account}", "XDG_CONFIG_HOME={folder}", command="vlc"),
+        controller=VLC.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="QT_SCALE_FACTOR"),
+        fullscreen_class="vlc",
     ),
     App(
         id="localsend",
@@ -1276,6 +1310,19 @@ APPS: Tuple[App, ...] = (
                "for Steam games and other Proton games, use Protontricks",
     ),
     App(
+        id="bottles",
+        name="Bottles",
+        client="Bottles",
+        flatpak="com.usebottles.bottles",
+        summary="Windows programs and games, each in a bottle of its own with Wine, set up for a TV and a controller",
+        controller=BOTTLES.title,
+        logo_position="BottomLeft:44:56",
+        tv_scale=TvScale(variable="GDK_SCALE", whole=True),
+        game_mode_env=(("GDK_BACKEND", "x11"), ("ADW_DEBUG_COLOR_SCHEME", "prefer-dark")),
+        fullscreen_class="bottles",
+        notice="Bottles downloads its Wine runner and components at its first start; start what you install in a bottle from Bottles",
+    ),
+    App(
         id="files",
         name="Files",
         client="Dolphin",
@@ -1374,6 +1421,15 @@ APPS: Tuple[App, ...] = (
             extensions=("steamdb",),
             manifest="https://steamdb.info/steamdb.webmanifest",
         ),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
+        id="nexusmods",
+        name="Nexus Mods",
+        client="Helium",
+        summary="Mods for thousands of games, with their files, guides and collections, full screen in Helium",
+        browser=Browser(url="https://www.nexusmods.com/", kiosk=True),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

@@ -15,9 +15,9 @@ class RegistryTests(unittest.TestCase):
     def test_ids_and_lookup(self):
         self.assertEqual(
             apps.ids(),
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
-             "protontricks", "winetricks", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus", "protondb", "steamdb",
-             "protonmail", "protoncalendar"],
+            ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "lichii",
+             "kytyps5", "protonup", "protontricks", "winetricks", "bottles", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus",
+             "protondb", "steamdb", "nexusmods", "protonmail", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -48,7 +48,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_element_and_signal_move_with_the_arrow_keys_fill_the_tv_and_have_layouts_of_their_own(self):
         element, signal = apps.by_id("element"), apps.by_id("signal")
-        self.assertEqual([app.id for app in apps.APPS if "--enable-spatial-navigation" in app.args], ["element", "signal", "bitwarden"])
+        self.assertEqual([app.id for app in apps.APPS if "--enable-spatial-navigation" in app.args], ["element", "signal", "discord", "bitwarden"])
         self.assertEqual((element.controller, signal.controller), ("Element (NonSteamApps)", "Signal (NonSteamApps)"))
         self.assertEqual((element.fullscreen_class, signal.fullscreen_class), ("element", "signal"))
         self.assertEqual((element.hide_menu_bar, signal.hide_menu_bar), (True, True))
@@ -65,6 +65,7 @@ class ArgumentTests(unittest.TestCase):
                                    ("disneyplus", "https://www.disneyplus.com/", True),
                                    ("protondb", "https://www.protondb.com/", True),
                                    ("steamdb", "https://steamdb.info/", True),
+                                   ("nexusmods", "https://www.nexusmods.com/", True),
                                    ("protonmail", "https://mail.proton.me/", True),
                                    ("protoncalendar", "https://calendar.proton.me/", True)):
             app = apps.by_id(app_id)
@@ -85,8 +86,8 @@ class ArgumentTests(unittest.TestCase):
     def test_flathub_apps_scale_for_a_tv_and_vacuumtube_can_keep_its_sandbox(self):
         self.assertEqual(
             [app.id for app in apps.APPS if app.tv_scale],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "lichii", "kytyps5", "protonup",
-             "protontricks", "winetricks", "files"],
+            ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "lichii",
+             "kytyps5", "protonup", "protontricks", "winetricks", "bottles", "files"],
         )
         youtube = apps.by_id("youtube").tv_scale
         self.assertEqual((youtube.layout, apps.by_id("element").tv_scale.layout), (1080, 720))
@@ -155,6 +156,42 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([app.id for app in apps.APPS if app.profiles_name != app.id], ["protonmail", "protoncalendar"])
         self.assertEqual((apps.sharing_profiles(apps.by_id("protondb")), apps.by_id("netflix").profiles_name), ((), "netflix"))
 
+    def test_discord_starts_its_own_script_with_the_accounts_folder_and_quits_when_its_window_closes(self):
+        discord = apps.by_id("discord")
+        folder = "/home/deck/.var/app/com.discordapp.Discord/config/Discord-steam-111"
+        self.assertEqual(discord.arguments(HOME, 111),
+                         [f"XDG_CONFIG_HOME={folder}", "com.discordapp.Discord", "--password-store=basic", "--enable-spatial-navigation"])
+        self.assertEqual((discord.run_options(HOME, 111), discord.run_options(HOME, None)), (["--command=env"], []))
+        self.assertEqual(discord.arguments(HOME, None), ["--password-store=basic", "--enable-spatial-navigation"])
+        self.assertEqual((discord.controller, discord.fullscreen_class, discord.hide_menu_bar), ("Discord (NonSteamApps)", "discord", False))
+        self.assertEqual(discord.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertTrue(discord.profile.prepare(home, 111, lambda args: 0))
+            settings = home / "config/Discord-steam-111/discord/settings.json"
+            self.assertEqual(json.loads(settings.read_text()), {"MINIMIZE_TO_TRAY": False})
+            settings.write_text(json.dumps({"MINIMIZE_TO_TRAY": True, "SKIP_HOST_UPDATE": True}))
+            discord.profile.prepare_shared(home)
+            self.assertEqual(json.loads((home / "config/discord/settings.json").read_text()), {"MINIMIZE_TO_TRAY": False})
+            self.assertEqual(discord.profile.reset(home), [home / "config/Discord-steam-111"])
+            self.assertEqual(json.loads(settings.read_text()), {"MINIMIZE_TO_TRAY": False, "SKIP_HOST_UPDATE": True})
+
+    def test_vlc_keeps_each_accounts_history_apart_and_starts_set_up_for_a_tv(self):
+        vlc = apps.by_id("vlc")
+        tv = ["--fullscreen", "--no-qt-video-autoresize", "--qt-continue=2", "--qt-dark-palette", "--no-qt-privacy-ask"]
+        self.assertEqual(vlc.arguments(HOME, 222), ["XDG_CONFIG_HOME=/home/deck/.var/app/org.videolan.VLC/config/VLC-steam-222", "vlc", *tv])
+        self.assertEqual((vlc.arguments(HOME, None), vlc.run_options(HOME, 222), vlc.run_options(HOME, None)), (tv, ["--command=env"], []))
+        self.assertEqual((vlc.controller, vlc.fullscreen_class, vlc.qt_window), ("VLC (NonSteamApps)", "vlc", False))
+        self.assertEqual(vlc.tv_scale.apply(1.5), ([], ["--env=QT_SCALE_FACTOR=1.5"]))
+
+    def test_bottles_shares_its_bottles_and_starts_dark_in_game_mode_on_x11(self):
+        bottles = apps.by_id("bottles")
+        self.assertEqual((bottles.flatpak, bottles.profile, bottles.args, bottles.settings), ("com.usebottles.bottles", None, (), ()))
+        self.assertEqual(bottles.game_mode_env, (("GDK_BACKEND", "x11"), ("ADW_DEBUG_COLOR_SCHEME", "prefer-dark")))
+        self.assertEqual((bottles.controller, bottles.fullscreen_class), ("Bottles (NonSteamApps)", "bottles"))
+        self.assertEqual([bottles.tv_scale.apply(factor) for factor in (1.5, 2.0, 3.0)],
+                         [([], []), ([], ["--env=GDK_SCALE=2"]), ([], ["--env=GDK_SCALE=3"])])
+
     def test_bitwarden_gets_each_accounts_folder_in_a_variable_and_keeps_its_tokens_on_disk(self):
         bitwarden = apps.by_id("bitwarden")
         self.assertEqual(bitwarden.arguments(HOME, 111), ["--enable-spatial-navigation"])
@@ -165,7 +202,8 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual((bitwarden.env, bitwarden.controller), ((("ACCESS_TOKEN_LOCATION", "DISK"),), "Bitwarden (NonSteamApps)"))
         self.assertEqual((bitwarden.game_mode_env, bitwarden.fullscreen_class, bitwarden.hide_menu_bar), ((("DISPLAY_MODE", "X11"),), "bitwarden", True))
         self.assertEqual([app.id for app in apps.APPS if app.hide_menu_bar], ["element", "signal", "bitwarden"])
-        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class], ["element", "signal", "bitwarden", "kytyps5"])
+        self.assertEqual([app.id for app in apps.APPS if app.fullscreen_class],
+                         ["element", "signal", "discord", "bitwarden", "vlc", "kytyps5", "bottles"])
         self.assertEqual(bitwarden.tv_scale.apply(1.5), (["--force-device-scale-factor=1.5"], []))
 
     def test_kytyps5_is_downloaded_from_its_releases_with_its_own_updater_off(self):

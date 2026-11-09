@@ -32,6 +32,17 @@ class MatchingTests(unittest.TestCase):
         ]
         self.assertEqual(x11.matching(windows, "nonsteamapps-kytyps5", set()), [11, 13])
 
+    def test_a_window_the_window_manager_records_leaving_full_screen_is_asked_again_once(self):
+        windows = [(1, "vlc", "vlc", True, 0), (2, "vlc", "vlc", True, 0), (3, "vlc", "vlc", False, 0), (4, "vlc", "vlc", True, 0)]
+        recorded = {1: True, 2: False, 3: True, 4: True}
+        done, seen = {1, 2, 3}, set()
+        self.assertEqual(x11.left_fullscreen(windows, done, seen, recorded.get), [])
+        self.assertEqual(seen, {1})
+        recorded[1] = False
+        self.assertEqual(x11.left_fullscreen(windows, done, seen, recorded.get), [1])
+        self.assertEqual(x11.left_fullscreen(windows, done, seen, recorded.get), [])
+        self.assertEqual(seen, set())
+
     def test_a_process_runs_until_it_has_exited(self):
         self.assertTrue(x11.running(os.getpid()))
         child = subprocess.Popen(["true"])
@@ -89,27 +100,58 @@ class XServerTests(unittest.TestCase):
         LIB.XSync(self.display, 0)
         return window
 
-    def test_each_window_of_the_class_is_asked_once_to_go_full_screen(self):
-        LIB.XSelectInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_long]
-        LIB.XPending.argtypes = [ctypes.c_void_p]
-        LIB.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.POINTER(x11.Event)]
-        LIB.XSelectInput(self.display, self.root, x11.SUBSTRUCTURE_NOTIFY)
-        browser = self.make_window("nonsteamapps-helium", "Nonsteamapps-helium")
-        self.make_window("element", "Element")
-        self.make_window("nonsteamapps-helium", "Nonsteamapps-helium", transient_for=browser)
-        passes = iter(range(6))
-        self.assertEqual(x11.keep_fullscreen("nonsteamapps-helium", lambda: next(passes, None) is not None, 0.02, self.name), 1)
+    def requests(self):
+        """The full-screen requests sent to the root window since :meth:`listen`, as ``(window, type, format, data)``."""
         LIB.XSync(self.display, 0)
-        requests = []
+        found = []
         event = x11.Event()
         while LIB.XPending(self.display):
             LIB.XNextEvent(self.display, ctypes.byref(event))
             if event.type == x11.CLIENT_MESSAGE:
                 message = event.xclient
-                requests.append((message.window, message.message_type, message.format, list(message.data)[:4]))
-        state = LIB.XInternAtom(self.display, b"_NET_WM_STATE", 0)
-        fullscreen = LIB.XInternAtom(self.display, b"_NET_WM_STATE_FULLSCREEN", 0)
-        self.assertEqual(requests, [(browser, state, 32, [x11.ADD, fullscreen, 0, x11.FROM_APPLICATION])])
+                found.append((message.window, message.message_type, message.format, list(message.data)[:4]))
+        return found
+
+    def listen(self):
+        LIB.XSelectInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_long]
+        LIB.XPending.argtypes = [ctypes.c_void_p]
+        LIB.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.POINTER(x11.Event)]
+        LIB.XSelectInput(self.display, self.root, x11.SUBSTRUCTURE_NOTIFY)
+
+    def atoms(self):
+        return LIB.XInternAtom(self.display, b"_NET_WM_STATE", 0), LIB.XInternAtom(self.display, b"_NET_WM_STATE_FULLSCREEN", 0)
+
+    def test_each_window_of_the_class_is_asked_once_to_go_full_screen(self):
+        self.listen()
+        browser = self.make_window("nonsteamapps-helium", "Nonsteamapps-helium")
+        self.make_window("element", "Element")
+        self.make_window("nonsteamapps-helium", "Nonsteamapps-helium", transient_for=browser)
+        passes = iter(range(6))
+        self.assertEqual(x11.keep_fullscreen("nonsteamapps-helium", lambda: next(passes, None) is not None, 0.02, self.name), 1)
+        state, fullscreen = self.atoms()
+        self.assertEqual(self.requests(), [(browser, state, 32, [x11.ADD, fullscreen, 0, x11.FROM_APPLICATION])])
+
+    def test_a_window_is_asked_again_when_the_window_manager_records_that_it_left_full_screen(self):
+        LIB.XChangeProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_void_p, ctypes.c_int]
+        LIB.XDeleteProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong]
+        self.listen()
+        player = self.make_window("vlc", "vlc")
+        state, fullscreen = self.atoms()
+        recorded = (ctypes.c_ulong * 1)(fullscreen)
+
+        def window_manager(step):
+            if step == 1:
+                LIB.XChangeProperty(self.display, player, state, x11.XA_ATOM, 32, 0, ctypes.cast(recorded, ctypes.c_void_p), 1)
+            elif step == 2:
+                LIB.XDeleteProperty(self.display, player, state)
+            LIB.XSync(self.display, 0)
+            return step < 4
+
+        steps = iter(range(10))
+        self.assertEqual(x11.keep_fullscreen("vlc", lambda: window_manager(next(steps)), 0.02, self.name), 1)
+        request = (player, state, 32, [x11.ADD, fullscreen, 0, x11.FROM_APPLICATION])
+        self.assertEqual(self.requests(), [request, request])
 
 
 if __name__ == "__main__":

@@ -50,6 +50,17 @@ layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` 
   quit: Element takes Ctrl+Shift+Q as its Ctrl+Q, and a Helium window Element opened for a link closes.
   In Signal, View searches (Ctrl+F) and, held, moves to the next section (Ctrl+T), Menu opens the settings
   (Ctrl+,), and holding it quits (Ctrl+Q).
+- **Discord** is the chat layout Element and Signal share, with Discord's keys: the bumpers go to the previous and
+  next channel (Alt+Up and Alt+Down), View opens the Quick Switcher, which jumps to a server, channel or chat
+  (Ctrl+K), Menu opens the settings, Discord's File ▸ Options (Ctrl+,), and holding it quits, its Exit (Ctrl+Q).
+- **VLC** starts from Web Browser and sends VLC's keys: the D-pad moves through menus, lists and disc menus as
+  before, A selects (Enter; Valve's also presses Space, VLC's play or pause), B goes back (Escape, which also leaves
+  full screen), Y switches full screen (F), the bumpers jump back and forward 10 seconds (Alt+Left and Alt+Right)
+  and, held, to the previous and next item (P and N), Menu plays or pauses (Space) and, held, quits (Ctrl+Q), and
+  View opens a file (Ctrl+O) and, held, the playlist (Ctrl+L), with the network's shares and discs. The left stick
+  still scrolls, which over the video changes the volume.
+- **Bottles** is the emulator layout, with its own title, for Windows games: a gamepad for the game, with the
+  right trackpad's press a left click, and View held for the windows of Bottles and the programs it runs.
 - **Jellyfin** starts from Web Browser and sends Jellyfin Desktop's keys, as its Flatpak cannot reach a
   controller itself: the D-pad and the left stick move (arrow keys), A selects (Enter), B goes back
   (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
@@ -280,6 +291,31 @@ def _signal(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pa
     return group
 
 
+def _discord(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    group = _chat(source, group, base)
+    if source == "switch":
+        _bind(group, MENU, ["key_press LEFT_CONTROL, Settings", "key_press COMMA"])
+        _bind(group, VIEW, ["key_press LEFT_CONTROL, Quick Switcher", "key_press K"])
+    return group
+
+
+def _vlc(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "button_diamond":
+        _bind(group, "button_a", ["key_press RETURN, Select"])
+        _bind(group, "button_b", ["key_press ESCAPE, Back"])
+        _bind(group, "button_y", ["key_press F, Full screen"])
+    elif source == "switch":
+        _bind(group, MENU, ["key_press SPACE, Play or pause"])
+        _hold(group, MENU, ["key_press LEFT_CONTROL, Quit", "key_press Q"])
+        _bind(group, VIEW, ["key_press LEFT_CONTROL, Open file", "key_press O"])
+        _hold(group, VIEW, ["key_press LEFT_CONTROL, Playlist", "key_press L"])
+        _bind(group, "left_bumper", ["key_press LEFT_ALT, Back 10 seconds", "key_press LEFT_ARROW"])
+        _hold(group, "left_bumper", ["key_press P, Previous"])
+        _bind(group, "right_bumper", ["key_press LEFT_ALT, Forward 10 seconds", "key_press RIGHT_ARROW"])
+        _hold(group, "right_bumper", ["key_press N, Next"])
+    return group
+
+
 @dataclass(frozen=True)
 class Shift:
     """While ``button`` of the switches is held, ``sources`` take their groups from Valve's layout ``template``, changed by ``change``."""
@@ -394,6 +430,28 @@ SIGNAL = Layout(
     base="controller_neptune_webbrowser.vdf",
     change=_signal,
 )
+DISCORD = Layout(
+    slug="discord",
+    title="Discord (NonSteamApps)",
+    description="D-pad or left stick to move, A to select, B to go back, Y to tick, X for the keyboard, L1 and R1 for the previous and next channel, View for the Quick Switcher, Menu for settings, hold Menu to quit",
+    base="controller_neptune_webbrowser.vdf",
+    change=_discord,
+)
+VLC = Layout(
+    slug="vlc",
+    title="VLC (NonSteamApps)",
+    description="D-pad to move, A to select, B to go back, Y for full screen, X for the keyboard, L1 and R1 to jump 10 seconds (hold for the previous and next item), Menu to play or pause, hold Menu to quit, View to open a file (hold for the playlist)",
+    base="controller_neptune_webbrowser.vdf",
+    change=_vlc,
+)
+BOTTLES = Layout(
+    slug="bottles",
+    title="Bottles (NonSteamApps)",
+    description="Steam's Gamepad layout for Windows games, with the right trackpad to point; hold View for the windows of Bottles and its programs: right stick to point, A to click, B for Escape, Y for Enter, X for the keyboard",
+    base="controller_neptune_gamepad+mouse.vdf",
+    change=_emulator,
+    shift=Shift(VIEW, "controller_neptune_webbrowser.vdf", ("right_joystick", "button_diamond"), _windows),
+)
 YOUTUBE = Layout(
     slug="youtube",
     title="YouTube (NonSteamApps)",
@@ -402,7 +460,7 @@ YOUTUBE = Layout(
     change=_youtube,
     revision="2",
 )
-LAYOUTS = (BITWARDEN, BROWSER, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, YOUTUBE)
+LAYOUTS = (BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, VLC, YOUTUBE)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

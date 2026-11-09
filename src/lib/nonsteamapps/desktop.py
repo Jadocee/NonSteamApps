@@ -6,6 +6,9 @@ Plasma counts the app's windows as that launcher's. Plasma keeps a task manager'
 Plasma writes its settings file over any change made to it, so a running Plasma is changed through its
 scripting interface on the session bus (``org.kde.PlasmaShell.evaluateScript``); one that is not running, as
 in Game Mode, through the file it reads when it next starts.
+
+SteamOS's own Konsole is pinned once (see :func:`pin_once`), with a record of what was done, so that taking it off
+the taskbar later keeps it off, and an uninstall takes off only a launcher NonSteamApps put there.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import appmenu
 from .apps import set_ini
-from .fsutil import atomic_write_bytes
+from .fsutil import atomic_write_bytes, atomic_write_json
 
 PLASMA = "org.kde.plasmashell"
 LAYOUT = "plasma-org.kde.plasma.desktop-appletsrc"
@@ -105,6 +108,49 @@ def pin(name: str, layout: Path, environ: Mapping[str, str] = os.environ) -> Opt
 def unpin(name: str, layout: Path, environ: Mapping[str, str] = os.environ) -> Optional[bool]:
     """Take the launcher ``name`` off every taskbar; whether one changed, or ``None`` when none could be."""
     return _change(name, False, layout, environ)
+
+
+def _recorded(record: Path) -> Dict[str, bool]:
+    try:
+        found = json.loads(Path(record).read_text(encoding="utf-8")).get("launchers")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {name: pinned for name, pinned in found.items() if isinstance(pinned, bool)} if isinstance(found, dict) else {}
+
+
+def pin_once(name: str, layout: Path, record: Path, environ: Mapping[str, str] = os.environ) -> Optional[bool]:
+    """Pin the launcher ``name`` to every taskbar unless ``record`` holds it already; return whether it was pinned now.
+
+    The record keeps whether NonSteamApps pinned it or found it pinned. ``None`` means that no taskbar could be changed,
+    and nothing is recorded, so that a later call tries again.
+    """
+    done = _recorded(record)
+    if name in done:
+        return False
+    pinned = pin(name, layout, environ)
+    if pinned is None:
+        return None
+    done[name] = pinned
+    atomic_write_json(Path(record), {"launchers": done})
+    return pinned
+
+
+def unpin_recorded(layout: Path, record: Path, environ: Mapping[str, str] = os.environ) -> List[str]:
+    """Take off the taskbars the launchers :func:`pin_once` pinned; return those taken off.
+
+    The record then keeps only the launchers no taskbar could be changed for, to be taken off later.
+    """
+    done = _recorded(record)
+    removed, kept = [], {}
+    for name, pinned in done.items():
+        changed = unpin(name, layout, environ) if pinned else False
+        if changed:
+            removed.append(name)
+        elif changed is None:
+            kept[name] = pinned
+    if done:
+        atomic_write_json(Path(record), {"launchers": kept})
+    return removed
 
 
 def _change(name: str, add: bool, layout: Path, environ: Mapping[str, str]) -> Optional[bool]:

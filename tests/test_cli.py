@@ -1200,6 +1200,11 @@ class HeliumAppTests(CliTestCase):
         self.assertEqual(source, artwork.Source("site", "https://steamdb.info/", "https://steamdb.info/steamdb.webmanifest"))
         self.assertEqual(cli._icon_source(self.paths, apps.by_id("protondb")), artwork.Source("site", "https://www.protondb.com/"))
 
+    def test_nexus_mods_takes_its_icon_from_its_own_app_as_its_site_checks_a_headless_browser(self):
+        icon = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
+        self.assertEqual(cli._icon_source(self.paths, apps.by_id("nexusmods")), artwork.Source("url", icon))
+        self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.icon], ["nexusmods"])
+
     def test_steamdb_starts_with_its_sign_in_extension_and_the_account_in_the_address(self):
         self.install("steamdb")
         argv, _ = self.launch("steamdb", "--steam-account", str(BETA))

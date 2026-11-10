@@ -689,6 +689,15 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Downloads:** manual downloads go to `~/Downloads`; the mod-manager links (`nxm://`) need a mod manager that takes them.
     - **Not verified:** anything of the site beyond Cloudflare's check.
 
+84. **Nexus Mods' own icon (bug fix, owner report; correction to item 83); version 2.39.1.** On the owner's device, drawing Nexus Mods' artwork printed a 403 and fell back to NonSteamApps' own.
+    - **Why:** a headless browser declares itself, as `HeadlessChrome` in its user agent and with `navigator.webdriver` true, and Cloudflare in front of Nexus Mods answers it with its check that a person is visiting rather than the site's page. Here the check never cleared in 30 seconds, retrying itself [189]. The page then named no icon, and the one address left, the `/apple-touch-icon.png` NonSteamApps guesses for every site, met the same check, which answers `403`.
+    - **Not done:** getting past the check, which would mean disguising the browser.
+    - **Fix:** a full-screen app can name its site's icon where the site's makers publish it elsewhere (`Browser.icon`), which is downloaded in place of the site's. Nexus Mods names its logo in its own open-source app, `src/NexusMods.App/icon.svg` at release v0.21.1, which GitHub serves to any client [188].
+      - That SVG starts with a byte-order mark, which the check of an icon's type did not allow; it does now.
+      - A site whose page is Cloudflare's check (`window._cf_chl_opt`, or a script from `/cdn-cgi/challenge-platform/`) is now reported as such, without trying the guessed address, for any site.
+    - **Tests:** the check, told from a page in a real Chromium and reported without a download; the byte-order mark; and Nexus Mods' icon source. Drawn here through the device's own steps, Nexus Mods' artwork used its logo, and the live site was reported as answering with the check.
+    - **Not verified:** on the Steam Machine.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -880,3 +889,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 185. gamescope: [3.16.31](https://github.com/ValveSoftware/gamescope/blob/3.16.31/src/steamcompmgr.cpp) and [3.17.0](https://github.com/ValveSoftware/gamescope/blob/3.17.0/src/steamcompmgr.cpp), whose `handle_net_wm_state` keeps the state to itself, and [`master` at `89b9e6e`](https://github.com/ValveSoftware/gamescope/blob/89b9e6ee61513767f4771e0022b669a48efb5780/src/steamcompmgr.cpp), whose `handle_net_wm_state` writes `_NET_WM_STATE` and calls `resize_window_to_desired_geometry`, which gives a window that is not full screen the size it asked for
 186. Nexus Mods, on 9 November 2026: `https://www.nexusmods.com/` and its usual icon, manifest and `robots.txt` addresses answered `403` with Cloudflare's "Just a moment..." page, to curl and to headless Chromium alike
 187. SteamOS 3.8's `xdg-desktop-portal-holo` 0.1.18, Game Mode's portal backend: its `.portal` file names the Settings interface, and its program answers `org.freedesktop.appearance`'s `color-scheme` from a `settings.conf`
+188. [Nexus Mods' app, NexusMods.App, v0.21.1](https://github.com/Nexus-Mods/NexusMods.App/tree/96cc724a182498ae3b4b81960a29a095437145fe) at `96cc724`: `src/NexusMods.App/icon.svg`, a 357-pixel SVG of Nexus Mods' logo beginning with a UTF-8 byte-order mark, the same as `src/NexusMods.App.UI/Assets/nexus-logo.svg`; `https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg` answered `200` with `image/svg+xml` on 10 November 2026
+189. Nexus Mods, on 10 November 2026, in a headless Chromium 153 driven through its DevTools pipe as NonSteamApps drives Helium: `https://www.nexusmods.com/` stayed Cloudflare's "Just a moment..." page for 30 seconds, with `window._cf_chl_opt` set, retrying itself through `?__cf_chl_rt_tk=`; the browser's user agent named `HeadlessChrome/153.0.0.0`, and `navigator.webdriver` was true

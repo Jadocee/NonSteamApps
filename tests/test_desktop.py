@@ -100,6 +100,34 @@ class TaskbarTests(unittest.TestCase):
         self.assertIsNone(desktop.pin(ENTRY, self.layout, {}))
         self.assertEqual(self.layout.read_text(), "[Containments][1][Applets][2]\nplugin=org.kde.plasma.kickoff\n")
 
+    def test_konsole_is_pinned_once_and_an_uninstall_takes_off_only_what_was_pinned(self):
+        konsole, record = "applications:org.kde.konsole.desktop", Path(self.tmp.name) / "taskbar.json"
+        self.assertIsNone(desktop.pin_once(konsole, self.layout, record, {}))
+        self.assertFalse(record.exists())
+        self.layout.write_text(LAYOUT)
+        self.assertTrue(desktop.pin_once(konsole, self.layout, record, {}))
+        self.assertEqual(self.layout.read_text().count(konsole), 2)
+        self.assertTrue(desktop.unpin(konsole, self.layout, {}))
+        self.assertFalse(desktop.pin_once(konsole, self.layout, record, {}))
+        self.assertNotIn(konsole, self.layout.read_text())
+        self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [])
+        self.assertTrue(desktop.pin(konsole, self.layout, {}))
+        self.assertFalse(desktop.pin_once(konsole, self.layout, record, {}))
+        self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [])
+        self.assertIn(konsole, self.layout.read_text())
+        record.unlink()
+        self.assertFalse(desktop.pin_once(konsole, self.layout, record, {}))
+        self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [])
+        self.assertEqual(self.layout.read_text().count(konsole), 2)
+        self.assertTrue(desktop.unpin(konsole, self.layout, {}))
+        record.unlink()
+        self.assertTrue(desktop.pin_once(konsole, self.layout, record, {}))
+        with mock.patch("nonsteamapps.desktop._through_plasma", return_value=(True, None)):
+            self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [])
+        self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [konsole])
+        self.assertNotIn(konsole, self.layout.read_text())
+        self.assertEqual(desktop.unpin_recorded(self.layout, record, {}), [])
+
     def test_a_running_plasma_is_asked_and_its_file_left_alone(self):
         self.layout.write_text(LAYOUT)
         with mock.patch("nonsteamapps.desktop._through_plasma", return_value=(True, True)) as plasma:

@@ -65,6 +65,11 @@ class Paths:
         return self.state / "artwork.json"
 
     @property
+    def taskbar_record(self) -> Path:
+        """The launchers of SteamOS's own apps NonSteamApps pinned to Desktop Mode's taskbar, or found pinned (see :func:`desktop.pin_once`)."""
+        return self.state / "taskbar.json"
+
+    @property
     def source(self) -> Path:
         """Where the installer took NonSteamApps from, which updates fetch it from again."""
         return self.state / "source.json"

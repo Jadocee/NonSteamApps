@@ -6,6 +6,11 @@ maximise. Chromium makes a window one pixel smaller than the screen size it is g
 from another program makes it fill the screen while it keeps its tabs and address bar. This sends that request,
 as a desktop's window list would, to the windows of one ``WM_CLASS``, through libX11 with ctypes. Dialogs,
 windows that are transient for another shown window, keep their own size.
+
+A window that leaves full screen, as VLC's does when its video leaves it, is asked again where the window manager
+records the state in the window's ``_NET_WM_STATE``, as gamescope's development version does: it also gives such a
+window back the size it asked for. gamescope 3.17 neither records the state nor changes the size, so there each
+window is asked once, and one that leaves full screen keeps the screen's size.
 """
 
 from __future__ import annotations
@@ -22,6 +27,8 @@ SUBSTRUCTURE_NOTIFY = 1 << 19
 SUBSTRUCTURE_REDIRECT = 1 << 20
 ADD = 1
 FROM_APPLICATION = 1
+XA_ATOM = 4
+SUCCESS = 0
 
 Window = Tuple[int, str, str, bool, int]
 
@@ -79,6 +86,9 @@ def library() -> Optional[ctypes.CDLL]:
         "XGetClassHint": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ClassHint)]),
         "XGetWindowAttributes": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(Attributes)]),
         "XGetTransientForHint": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]),
+        "XGetWindowProperty": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_long, ctypes.c_long, ctypes.c_int,
+                                              ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_int),
+                                              ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p)]),
         "XSendEvent": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.POINTER(Event)]),
         "XSync": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_int]),
         "XFree": (ctypes.c_int, [ctypes.c_void_p]),
@@ -100,6 +110,8 @@ class Display:
         if not self.handle:
             raise OSError(f"cannot open the X display {name or os.environ.get('DISPLAY', '')!r}")
         self.root = lib.XDefaultRootWindow(self.handle)
+        self.state = lib.XInternAtom(self.handle, b"_NET_WM_STATE", 0)
+        self.full = lib.XInternAtom(self.handle, b"_NET_WM_STATE_FULLSCREEN", 0)
 
     def __enter__(self) -> "Display":
         return self
@@ -141,12 +153,29 @@ class Display:
         event = Event()
         message = event.xclient
         message.type, message.window, message.format = CLIENT_MESSAGE, window, 32
-        message.message_type = self.lib.XInternAtom(self.handle, b"_NET_WM_STATE", 0)
+        message.message_type = self.state
         message.data[0] = ADD
-        message.data[1] = self.lib.XInternAtom(self.handle, b"_NET_WM_STATE_FULLSCREEN", 0)
+        message.data[1] = self.full
         message.data[3] = FROM_APPLICATION
         self.lib.XSendEvent(self.handle, self.root, 0, SUBSTRUCTURE_NOTIFY | SUBSTRUCTURE_REDIRECT, ctypes.byref(event))
         self.lib.XSync(self.handle, 0)
+
+    def is_fullscreen(self, window: int) -> bool:
+        """Whether ``window``'s ``_NET_WM_STATE``, where a window manager may record it, holds full screen."""
+        kind, size = ctypes.c_ulong(), ctypes.c_int()
+        count, rest = ctypes.c_ulong(), ctypes.c_ulong()
+        data = ctypes.c_void_p()
+        found = self.lib.XGetWindowProperty(self.handle, window, self.state, 0, 64, 0, XA_ATOM, ctypes.byref(kind), ctypes.byref(size),
+                                            ctypes.byref(count), ctypes.byref(rest), ctypes.byref(data))
+        if found != SUCCESS or not data.value:
+            return False
+        try:
+            if kind.value != XA_ATOM or size.value != 32:
+                return False
+            atoms = ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))
+            return any(atoms[index] == self.full for index in range(count.value))
+        finally:
+            self.lib.XFree(data)
 
 
 def matching(windows: Iterable[Window], wm_class: str, done: Set[int]) -> List[int]:
@@ -163,6 +192,24 @@ def matching(windows: Iterable[Window], wm_class: str, done: Set[int]) -> List[i
     ]
 
 
+def left_fullscreen(windows: Iterable[Window], done: Set[int], seen: Set[int], is_fullscreen: Callable[[int], bool]) -> List[int]:
+    """The shown windows in ``done`` that the window manager records as full screen no longer, after it did.
+
+    ``seen`` keeps the windows it was found to record as full screen, and loses each one returned, which is to be
+    asked again. Under a window manager that records no state, it stays empty, and no window is asked twice.
+    """
+    left = []
+    for window, _, _, shown, _ in windows:
+        if not shown or window not in done:
+            continue
+        if is_fullscreen(window):
+            seen.add(window)
+        elif window in seen:
+            seen.discard(window)
+            left.append(window)
+    return left
+
+
 def running(pid: int) -> bool:
     """Whether the process ``pid`` exists and has not exited."""
     try:
@@ -173,17 +220,22 @@ def running(pid: int) -> bool:
 
 
 def keep_fullscreen(wm_class: str, alive: Callable[[], bool], interval: float = 0.25, display: Optional[str] = None) -> int:
-    """Make each new window of ``wm_class`` full screen while ``alive()``; return how many were."""
+    """Make each new window of ``wm_class`` full screen while ``alive()``, and again one that leaves it (see :func:`left_fullscreen`);
+    return how many windows were."""
     lib = library()
     if lib is None:
         return 0
     done: Set[int] = set()
+    seen: Set[int] = set()
     try:
         with Display(lib, display) as connection:
             while alive():
-                for window in matching(connection.windows(), wm_class, done):
+                windows = connection.windows()
+                for window in matching(windows, wm_class, done):
                     connection.fullscreen(window)
                     done.add(window)
+                for window in left_fullscreen(windows, done, seen, connection.is_fullscreen):
+                    connection.fullscreen(window)
                 time.sleep(interval)
     except OSError:
         pass

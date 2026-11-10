@@ -224,13 +224,15 @@ class FilesLayoutTests(unittest.TestCase):
         )
         self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), ["key_press LEFT_CONTROL, Quit", "key_press Q"])
 
-    def test_element_and_signal_move_with_the_d_pad_and_left_stick_and_change_room_with_the_bumpers(self):
+    def test_element_signal_and_discord_move_with_the_d_pad_and_left_stick_and_change_room_with_the_bumpers(self):
         arrows = [["key_press UP_ARROW, ⏫"], ["key_press DOWN_ARROW, ⏬"], ["key_press RIGHT_ARROW, ⏩"], ["key_press LEFT_ARROW, ⏪"]]
         menus = {
             layouts.ELEMENT: (["key_press LEFT_CONTROL, User menu", "key_press BACK_TICK"], ["key_press LEFT_CONTROL, Jump to room", "key_press K"],
                               ["key_press F6, Next area"], ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]),
             layouts.SIGNAL: (["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Search", "key_press F"],
                              ["key_press LEFT_CONTROL, Next section", "key_press T"], ["key_press LEFT_CONTROL, Quit", "key_press Q"]),
+            layouts.DISCORD: (["key_press LEFT_CONTROL, Settings", "key_press COMMA"], ["key_press LEFT_CONTROL, Quick Switcher", "key_press K"],
+                              None, ["key_press LEFT_CONTROL, Quit", "key_press Q"]),
         }
         for layout, (menu, view, held_view, held_menu) in menus.items():
             with self.subTest(layout=layout.slug):
@@ -244,7 +246,39 @@ class FilesLayoutTests(unittest.TestCase):
                                  [["key_press LEFT_ALT, Previous", "key_press UP_ARROW"], ["key_press LEFT_ALT, Next", "key_press DOWN_ARROW"]])
                 self.assertEqual((bindings(switch, layouts.MENU), bindings(switch, layouts.VIEW)), (menu, view))
                 self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), held_menu)
-                self.assertEqual(bindings(switch, layouts.VIEW, "Long_Press"), held_view)
+                if held_view is None:
+                    self.assertEqual([kind for kind, _ in find(find(find(switch, "inputs"), layouts.VIEW), "activators")], ["Full_Press"])
+                else:
+                    self.assertEqual(bindings(switch, layouts.VIEW, "Long_Press"), held_view)
+
+    def test_vlc_plays_seeks_and_opens_with_its_own_keys_and_a_selects_without_pausing(self):
+        for pad in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
+            with self.subTest(pad=pad):
+                found = groups(layouts.build(layouts.VLC, self.read(layouts.VLC.base), self.read(pad)))
+                diamond, switch = found["button_diamond"], found["switch"]
+                self.assertEqual([bindings(diamond, f"button_{key}") for key in "abxy"],
+                                 [["key_press RETURN, Select"], ["key_press ESCAPE, Back"], ["controller_action SHOW_KEYBOARD, ⌨️"],
+                                  ["key_press F, Full screen"]])
+                buttons = (layouts.MENU, layouts.VIEW, "left_bumper", "right_bumper")
+                self.assertEqual([bindings(switch, button) for button in buttons], [
+                    ["key_press SPACE, Play or pause"], ["key_press LEFT_CONTROL, Open file", "key_press O"],
+                    ["key_press LEFT_ALT, Back 10 seconds", "key_press LEFT_ARROW"], ["key_press LEFT_ALT, Forward 10 seconds", "key_press RIGHT_ARROW"],
+                ])
+                self.assertEqual([bindings(switch, button, "Long_Press") for button in buttons], [
+                    ["key_press LEFT_CONTROL, Quit", "key_press Q"], ["key_press LEFT_CONTROL, Playlist", "key_press L"],
+                    ["key_press P, Previous"], ["key_press N, Next"],
+                ])
+                self.assertEqual(bindings(found["dpad"], "dpad_west"), ["key_press LEFT_ARROW, ⏪"])
+                self.assertEqual(bindings(found["joystick"], "dpad_north"), ["mouse_wheel SCROLL_UP, ⏫"])
+
+    def test_bottles_is_the_emulator_layout_under_a_name_of_its_own(self):
+        shift = self.read(layouts.EMULATOR.shift.template)
+        pad = self.read("controller_neptune_gamepad_joystick.vdf")
+        built = find(layouts.build(layouts.BOTTLES, self.read(layouts.BOTTLES.base), pad, shift), "controller_mappings")
+        emulator = find(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), pad, shift), "controller_mappings")
+        self.assertEqual((find(built, "title"), find(built, "revision")), ("Bottles (NonSteamApps)", "1"))
+        self.assertEqual([pair for pair in built if isinstance(pair[1], list)], [pair for pair in emulator if isinstance(pair[1], list)])
+        self.assertEqual((layouts.BOTTLES.base, layouts.BOTTLES.shift), (layouts.EMULATOR.base, layouts.EMULATOR.shift))
 
     def test_emulators_play_with_a_gamepad_and_the_trackpad_clicks_in_their_menus(self):
         deck = groups(layouts.build(layouts.EMULATOR, self.read(layouts.EMULATOR.base), self.read("controller_neptune_gamepad_joystick.vdf")))
@@ -304,6 +338,8 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])
         self.assertEqual(layouts.used_by([layouts.LOCALSEND.title, layouts.BROWSER.title]), [layouts.BROWSER, layouts.LOCALSEND])
         self.assertEqual(layouts.used_by([layouts.YOUTUBE.title, layouts.EMULATOR.title]), [layouts.EMULATOR, layouts.YOUTUBE])
+        self.assertEqual(layouts.used_by([layouts.VLC.title, layouts.DISCORD.title, layouts.BOTTLES.title]),
+                         [layouts.BOTTLES, layouts.DISCORD, layouts.VLC])
         self.assertEqual(layouts.used_by(["Gamepad", ""]), [])
 
 

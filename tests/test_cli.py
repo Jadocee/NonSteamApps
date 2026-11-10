@@ -13,7 +13,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, lichii, nx2, presence, remote, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, vdf
 
 
 class Exec(Exception):
@@ -132,18 +132,21 @@ class InstallTests(CliTestCase):
         self.install()
         self.assertEqual(
             [call[-1] for call in self.fake.calls("install")],
-            ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop",
-             "org.localsend.localsend_app", "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2",
-             "com.github.Matoking.protontricks", "org.winehq.Wine//stable"],
+            ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.discordapp.Discord",
+             "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop", "org.videolan.VLC", "org.localsend.localsend_app",
+             "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2", "com.github.Matoking.protontricks",
+             "org.winehq.Wine//stable", "com.usebottles.bottles"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "bitwarden", "jellyfin", "localsend", "prism", "eden", "edennx2", "protonup", "protontricks", "winetricks"],
+            ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "protonup",
+             "protontricks", "winetricks", "bottles"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
+        self.assertIn("Discord keeps its sign-in unencrypted on disk", self.errors)
         self.assertEqual(cli._runtime(self.paths).current(), "0.0.0.1")
         for account in (ALPHA, BETA):
             entries = self.entries(account)
@@ -416,6 +419,44 @@ class LaunchTests(CliTestCase):
         argv, _ = self.launch("signal", "--steam-account", str(BETA))
         self.assertEqual(argv, [self.fake.command, "run", "org.signal.Signal", "--enable-spatial-navigation"])
 
+    def test_discord_starts_its_script_with_the_accounts_folder_and_quits_when_its_window_closes(self):
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+            argv, _ = self.launch("discord", "--steam-account", str(ALPHA))
+        folder = self.home / f".var/app/com.discordapp.Discord/config/Discord-steam-{ALPHA}"
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--command=env", "com.discordapp.Discord", f"XDG_CONFIG_HOME={folder}", "com.discordapp.Discord",
+            "--password-store=basic", "--enable-spatial-navigation", "--force-device-scale-factor=3",
+        ])
+        cli.x11.watch.assert_any_call("discord", mock.ANY)
+        self.assertFalse(cli.appmenu.watch.called)
+        self.assertEqual(json.loads((folder / "discord/settings.json").read_text()), {"MINIMIZE_TO_TRAY": False})
+
+    def test_vlc_starts_with_each_accounts_settings_full_screen_and_scaled_for_a_tv(self):
+        folder = self.home / f".var/app/org.videolan.VLC/config/VLC-steam-{ALPHA}"
+        tv = ["--fullscreen", "--no-qt-video-autoresize", "--qt-continue=2", "--qt-dark-palette", "--no-qt-privacy-ask"]
+        argv, _ = self.launch("vlc", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "--command=env", "org.videolan.VLC", f"XDG_CONFIG_HOME={folder}", "vlc", *tv])
+        self.assertTrue(folder.is_dir())
+        cli.x11.watch.assert_not_called()
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080):
+            argv, _ = self.launch("vlc", "--steam-account", str(ALPHA))
+        self.assertEqual(argv[2:5], ["--command=env", "--env=QT_SCALE_FACTOR=1.5", "org.videolan.VLC"])
+        cli.x11.watch.assert_called_once_with("vlc", mock.ANY)
+
+    def test_bottles_starts_dark_full_screen_and_on_x11_in_game_mode(self):
+        argv, _ = self.launch("bottles", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [self.fake.command, "run", "com.usebottles.bottles"])
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=2160):
+            argv, _ = self.launch("bottles", "--steam-account", str(ALPHA))
+        self.assertEqual(argv, [
+            self.fake.command, "run", "--env=GDK_SCALE=3", "--env=GDK_BACKEND=x11", "--env=ADW_DEBUG_COLOR_SCHEME=prefer-dark", "com.usebottles.bottles",
+        ])
+        cli.x11.watch.assert_called_once_with("bottles", mock.ANY)
+        self.assertFalse((self.home / ".var/app/com.usebottles.bottles/config").exists())
+
     def test_jellyfin_and_localsend_are_scaled_for_a_tv_in_game_mode(self):
         self.launch("jellyfin", "--steam-account", str(ALPHA))
         for height, jellyfin, localsend in ((2160, "--scale-factor=3", ["--env=GDK_SCALE=3"]), (1080, "--scale-factor=1.5", [])):
@@ -574,6 +615,15 @@ class LaunchTests(CliTestCase):
         self.assertEqual(self.run_cli("remove", "winetricks", "--yes"), 0, self.errors)
         self.assertEqual(self.fake.calls("uninstall")[0][-1], "org.winehq.Wine//stable")
         self.assertNotIn("org.winehq.Wine", self.fake.apps())
+
+    def test_discord_vlc_and_bottles_get_layouts_of_their_own(self):
+        folder = _fakes.add_controller_templates(self.root)
+        self.install("discord", "vlc", "bottles")
+        config = vdf.loads_text((steam_controller_config(self.root, BETA) / "configset_controller_neptune.vdf").read_text()).get("controller_config")
+        for name, slug in (("discord", "discord"), ("vlc", "vlc"), ("bottles", "bottles")):
+            self.assertTrue((folder / f"controller_xboxone_nonsteamapps_{slug}.vdf").is_file(), slug)
+            self.assertEqual(config.get(name).get("template"), f"controller_neptune_nonsteamapps_{slug}.vdf")
+        self.assertIn("Gave VLC (VLC media player) the VLC (NonSteamApps) controller layout", self.errors)
 
     def test_prism_gets_the_minecraft_layout(self):
         folder = _fakes.add_controller_templates(self.root)
@@ -1044,6 +1094,65 @@ class HeliumAppTests(CliTestCase):
         self.assertIn("Plasma's taskbar could not be changed, so pin it from the menu", self.errors)
         self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
         self.assertFalse(entry.exists())
+
+    def test_konsole_is_pinned_to_the_taskbar_once_and_an_uninstall_takes_it_off(self):
+        layout, konsole = self.paths.plasma_layout, "applications:org.kde.konsole.desktop"
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        self.install("localsend")
+        self.assertNotIn(konsole, layout.read_text())
+        self.konsole_installed()
+        self.install("localsend")
+        self.assertIn("Pinned Konsole to Desktop Mode's taskbar", self.errors)
+        self.assertIn(f",preferred://browser,{konsole}\n", layout.read_text())
+        self.install("localsend")
+        self.assertNotIn("Pinned Konsole", self.errors)
+        self.assertEqual(layout.read_text().count(konsole), 1)
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertIn("Took Konsole off Desktop Mode's taskbar, where NonSteamApps pinned it", self.errors)
+        self.assertNotIn(konsole, layout.read_text())
+
+    def konsole_installed(self):
+        (self.system / "applications").mkdir(parents=True, exist_ok=True)
+        (self.system / "applications" / "org.kde.konsole.desktop").write_text("[Desktop Entry]\nName=Konsole\n")
+
+    def test_a_konsole_already_on_the_taskbar_stays_there_at_uninstall(self):
+        layout, konsole = self.paths.plasma_layout, "applications:org.kde.konsole.desktop"
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n"
+                          f"\n[Containments][1][Applets][2][Configuration][General]\nlaunchers={konsole}\n")
+        self.konsole_installed()
+        self.install("localsend")
+        self.assertNotIn("Pinned Konsole", self.errors)
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertNotIn("Took Konsole off", self.errors)
+        self.assertIn(f"launchers={konsole}\n", layout.read_text())
+
+    def test_konsole_taken_off_the_taskbar_stays_off(self):
+        layout, konsole = self.paths.plasma_layout, "applications:org.kde.konsole.desktop"
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        self.konsole_installed()
+        self.install("localsend")
+        self.assertIn("Pinned Konsole to Desktop Mode's taskbar", self.errors)
+        self.assertTrue(desktop.unpin(konsole, layout, {}))
+        self.install("localsend")
+        self.assertNotIn(konsole, layout.read_text())
+        with mock.patch.object(cli.Runtime, "update", return_value=None):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertNotIn(konsole, layout.read_text())
+
+    def test_konsole_waits_for_a_taskbar_it_can_be_pinned_to(self):
+        self.konsole_installed()
+        self.install("localsend")
+        self.assertIn("Konsole could not be pinned to Desktop Mode's taskbar yet; the next install or update tries again", self.errors)
+        layout = self.paths.plasma_layout
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text("[Containments][1]\nplugin=org.kde.panel\n\n[Containments][1][Applets][2]\nplugin=org.kde.plasma.icontasks\n")
+        with mock.patch.object(cli.Runtime, "update", return_value=None):
+            self.assertEqual(self.run_cli("update"), 0, self.errors)
+        self.assertIn("Pinned Konsole to Desktop Mode's taskbar", self.errors)
+        self.assertIn("applications:org.kde.konsole.desktop", layout.read_text())
 
     def test_without_heliums_own_entry_desktop_mode_still_starts_helium_itself(self):
         bare = Path(self.tmp.name) / "bare"

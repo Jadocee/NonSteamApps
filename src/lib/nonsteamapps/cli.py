@@ -37,6 +37,7 @@ DEFAULT_COLLECTION = "NonSteamApps"
 APP_ICONS = "APP_ICONS"
 SYSTEM_FLATPAK = Path("/var/lib/flatpak")
 APPLICATION_DIRS = (Path("/usr/share/applications"), Path("/usr/local/share/applications"))
+KONSOLE = "org.kde.konsole.desktop"
 ICON_THEMES = (Path("/usr/share/icons/breeze"), Path("/usr/share/icons/hicolor"), Path("/usr/share/pixmaps"))
 RESOLUTION_HINT = "⚙ ▸ Properties ▸ Shortcut ▸ Maximum Game Resolution ▸ Native"
 
@@ -637,6 +638,7 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     _open_ports(record, chosen)
     record.save()
     _remote_only(paths, force=True)
+    _pin_konsole(paths)
 
     if args.auto_update:
         timer.install(paths)
@@ -745,6 +747,23 @@ def _remove_from_desktop(paths: Paths, app: App) -> None:
     if desktop.unpin(desktop.launcher(entry), paths.plasma_layout):
         ui.ok(f"Took {app.name} off Desktop Mode's taskbar")
     entry.unlink(missing_ok=True)
+
+
+def _pin_konsole(paths: Paths) -> None:
+    """Pin SteamOS's Konsole to Desktop Mode's taskbar, once, where it is installed (see :func:`desktop.pin_once`)."""
+    if not any((folder / KONSOLE).is_file() for folder in APPLICATION_DIRS):
+        return
+    pinned = desktop.pin_once(desktop.launcher(Path(KONSOLE)), paths.plasma_layout, paths.taskbar_record)
+    if pinned:
+        ui.ok("Pinned Konsole to Desktop Mode's taskbar")
+    elif pinned is None:
+        ui.info("Konsole could not be pinned to Desktop Mode's taskbar yet; the next install or update tries again")
+
+
+def _unpin_konsole(paths: Paths) -> None:
+    """Take Konsole off Desktop Mode's taskbar if NonSteamApps pinned it."""
+    if desktop.unpin_recorded(paths.plasma_layout, paths.taskbar_record):
+        ui.ok("Took Konsole off Desktop Mode's taskbar, where NonSteamApps pinned it")
 
 
 def _remote_only(paths: Paths, force: bool) -> None:
@@ -1289,6 +1308,7 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
         ui.info(message)
     timer.refresh(paths)
     _remote_only(paths, force=False)
+    _pin_konsole(paths)
     for app in managed:
         _link(paths, app)
         if app.desktop:
@@ -1510,6 +1530,7 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
     steam_remove(paths, managed, "all", args.restart_steam)
     for app in apps.APPS:
         _remove_from_desktop(paths, app)
+    _unpin_konsole(paths)
     if args.purge:
         for app in managed:
             _purge(paths, app)

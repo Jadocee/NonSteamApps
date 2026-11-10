@@ -110,6 +110,7 @@ class FinderTests(unittest.TestCase):
         self.assertEqual(artwork._suffix("x", b"\0\0\1\0\1\0 ico"), ".ico")
         self.assertEqual(artwork._suffix("x", b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"/>'), ".svg")
         self.assertEqual(artwork._suffix("https://example.com/icon.svg?v=2", b"<!-- drawn --><svg/>"), ".svg")
+        self.assertEqual(artwork._suffix("https://example.com/icon.svg", b'\xef\xbb\xbf<svg width="357" xmlns="http://www.w3.org/2000/svg"/>'), ".svg")
         self.assertEqual(artwork._suffix("https://example.com/page", b"<!doctype html><title>Not found</title>"), "")
 
     def test_only_https_icons_of_reasonable_size_are_downloaded(self):
@@ -208,6 +209,16 @@ class StudioTests(unittest.TestCase):
         self.studio.close()
         with self.assertRaisesRegex(artwork.ArtworkError, "www.disneyplus.com names no icon"):
             self.studio.make("disneyplus", "Disney+", artwork.Source("site", "https://www.disneyplus.com/"))
+
+    def test_a_site_answering_with_cloudflares_check_is_reported_and_nothing_is_downloaded(self):
+        self.environment["FAKE_DEVTOOLS_SITE_ICONS"] = "null"
+        self.downloads = {"https://www.nexusmods.com/apple-touch-icon.png": png(4, 4)}
+        with mock.patch.object(self, "download", wraps=self.download) as download, \
+                self.assertRaisesRegex(artwork.ArtworkError, "www.nexusmods.com answers a headless browser with a check that a person is visiting"):
+            self.studio.download = download
+            self.studio.make("nexusmods", "Nexus Mods", artwork.Source("site", "https://www.nexusmods.com/"))
+        download.assert_not_called()
+        self.assertEqual(self.studio.files("nexusmods"), {})
 
     def test_a_manifest_the_site_does_not_name_is_read_too_and_names_the_source(self):
         self.environment["FAKE_DEVTOOLS_SITE_ICONS"] = json.dumps([{"url": "https://steamdb.info/static/logos/512px.png", "sizes": "512x512", "kind": "manifest"}])
@@ -343,6 +354,10 @@ class SiteIconTests(unittest.TestCase):
         mark = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E"
         (site / "index.html").write_text(f'<!doctype html><title>Site</title><link rel="icon" href="{mark}">')
         (site / "named.html").write_text('<!doctype html><title>Named</title><link rel="manifest" href="/app.webmanifest">')
+        (site / "checked.html").write_text('<!doctype html><title>Just a moment...</title><link rel="icon" href="/favicon.ico">'
+                                           '<script>window._cf_chl_opt = {cType: "managed"};</script>')
+        (site / "orchestrated.html").write_text('<!doctype html><title>Just a moment...</title>'
+                                                '<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1"></script>')
         (site / "app.webmanifest").write_text(json.dumps({"icons": [
             {"src": "/logos/512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
             {"src": "/logos/maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
@@ -364,6 +379,12 @@ class SiteIconTests(unittest.TestCase):
         self.assertTrue(self.browser.load(self.session, f"{self.base}/{page}", 640, 480, transparent=False))
         found = self.browser.evaluate(self.session, artwork.site_icons(manifests))
         return [(icon["url"].replace(self.base, ""), icon["kind"]) for icon in found]
+
+    def test_cloudflares_check_is_told_from_a_page_and_names_no_icon(self):
+        for page in ("checked.html", "orchestrated.html"):
+            with self.subTest(page=page):
+                self.assertTrue(self.browser.load(self.session, f"{self.base}/{page}", 640, 480, transparent=False))
+                self.assertIsNone(self.browser.evaluate(self.session, artwork.site_icons()))
 
     def test_a_manifest_the_page_does_not_name_is_read_when_given_and_maskable_icons_are_left_out(self):
         self.assertEqual([kind for _, kind in self.icons("index.html")], ["icon", "guess"])

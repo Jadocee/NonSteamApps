@@ -15,6 +15,7 @@ keeps the shipped artwork.
 from __future__ import annotations
 
 import base64
+import codecs
 import fcntl
 import hashlib
 import http.client
@@ -80,6 +81,9 @@ COLOURS: Dict[str, Tuple[str, str]] = {
 }
 SITE_ICONS = r"""
 (async (extra) => {
+  if (window._cf_chl_opt || document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) {
+    return null;
+  }
   const found = [];
   const add = (href, sizes, type, kind) => {
     try { found.push({url: new URL(href, document.baseURI).href, sizes: sizes || "", type: type || "", kind}); } catch (error) {}
@@ -433,7 +437,8 @@ def _suffix(name: str, data: bytes) -> str:
         return ".gif"
     if data.startswith(b"\0\0\1\0"):
         return ".ico"
-    head = data[:4096].lstrip().lower()
+    head = data[:4096]
+    head = (head[len(codecs.BOM_UTF8):] if head.startswith(codecs.BOM_UTF8) else head).lstrip().lower()
     named = Path(urllib.parse.urlsplit(name).path).suffix.lower() == ".svg"
     if b"<svg" in head and (head.startswith((b"<svg", b"<?xml", b"<!doctype svg")) or (named and head.startswith(b"<!--"))):
         return ".svg"
@@ -551,6 +556,9 @@ class Studio:
         return None
 
     def _site_icons(self, url: str, manifests: Sequence[str] = ()) -> List[str]:
+        """The icons the site at ``url`` names, best first; raises :class:`ArtworkError` when it answers with Cloudflare's check
+        that a person is visiting instead of its page, which a headless browser does not pass, and which answers every
+        address of the site the same way."""
         browser, session = self._page()
         browser.load(session, url, 1280, 720, transparent=False, timeout=25)
         try:
@@ -558,6 +566,9 @@ class Studio:
         except BrowserError:
             found = []
         browser.load(session, "about:blank", 256, 256)
+        if found is None:
+            raise ArtworkError(f"{urllib.parse.urlsplit(url).netloc} answers a headless browser with a check that a person is visiting, "
+                               "so its icons cannot be read")
         return rank(found if isinstance(found, list) else [])
 
     def _fetch(self, app_id: str, source: Source) -> Tuple[Path, str]:

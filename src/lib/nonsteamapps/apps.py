@@ -809,7 +809,8 @@ class Browser:
     ``profile`` names a folder of Helium profiles, one for each Steam account, that the apps naming it share, as
     Proton Mail and Proton Calendar do, whose single sign-on works within one browser profile; an app without one
     has its own. ``manifest`` is a web app manifest the site publishes without naming it in ``url``'s page, read for
-    the site's icons as well.
+    the site's icons as well. ``icon`` is the site's own icon where its makers publish it elsewhere, taken in place of
+    the site's, for a site that answers a headless browser with a check rather than its page.
     """
 
     url: str = ""
@@ -818,6 +819,7 @@ class Browser:
     extensions: Tuple[str, ...] = ()
     profile: str = ""
     manifest: str = ""
+    icon: str = ""
 
     def start_url(self, account: Optional[int]) -> str:
         """The page to open: ``account_url`` with ``account``'s SteamID64, or ``url`` when there is no account."""
@@ -864,6 +866,7 @@ class TvScale:
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
+NEXUS_MODS_ICON = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
 
 
 @dataclass(frozen=True)
@@ -1429,7 +1432,7 @@ APPS: Tuple[App, ...] = (
         name="Nexus Mods",
         client="Helium",
         summary="Mods for thousands of games, with their files, guides and collections, full screen in Helium",
-        browser=Browser(url="https://www.nexusmods.com/", kiosk=True),
+        browser=Browser(url="https://www.nexusmods.com/", kiosk=True, icon=NEXUS_MODS_ICON),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

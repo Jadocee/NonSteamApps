@@ -1385,7 +1385,7 @@ APPS: Tuple[App, ...] = (
         name="Netflix",
         client="Helium",
         summary="Netflix's series and films, full screen in Helium",
-        browser=Browser(url="https://www.netflix.com/", kiosk=True),
+        browser=Browser(url="https://www.netflix.com/", kiosk=True, manifest="https://www.netflix.com/site.webmanifest"),
         controller=BROWSER.title,
         logo_position="BottomLeft:44:56",
     ),

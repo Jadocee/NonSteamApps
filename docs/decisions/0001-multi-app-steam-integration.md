@@ -698,6 +698,13 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Tests:** the check, told from a page in a real Chromium and reported without a download; the byte-order mark; and Nexus Mods' icon source. Drawn here through the device's own steps, Nexus Mods' artwork used its logo, and the live site was reported as answering with the check.
     - **Not verified:** on the Steam Machine.
 
+85. **Netflix's own icon (bug fix, owner report); version 2.39.2.** On the owner's device, Netflix's artwork fell back to NonSteamApps' own, saying its apple-touch icon was too small.
+    - **Why:** Netflix's home page names two icons, a 48-pixel favicon and a 64-pixel apple-touch icon, both under the 128 pixels NonSteamApps needs, and no web app manifest. The `/apple-touch-icon.png` NonSteamApps guesses for every site leads to Netflix's "Not Found" page [190].
+    - **Fix:** as for SteamDB (item 76), Netflix names a manifest its site publishes without naming it in the home page, `https://www.netflix.com/site.webmanifest`, which lists icons of 64, 144 and 512 pixels. Its 512-pixel icon, `/nficon_512.png`, downloads with NonSteamApps' usual downloader [190].
+    - **Devices:** the manifest is part of the icon's source in the artwork's record, and Netflix's artwork never drew, so the next install or update draws it.
+    - **Tests:** Netflix's icon source. Drawn here from the live site through the device's own steps, without the manifest the artwork failed with the owner's message; with it, the artwork used the 512-pixel icon.
+    - **Not verified:** on the Steam Machine.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -891,3 +898,4 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 187. SteamOS 3.8's `xdg-desktop-portal-holo` 0.1.18, Game Mode's portal backend: its `.portal` file names the Settings interface, and its program answers `org.freedesktop.appearance`'s `color-scheme` from a `settings.conf`
 188. [Nexus Mods' app, NexusMods.App, v0.21.1](https://github.com/Nexus-Mods/NexusMods.App/tree/96cc724a182498ae3b4b81960a29a095437145fe) at `96cc724`: `src/NexusMods.App/icon.svg`, a 357-pixel SVG of Nexus Mods' logo beginning with a UTF-8 byte-order mark, the same as `src/NexusMods.App.UI/Assets/nexus-logo.svg`; `https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg` answered `200` with `image/svg+xml` on 10 November 2026
 189. Nexus Mods, on 10 November 2026, in a headless Chromium 153 driven through its DevTools pipe as NonSteamApps drives Helium: `https://www.nexusmods.com/` stayed Cloudflare's "Just a moment..." page for 30 seconds, with `window._cf_chl_opt` set, retrying itself through `?__cf_chl_rt_tk=`; the browser's user agent named `HeadlessChrome/153.0.0.0`, and `navigator.webdriver` was true
+190. Netflix, on 10 November 2026: its home page names `https://assets.nflxext.com/us/ffe/siteui/common/icons/nficon2023.ico` (one 48-pixel icon) and, as its apple-touch icon, `nficon2016.png` (64 pixels), and no manifest; `https://www.netflix.com/apple-touch-icon.png` redirects to `/NotFound`, an HTML page; `https://www.netflix.com/site.webmanifest` lists `nficon2016.png` (64 pixels), `/nficon_144.png` (144) and `/nficon_512.png` (512), and `/nficon_512.png` is a 512 × 512 PNG, served to a client naming itself `nonsteamapps`

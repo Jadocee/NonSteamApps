@@ -1,3 +1,3 @@
 """NonSteamApps: installs apps on SteamOS and integrates them with the Steam library."""
 
-__version__ = "2.39.2"
+__version__ = "2.39.3"

@@ -705,6 +705,16 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Tests:** Netflix's icon source. Drawn here from the live site through the device's own steps, without the manifest the artwork failed with the owner's message; with it, the artwork used the 512-pixel icon.
     - **Not verified:** on the Steam Machine.
 
+86. **Chapters already played, in blue (bug fix, owner report); version 2.39.3.** In a video with chapters, the player's progress bar showed the chapters already played in YouTube's own light grey rather than the theme's blue.
+    - **Why:** YouTube's TV interface draws each chapter as a `div` named `chapter-N` and gives it one of three styles [191]:
+      - before the playhead's chapter: the chapter itself is filled, by a class (`#f1f1f1`, or red in one mode) or by the video's own progress colour, set inline;
+      - the playhead's chapter: a dark track (`#606060`) holding a part named `current-chapter`, as wide as what has been played of it;
+      - after it: the dark track alone.
+      Item 43's rule tinted the parts inside chapters, which only the playhead's chapter has, so the chapters before it kept their fill.
+    - **Fix:** the theme also tints every chapter followed by the one that holds `current-chapter` (`:has()`), which picks out the chapters already played by structure alone, without YouTube's classes or inline colours. It also tints `current-chapter` wherever it is, as in the bar YouTube draws without chapters, whose played part item 43 also missed.
+    - **Tests:** in a real Chromium, the chapter markup YouTube's code draws, with YouTube's own colours for its classes: chapters already played, filled by a class or inline, turn blue, as does the playhead's part, and the rest stays YouTube's dark grey. Against the sheet before this fix, the played chapters stayed `#f1f1f1`.
+    - **Not verified:** on the Steam Machine.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -899,3 +909,4 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 188. [Nexus Mods' app, NexusMods.App, v0.21.1](https://github.com/Nexus-Mods/NexusMods.App/tree/96cc724a182498ae3b4b81960a29a095437145fe) at `96cc724`: `src/NexusMods.App/icon.svg`, a 357-pixel SVG of Nexus Mods' logo beginning with a UTF-8 byte-order mark, the same as `src/NexusMods.App.UI/Assets/nexus-logo.svg`; `https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg` answered `200` with `image/svg+xml` on 10 November 2026
 189. Nexus Mods, on 10 November 2026, in a headless Chromium 153 driven through its DevTools pipe as NonSteamApps drives Helium: `https://www.nexusmods.com/` stayed Cloudflare's "Just a moment..." page for 30 seconds, with `window._cf_chl_opt` set, retrying itself through `?__cf_chl_rt_tk=`; the browser's user agent named `HeadlessChrome/153.0.0.0`, and `navigator.webdriver` was true
 190. Netflix, on 10 November 2026: its home page names `https://assets.nflxext.com/us/ffe/siteui/common/icons/nficon2023.ico` (one 48-pixel icon) and, as its apple-touch icon, `nficon2016.png` (64 pixels), and no manifest; `https://www.netflix.com/apple-touch-icon.png` redirects to `/NotFound`, an HTML page; `https://www.netflix.com/site.webmanifest` lists `nficon2016.png` (64 pixels), `/nficon_144.png` (144) and `/nficon_512.png` (512), and `/nficon_512.png` is a 512 × 512 PNG, served to a client naming itself `nonsteamapps`
+191. YouTube's TV interface, build `kabuki.web_20261111_09_RC00`, read on 13 November 2026 from `https://www.youtube.com/tv` and the modules it loads: the player bar's chapter template, which names each chapter `chapter-N`, fills a chapter before the playhead's with the class `AF89N` and, where the video gives one, its `progressColor` inline, and gives the playhead's chapter the class `QBQn5` and a child `current-chapter`; the bar without chapters, whose played part is also `current-chapter`; and their style sheet, in which `.AF89N` and `.fLo1Nd` (`current-chapter`) are `#f1f1f1`, red (`#f03`) in one mode, and `.QBQn5` is `#606060`

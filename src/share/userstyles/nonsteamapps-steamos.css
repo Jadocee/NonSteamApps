@@ -5,7 +5,9 @@
  * bar, with the chapters already played, the bar on videos already started, and VacuumTube's switches. The
  * player's fills are tinted with a filter that turns any fill Game Mode's blue (#1a9fff) and keeps its
  * transparency, as they have no names of their own. A chapter already played is one before the chapter that
- * holds the playhead's part, as YouTube colours it in place of holding a part of its own.
+ * holds a part, the playhead's, whatever YouTube names it. YouTube fills such a chapter itself, red while
+ * seeking, so it is painted blue rather than tinted, which keeps the colours of the segments VacuumTube's
+ * SponsorBlock draws over it.
  *
  * It changes colours only, and finds YouTube's parts by element names, the zylon-focus class YouTube gives
  * what is highlighted, named idomkey attributes and the page types on <body>, never by YouTube's minified
@@ -53,9 +55,12 @@ ytlr-guide-entry-renderer.zylon-focus svg * {
 
 ytlr-progress-bar [idomkey="slider"] > div,
 ytlr-progress-bar [idomkey^="chapter-"] > div,
-ytlr-progress-bar [idomkey="current-chapter"],
-ytlr-progress-bar [idomkey^="chapter-"]:has(~ [idomkey^="chapter-"] > [idomkey="current-chapter"]) {
+ytlr-progress-bar [idomkey="current-chapter"] {
     filter: brightness(0) saturate(100%) invert(51%) sepia(28%) saturate(4165%) hue-rotate(180deg) !important;
+}
+
+ytlr-progress-bar [idomkey^="chapter-"]:has(~ [idomkey^="chapter-"] > div) {
+    background: var(--nonsteamapps-blue) !important;
 }
 
 ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"] {

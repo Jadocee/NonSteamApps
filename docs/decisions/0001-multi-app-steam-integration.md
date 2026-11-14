@@ -726,6 +726,20 @@ The owner answered the open questions. Where these answers differ from the text 
     - **README:** its troubleshooting now describes the October change, YouTube's autoplay, the black screen that stays on, and the TV waking the device.
     - **Not verified:** on the Steam Machine.
 
+88. **Chapters red while seeking (bug fix, owner report; correction to item 86); version 2.39.4.** After item 86, the owner saw the chapters already played in red while seeking.
+    - **Why red:** while the bar is selected for seeking, YouTube gives it a style that fills the chapters already played, and the playhead's part, with `#f03` in place of `#f1f1f1` [191].
+    - **What the theme missed:** item 86 found a played chapter by the chapter after it holding a part named `current-chapter`. In a rebuild of YouTube's bar with YouTube's own style sheet, in its seeking style and through the changes seeking makes, that rule held. So on the owner's device the part is probably not named that way, or the device was not yet on 2.39.3.
+    - **Fix:** the playhead's part is the only element YouTube puts inside a chapter, and item 43's rule, which tints any part inside a chapter, has worked on the device. So the theme now finds the playhead's chapter by its holding a part at all, whatever the part's name.
+    - **Also fixed:** item 86 tinted played chapters with the filter. A filter also changes what is drawn over an element, and VacuumTube's SponsorBlock draws each chapter's segments over it, as the chapter's `::after` [201]. So on played chapters those segments turned blue. Played chapters are now painted blue with `background`, which wins over YouTube's fills, by class or inline alike, and leaves the segments' colours.
+    - **Tests**, in a real Chromium:
+      - YouTube's seeking style;
+      - a playhead's part without the name;
+      - a SponsorBlock segment on a played chapter.
+      Against the 2.39.3 sheet, the unnamed part gave the owner's red (`#ff0033`) while seeking and light grey otherwise, and the segment turned blue.
+    - **Not verified:** on the Steam Machine.
+
+89. **YouTube's own pause (correction to item 87).** Item 87 offered pausing playback after a while without input as an option to build. YouTube's TV interface already does this: after a while without input it pauses and asks "Video paused. Continue watching?". That would end VacuumTube's request to keep the screen on. However, VacuumTube's **Block Continue Watching** removes the prompt [202], and NonSteamApps turns it on for new folders (item 13). So turning that setting off is the option, without any change to NonSteamApps. The README's troubleshooting now says so.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -930,3 +944,5 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 198. [VLC 3.0](https://github.com/videolan/vlc/blob/3.0.x/modules/misc/inhibit/dbus.c) `modules/misc/inhibit/dbus.c`, which uses the first of `org.freedesktop.ScreenSaver`, `org.freedesktop.PowerManagement`, `org.mate.SessionManager` and `org.gnome.SessionManager` with an owner, and [Flathub's VLC manifest](https://github.com/flathub/org.videolan.VLC), which lets it talk to the first two only
 199. [SteamOS issue 2619](https://github.com/ValveSoftware/SteamOS/issues/2619) (open), "Steam Game Mode incorrectly displays sleep animation when suspend is inhibited", with a comment of 17 October 2026 (later sleep requests ignored until Steam restarts), and [SteamOS issue 1881](https://github.com/ValveSoftware/SteamOS/issues/1881)'s comments of 23 and 24 October 2026 (on SteamOS 3.8.28 a logind `sleep` lock leaves the screen black with the device awake, an `idle` lock does not stop it sleeping, and Steam does not check whether the device slept), read on 13 November 2026
 200. [SteamOS issue 2626](https://github.com/ValveSoftware/SteamOS/issues/2626) (open), "Steammachine not staying asleep due to Anynet+ CEC on Samsung TV", read on 13 November 2026
+201. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/sponsorblock.js) as read on 14 November 2026: `src/preload/modules/sponsorblock.js`, which draws the segments over each chapter as the chapter's `::after`, at `opacity: 0.7`, in SponsorBlock's colours (none of them red)
+202. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/block-continue-watching.js) as read on 14 November 2026: `src/preload/modules/block-continue-watching.js`, which removes YouTube's `youThereRenderer` from the player's messages, and `locale/en.json`: "Block Continue Watching", "Blocks the "Video paused. Continue watching?" prompt that appears after being idle for a while"

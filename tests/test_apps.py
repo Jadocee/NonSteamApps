@@ -270,6 +270,19 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual([(app.id, app.graphics) for app in apps.APPS if app.graphics],
                          [("eden", vulkan), ("edennx2", vulkan + astc), ("lichii", vulkan + bc3)])
 
+    def test_youtubes_playback_switches_are_reported_as_set_or_as_vacuumtubes_defaults(self):
+        switches = apps.by_id("youtube").playback
+        self.assertEqual([key for key, _, _ in switches], ["adblock", "hardware_decoding", "h264ify", "low_memory_mode", "unlock_resolution"])
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.assertIsNone(apps.playback_report(switches, folder))
+            (folder / "config.json").write_text("[]")
+            self.assertIsNone(apps.playback_report(switches, folder))
+            (folder / "config.json").write_text('{"hardware_decoding": false, "h264ify": true}')
+            self.assertEqual(apps.playback_report(switches, folder),
+                             "Block Ads on, Hardware Decoding off, Filter Video Codecs on, Low Memory Mode off, Unlock Resolution off")
+        self.assertEqual([app.id for app in apps.APPS if app.playback], ["youtube"])
+
     def test_the_steamos_theme_changes_colours_only_and_wins_over_youtubes(self):
         self.assertEqual([(app.id, app.userstyles) for app in apps.APPS if app.userstyles], [("youtube", ("nonsteamapps-steamos.css",))])
         css = (Path(_paths.ROOT) / "src/share/userstyles/nonsteamapps-steamos.css").read_text()

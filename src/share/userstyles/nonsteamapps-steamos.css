@@ -2,17 +2,20 @@
  * SteamOS theme for VacuumTube, from NonSteamApps: YouTube's TV interface and VacuumTube's settings in
  * Game Mode's colours, used as Game Mode uses them. Focus is a light ring, the highlighted button or menu
  * entry is a lighter grey with white text, and blue marks progress and what is switched on: the player's
- * bar, with the chapters already played, the bar on videos already started, and VacuumTube's switches. The
+ * bar, with the chapters already played, the bars on videos already started, and VacuumTube's switches. The
  * player's fills are tinted with a filter that turns any fill Game Mode's blue (#1a9fff) and keeps its
- * transparency, as they have no names of their own. A chapter already played is one before the chapter that
- * holds a part, the playhead's, whatever YouTube names it. YouTube fills such a chapter itself, red while
- * seeking, so it is painted blue rather than tinted, which keeps the colours of the segments VacuumTube's
- * SponsorBlock draws over it.
+ * transparency, as they have no names of their own. In the bar of a video without chapters, the first part
+ * shows what has loaded and the next what has played; the loaded part is turned grey rather than blue, red
+ * on a live stream included, so that blue ends at the playhead. A chapter already played is one before the
+ * chapter that holds a part, the playhead's, whatever YouTube names it. YouTube fills such a chapter itself,
+ * red while seeking, so it is painted blue rather than tinted, which keeps the colours of the segments
+ * VacuumTube's SponsorBlock draws over it.
  *
  * It changes colours only, and finds YouTube's parts by element names, the zylon-focus class YouTube gives
- * what is highlighted, named idomkey attributes and the page types on <body>, never by YouTube's minified
- * class names, which change with each build. NonSteamApps writes this file again at every start; to change
- * it, copy it under another name and turn this one off in VacuumTube's settings, under Custom CSS.
+ * what is highlighted, named idomkey attributes, the order of a bar's parts and the page types on <body>,
+ * never by YouTube's minified class names, which change with each build. NonSteamApps writes this file
+ * again at every start; to change it, copy it under another name and turn this one off in VacuumTube's
+ * settings, under Custom CSS.
  */
 
 :root {
@@ -53,7 +56,12 @@ ytlr-guide-entry-renderer.zylon-focus svg * {
     fill: var(--nonsteamapps-text) !important;
 }
 
-ytlr-progress-bar [idomkey="slider"] > div,
+ytlr-progress-bar [idomkey="slider"] > div:first-child:not(:only-child) {
+    filter: grayscale(100%) !important;
+}
+
+ytlr-progress-bar [idomkey="slider"] > div:not([idomkey]):not(:first-child),
+ytlr-progress-bar [idomkey="slider"] > div:only-child,
 ytlr-progress-bar [idomkey^="chapter-"] > div,
 ytlr-progress-bar [idomkey="current-chapter"] {
     filter: brightness(0) saturate(100%) invert(51%) sepia(28%) saturate(4165%) hue-rotate(180deg) !important;
@@ -63,7 +71,8 @@ ytlr-progress-bar [idomkey^="chapter-"]:has(~ [idomkey^="chapter-"] > div) {
     background: var(--nonsteamapps-blue) !important;
 }
 
-ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"] {
+ytlr-thumbnail-overlay-resume-playback-renderer [idomkey="progress"],
+yt-thumbnail-overlay-progress-bar-view-model > div:last-child:not(:only-child) {
     background-image: linear-gradient(var(--nonsteamapps-blue), var(--nonsteamapps-blue)) !important;
 }
 

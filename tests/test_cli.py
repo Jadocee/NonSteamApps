@@ -803,6 +803,16 @@ class InformationTests(CliTestCase):
         self.assertIn("youtube", self.output)
         self.assertIn('in the library as "YouTube"', self.output)
 
+    def test_doctor_shows_the_settings_that_change_how_youtube_loads_and_plays(self):
+        self.install("youtube")
+        folder = self.home / f".var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-{BETA}"
+        folder.mkdir(parents=True)
+        (folder / "config.json").write_text(json.dumps({"adblock": False, "unlock_resolution": True}))
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn(f"data: {folder}", self.output)
+        self.assertIn("playback: Block Ads off, Hardware Decoding on, Filter Video Codecs off, Low Memory Mode off, Unlock Resolution on",
+                      self.output)
+
 
 
 class SteamPlayTests(CliTestCase):

@@ -740,6 +740,29 @@ The owner answered the open questions. Where these answers differ from the text 
 
 89. **YouTube's own pause (correction to item 87).** Item 87 offered pausing playback after a while without input as an option to build. YouTube's TV interface already does this: after a while without input it pauses and asks "Video paused. Continue watching?". That would end VacuumTube's request to keep the screen on. However, VacuumTube's **Block Continue Watching** removes the prompt [202], and NonSteamApps turns it on for new folders (item 13). So turning that setting off is the option, without any change to NonSteamApps. The README's troubleshooting now says so.
 
+90. **The theme: what has loaded, and the newer thumbnail bars (owner request); version 2.40.0.** The owner asked for any further CSS adjustments the theme should have.
+    - **What has loaded:** in a video without chapters, YouTube's bar is a track holding two parts: what has loaded, then what has played, and sometimes the ad marks [191]. Item 43 tinted every part blue, the loaded part included, so blue ran past the playhead to the end of what had loaded. The theme now tints only the parts after the first, and turns the first grey. That keeps YouTube's grey, and on a live stream it turns YouTube's red (`#e1002d`) grey.
+    - **The newer thumbnail bars:** besides `ytlr-thumbnail-overlay-resume-playback-renderer`, YouTube's TV interface draws the bar on a video already started with `yt-thumbnail-overlay-progress-bar-view-model`, in its red-to-pink gradient [191]. The parts of that bar are named after YouTube's minified classes, so the theme takes the last of its two parts.
+    - **Order of parts:** both rules find a part by its place in its bar rather than by a name. Where YouTube draws only one part, it is taken as what has played.
+    - **Tests**, in a real Chromium: the bar without chapters while playing, while seeking and on a live stream, and both kinds of thumbnail bar. Against the 2.39.4 sheet, the loaded part was blue and the newer bar red.
+    - **Not verified:** on the Steam Machine.
+
+91. **YouTube buffering (owner report); version 2.40.0.** The owner reported that videos load slowly and keep buffering, even at the lowest quality, and that only YouTube in VacuumTube is affected. The owner's device could not be reached from here, so this item records what was ruled out, what is known, and what the owner can try.
+    - **NonSteamApps' part:** none of the VacuumTube settings NonSteamApps sets (item 13 and later) changes how video loads. The settings are SponsorBlock and its skips, DeArrow, dislikes, Block Continue Watching, hidden Shorts, extended features, the remaining-time display, Wayland HDR and user styles. Wayland HDR does nothing in Game Mode, where VacuumTube runs on X11 (item 46). Unlock Resolution, which the TV scale needs, lets Auto pick more than 4K on a video that has it, but cannot explain buffering at the lowest quality. The theme only changes colours.
+    - **VacuumTube's own code** [203]:
+      - Ad blocking empties the player's ad placements as YouTube's responses are parsed.
+      - Its hook on requests changes text responses only.
+      - Hardware decoding, on by default, turns on Chromium's GPU video decoding through GL.
+      - None of these delays the video's own downloads.
+    - **Reports** [204][205][206]:
+      - Stalls and frozen frames in Game Mode on the Steam Deck that turning Hardware Decoding off cured (VacuumTube issues 134 and 218).
+      - Videos that stop after a few minutes with an error and buffer without end after a skip. VacuumTube's developer puts this down to YouTube's bot check; it was fixed in VacuumTube 1.8.2, and 2.0.0 made the check less likely, but reports continue (issue 198).
+      - Very high GPU use and about 5 frames a second at 4K in Game Mode, but not at 1080p (issue 272, open).
+      - YouTube holding back video from clients that block its ads, reported since 2025.
+      - VacuumTube 2.1.0 came out on 15 November 2026 with Electron 45.
+    - **Done:** `nonsteamapps doctor` now shows, for each account's data folder, the five VacuumTube switches that change how videos load and play: Block Ads, Hardware Decoding, Filter Video Codecs, Low Memory Mode and Unlock Resolution, each as set or as VacuumTube's default. The README's troubleshooting lists the checks in order: update, Hardware Decoding off, Block Ads off as a test, the bot check, and 1080p for choppy pictures.
+    - **Not changed:** the defaults. Each fix trades something away: Hardware Decoding off moves decoding to the processor, and Block Ads off shows ads. None has been shown to apply to the owner's device.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -946,3 +969,22 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 200. [SteamOS issue 2626](https://github.com/ValveSoftware/SteamOS/issues/2626) (open), "Steammachine not staying asleep due to Anynet+ CEC on Samsung TV", read on 13 November 2026
 201. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/sponsorblock.js) as read on 14 November 2026: `src/preload/modules/sponsorblock.js`, which draws the segments over each chapter as the chapter's `::after`, at `opacity: 0.7`, in SponsorBlock's colours (none of them red)
 202. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/block-continue-watching.js) as read on 14 November 2026: `src/preload/modules/block-continue-watching.js`, which removes YouTube's `youThereRenderer` from the player's messages, and `locale/en.json`: "Block Continue Watching", "Blocks the "Video paused. Continue watching?" prompt that appears after being idle for a while"
+203. [VacuumTube](https://github.com/shy1132/VacuumTube/tree/main/src) as read on 15 November 2026:
+     - `src/config.js`: defaults Block Ads and Hardware Decoding on, and Filter Video Codecs, Low Memory Mode, Unlock Resolution and Wayland HDR off;
+     - `src/index.js`: Hardware Decoding turns on Chromium's `AcceleratedVideoDecoder`, `AcceleratedVideoDecodeLinuxGL` and `AcceleratedVideoDecodeLinuxZeroCopyGL`;
+     - `src/preload/modules/adblock.js`: empties `adPlacements` and `adSlots` through `JSON.parse`;
+     - `src/preload/util/xhrModifiers.js`: changes text responses only;
+     - `src/preload/modules/media-capabilities.js`;
+     - `locale/en.json`, whose Hardware Decoding reads "Disabling this may fix playback issues, but can cause lag".
+204. VacuumTube's issues, read on 15 November 2026:
+     - [134](https://github.com/shy1132/VacuumTube/issues/134), "Video stutter";
+     - [218](https://github.com/shy1132/VacuumTube/issues/218), the same frame repeating when docked on a Steam Deck, cured by turning Hardware Decoding off;
+     - [198](https://github.com/shy1132/VacuumTube/issues/198), "Videos stop playing, error message", put down to YouTube's bot check;
+     - [272](https://github.com/shy1132/VacuumTube/issues/272), "High gpu usage in steamOS gamemode".
+205. [VacuumTube's releases](https://github.com/shy1132/VacuumTube/releases), read on 15 November 2026:
+     - 2.1.0 (15 November 2026): Electron 45.3.2, and a fix for quality limited to 480p after changing playback speed;
+     - 2.0.0 (10 October 2026): "Improved playback reliability (should be less likely to get bot check)";
+     - 1.8.2 (30 July 2026): the fix for issue 198.
+206. On YouTube holding back video from clients that block its ads, through its SABR streaming:
+     - [GIGAZINE](https://gigazine.net/gsc_news/en/20250624-youtube-fake-buffering/) (June 2025), "What is YouTube's new ad blocking strategy, 'Fake Buffering'?";
+     - [iter.ca](https://iter.ca/post/yt-adblock/), "YouTube's new anti-adblock measures".

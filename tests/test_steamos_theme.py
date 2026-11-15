@@ -19,6 +19,15 @@ YOUTUBE = """
 body { margin: 0; background: #000; }
 [idomkey="progress-bar"] { display: flex; height: 10px; margin-bottom: 10px; }
 [idomkey^="chapter-"] { height: 10px; }
+.dySudf { background-color: #606060; height: 10px; overflow: hidden; position: relative; width: 400px; margin-bottom: 10px; }
+.tkZjRe, .STXq3b { height: 100%; left: 0; position: absolute; }
+.tkZjRe { background-color: #373737; }
+.STXq3b { background-color: #f1f1f1; }
+.SiJJYc .STXq3b { background: linear-gradient(to right, #f03 80%, #ff2791 100%); }
+.V1P8sb .tkZjRe { background-color: #e1002d; }
+ytlr-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-progress-bar-view-model { display: block; width: 200px; margin-bottom: 10px; }
+.mSnwOd, .qR1Zrb { background-color: #606060; height: 10px; }
+.Y7ta6, .wTHb2c { background: linear-gradient(to right, #f03 80%, #ff2791 100%); height: 10px; margin-top: -10px; }
 """
 SPONSORBLOCK = """
 ytlr-multi-markers-player-bar-renderer [idomkey^="chapter-"]::after {
@@ -80,14 +89,17 @@ class SteamOsThemeTests(unittest.TestCase):
         self.addCleanup(self.browser.close)
         self.session = self.browser.page()
 
+    def draw(self, body: str, styles: str = "") -> None:
+        """Load ``body`` with YouTube's styles, VacuumTube's ``styles`` and the theme, in that order."""
+        page = Path(self.tmp.name) / "player.html"
+        page.write_text(f"<!doctype html><style>{YOUTUBE}</style><style>{styles}</style><style>{THEME.read_text()}</style>{body}")
+        self.assertTrue(self.browser.load(self.session, page.as_uri(), 600, 200, transparent=False))
+
     def show(self, bars: str, seeking: bool = False, styles: str = "") -> None:
         """Draw ``bars`` in YouTube's player bar, in its style while seeking if ``seeking``, with VacuumTube's ``styles``."""
-        page = Path(self.tmp.name) / "player.html"
         focused = ' class="LXFmc"' if seeking else ""
-        page.write_text(f"<!doctype html><style>{YOUTUBE}</style><style>{styles}</style><style>{THEME.read_text()}</style>"
-                        f"<ytlr-progress-bar><ytlr-multi-markers-player-bar-renderer idomkey=\"player-bar-renderer\"{focused}>{bars}"
-                        "</ytlr-multi-markers-player-bar-renderer></ytlr-progress-bar>")
-        self.assertTrue(self.browser.load(self.session, page.as_uri(), 600, 200, transparent=False))
+        self.draw(f"<ytlr-progress-bar><ytlr-multi-markers-player-bar-renderer idomkey=\"player-bar-renderer\"{focused}>{bars}"
+                  "</ytlr-multi-markers-player-bar-renderer></ytlr-progress-bar>", styles)
 
     def colour(self, x: int, y: int) -> tuple:
         shot = self.browser.call("Page.captureScreenshot", {"format": "png", "clip": {"x": x, "y": y, "width": 1, "height": 1, "scale": 1}},
@@ -134,6 +146,28 @@ class SteamOsThemeTests(unittest.TestCase):
         self.assertBlue(self.colour(20, 5))
         red, green, blue = self.colour(70, 5)
         self.assertTrue(green > 180 and blue < 120, (red, green, blue))
+
+    def assertGrey(self, colour: tuple) -> None:
+        self.assertTrue(max(colour) - min(colour) <= 2 and max(colour) < 80, colour)
+
+    def test_the_slider_is_blue_to_the_playhead_and_grey_where_the_video_has_only_loaded(self):
+        slider = ('<div dir="ltr" aria-hidden="true" class="dySudf MheVmd" idomkey="slider">'
+                  '<div class="tkZjRe" style="width: 300px"></div><div class="STXq3b" style="width: 100px"></div></div>')
+        for mode in ("", "SiJJYc", "V1P8sb"):
+            with self.subTest(mode=mode or "playing"):
+                self.draw(f'<ytlr-progress-bar class="{mode}">{slider}</ytlr-progress-bar>')
+                self.assertBlue(self.colour(50, 5))
+                self.assertGrey(self.colour(200, 5))
+                self.assertEqual(self.colour(350, 5), (96, 96, 96))
+
+    def test_the_bars_on_videos_already_started_are_blue_in_both_kinds_of_tile(self):
+        self.draw('<ytlr-thumbnail-overlay-resume-playback-renderer dir="ltr"><div idomkey="background" class="mSnwOd"></div>'
+                  '<div idomkey="progress" class="Y7ta6" style="width: 50%"></div></ytlr-thumbnail-overlay-resume-playback-renderer>'
+                  '<yt-thumbnail-overlay-progress-bar-view-model dir="ltr"><div idomkey="qR1Zrb" class="qR1Zrb"></div>'
+                  '<div idomkey="wTHb2c" class="wTHb2c" style="width: 50%"></div></yt-thumbnail-overlay-progress-bar-view-model>')
+        for row in (5, 25):
+            self.assertBlue(self.colour(50, row))
+            self.assertEqual(self.colour(150, row), (96, 96, 96))
 
     def test_a_bar_without_chapters_colours_its_played_part(self):
         self.show('<div idomkey="progress-bar" class="afTAdb v25Ekb"><div style="width: 100%; height: 10px">'

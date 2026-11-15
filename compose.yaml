@@ -1,6 +1,6 @@
 # NonSteamApps' tests in containers, run from the repository's root: docker compose run --rm SERVICE
 #
-#   unit        unit tests on Ubuntu 24.04's Python, as CI runs them
+#   unit        unit tests on Ubuntu 26.04's Python, as CI runs them
 #   unit-py38   unit tests on Python 3.8, the oldest that NonSteamApps supports
 #   lint        ShellCheck, pyflakes and a compile of the artwork tool
 #   sandbox     tests/sandbox.sh: install, launch, update and uninstall with stand-ins
@@ -11,7 +11,7 @@
 #   e2e         a real install of LocalSend from Flathub, and its removal (needs the internet; not in docker compose up)
 #
 # The repository is mounted read-only, so no service changes it. STEAMOS chooses the SteamOS release the SteamOS
-# image is built from, 3.8 unless set (see tests/containers/steamos/Containerfile). Chromium, which the steamos and
+# image is built from, 3.9 unless set (see tests/containers/steamos/Containerfile). Chromium, which the steamos and
 # artwork services draw with, needs more shared memory than Docker gives by default. Chromium's and Flatpak's
 # sandboxes make namespaces, which Docker's default seccomp profile refuses, and mounts, which its AppArmor profile
 # refuses, so the services that start them as a user lift both. Flatpak's also mounts a /proc of its own, which the
@@ -28,12 +28,12 @@ x-ci: &ci
   working_dir: /src
 
 x-steamos: &steamos
-  image: nonsteamapps-test-steamos:${STEAMOS:-3.8}
+  image: nonsteamapps-test-steamos:${STEAMOS:-3.9}
   build:
     context: tests/containers/steamos
     dockerfile: Containerfile
     args:
-      STEAMOS: ${STEAMOS:-3.8}
+      STEAMOS: ${STEAMOS:-3.9}
   volumes:
     - .:/src:ro
   working_dir: /src

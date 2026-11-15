@@ -504,7 +504,7 @@ To add an app:
 
 | Service | What it checks |
 | --- | --- |
-| `unit`, `unit-py38` | The unit tests on Ubuntu 24.04's Python, as CI runs them, and on Python 3.8, the oldest NonSteamApps supports |
+| `unit`, `unit-py38` | The unit tests on Ubuntu 26.04's Python, as CI runs them, and on Python 3.8, the oldest NonSteamApps supports |
 | `lint` | ShellCheck, pyflakes and a compile of the artwork tool |
 | `sandbox` | `tests/sandbox.sh` |
 | `steamos` | The unit tests and `tests/sandbox.sh` on SteamOS's own packages: its Python, GnuPG, D-Bus, Xvfb and Chromium |
@@ -515,11 +515,11 @@ To add an app:
 
 ```bash
 docker compose run --rm steamos                # one service; the first run builds its image
-STEAMOS=3.9 docker compose run --rm steamos    # on another SteamOS release
+STEAMOS=3.10 docker compose run --rm steamos   # on another SteamOS release, here 3.10's preview
 docker compose up --abort-on-container-failure # every service but e2e, at once; a failure stops the rest
 ```
 
-The SteamOS image is installed only from one SteamOS release's repositories, those Steam Machines and Steam Decks update from; 3.8 unless `STEAMOS` names another. It has no Steam, gamescope or Game Mode. `flathub` and `e2e` need the internet, and `e2e` needs about 2 GB for LocalSend and its runtime, which it downloads afresh each time.
+The SteamOS image is installed only from one SteamOS release's repositories, those Steam Machines and Steam Decks update from: 3.9, the current stable release, unless `STEAMOS` names another. It has no Steam, gamescope or Game Mode. `flathub` and `e2e` need the internet, and `e2e` needs about 2 GB for LocalSend and its runtime, which it downloads afresh each time.
 
 ## Roadmap
 

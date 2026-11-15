@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -221,14 +220,11 @@ class HomeTests(unittest.TestCase):
         self.assertTrue((self.home / "lib" / "mine").is_file())
 
     def test_a_build_runs_on_through_its_links_and_is_then_kept(self):
-        sleep = shutil.which("sleep")
-        if not sleep:
-            self.skipTest("needs sleep")
         (self.root / OLDER / kyty.EMULATOR).unlink()
-        shutil.copy2(sleep, self.root / OLDER / kyty.EMULATOR)
+        _fakes.sleeper(self.root / OLDER / kyty.EMULATOR)
         self.runtime.activate(OLDER)
         self.runtime.prepare_home(self.home)
-        game = subprocess.Popen([str(self.home / kyty.EMULATOR), "30"])
+        game = _fakes.sleeping(self.home / kyty.EMULATOR)
         self.addCleanup(game.wait)
         self.addCleanup(game.kill)
         self.assertTrue(self.runtime.in_use(OLDER))

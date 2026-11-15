@@ -1036,8 +1036,8 @@ class HeliumAppTests(CliTestCase):
         (calendar / str(BETA) / "Default").mkdir(parents=True)
         (calendar / str(BETA) / "Default" / "Cookies").write_bytes(b"signed in")
         program = Path(self.tmp.name) / "helium"
-        shutil.copy2(shutil.which("sleep"), program)
-        running = subprocess.Popen([str(program), "30"])
+        _fakes.sleeper(program)
+        running = _fakes.sleeping(program)
         self.addCleanup(running.wait)
         self.addCleanup(running.kill)
         (calendar / str(ALPHA)).mkdir()

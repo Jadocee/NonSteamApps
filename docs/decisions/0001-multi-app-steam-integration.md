@@ -763,6 +763,22 @@ The owner answered the open questions. Where these answers differ from the text 
     - **Done:** `nonsteamapps doctor` now shows, for each account's data folder, the five VacuumTube switches that change how videos load and play: Block Ads, Hardware Decoding, Filter Video Codecs, Low Memory Mode and Unlock Resolution, each as set or as VacuumTube's default. The README's troubleshooting lists the checks in order: update, Hardware Decoding off, Block Ads off as a test, the bot check, and 1080p for choppy pictures.
     - **Not changed:** the defaults. Each fix trades something away: Hardware Decoding off moves decoding to the processor, and Block Ads off shows ads. None has been shown to apply to the owner's device.
 
+92. **Versions brought up to date (owner request).** The owner asked for everything to be on its latest version.
+    - **Updated:**
+      - CI runs on GitHub's `ubuntu-26.04` runner [208], with `actions/checkout` v7 [207].
+      - The CI image follows it to Ubuntu 26.04, which brings Python 3.14.4, ShellCheck 0.11.0 and pyflakes 3.4.0.
+      - The SteamOS image is built from SteamOS 3.9, the stable release, unless `STEAMOS` names another [209]. That brings Python 3.14.6, Flatpak 1.18.4, bubblewrap 0.12.0 and Chromium 150. SteamOS 3.10 is a preview, so it is not the default, but Valve's mirror has its repositories for `STEAMOS=3.10`.
+    - **Already the latest:**
+      - Nexus Mods' icon is from NexusMods.App v0.21.1, its last release before the project was archived [210].
+      - Eden-NX2 builds on KDE's runtime 6.11, the one Eden's own Flathub package uses [211].
+      - The SteamOS image starts from `archlinux:latest`.
+    - **Kept on purpose:** Python 3.8 in `unit-py38`, the oldest Python NonSteamApps supports. On the Steam Machine, `nonsteamapps update` brings each app and NonSteamApps itself up to date.
+    - **Found on the way:** Ubuntu 26.04's coreutils are uutils', one binary that picks its tool by its own file name. Three tests stood in for a running Helium or KytyPS5 with a copy of `sleep` renamed to the program's name, and on Ubuntu 26.04 that copy exited at once ("coreutils: unknown program 'helium'"). One failed outright; the other two passed only because they checked before the copy exited. The tests now copy Python, which runs under any name, so its `/proc/<pid>/exe` bears the name the check looks for. NonSteamApps' own code was unaffected.
+    - **Checks**, all passing:
+      - lint;
+      - the unit tests on Python 3.14 and on Python 3.8;
+      - the sandbox, on Ubuntu 26.04 and on SteamOS 3.9.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -988,3 +1004,8 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 206. On YouTube holding back video from clients that block its ads, through its SABR streaming:
      - [GIGAZINE](https://gigazine.net/gsc_news/en/20250624-youtube-fake-buffering/) (June 2025), "What is YouTube's new ad blocking strategy, 'Fake Buffering'?";
      - [iter.ca](https://iter.ca/post/yt-adblock/), "YouTube's new anti-adblock measures".
+207. [actions/checkout's releases](https://github.com/actions/checkout/releases), read on 15 November 2026: v7.0.1 is the latest, after v7.0.0 (18 June 2026) and v6
+208. [actions/runner-images](https://github.com/actions/runner-images), read on 15 November 2026: `ubuntu-26.04` is listed among the available images, and `ubuntu-latest` is still Ubuntu 24.04
+209. [SteamOS's issues](https://github.com/ValveSoftware/SteamOS/issues), read on 15 November 2026, which name SteamOS 3.9.5 as the stable release and 3.10.0 as a preview; and [Valve's package mirror](https://steamdeck-packages.steamos.cloud/archlinux-mirror/), which has the `holo`, `jupiter`, `core` and `extra` repositories for 3.9 and 3.10
+210. [NexusMods.App's releases](https://github.com/Nexus-Mods/NexusMods.App/releases), read on 15 November 2026: v0.21.1 is the latest, and the repository has been archived since 20 February 2026
+211. [Flathub's Eden manifest](https://github.com/flathub/dev.eden_emu.eden/blob/master/dev.eden_emu.eden.yml), read on 15 November 2026: `runtime: org.kde.Platform`, `runtime-version: '6.11'`

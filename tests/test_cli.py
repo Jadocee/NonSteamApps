@@ -803,6 +803,16 @@ class InformationTests(CliTestCase):
         self.assertIn("youtube", self.output)
         self.assertIn('in the library as "YouTube"', self.output)
 
+    def test_doctor_shows_the_settings_that_change_how_youtube_loads_and_plays(self):
+        self.install("youtube")
+        folder = self.home / f".var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-{BETA}"
+        folder.mkdir(parents=True)
+        (folder / "config.json").write_text(json.dumps({"adblock": False, "unlock_resolution": True}))
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn(f"data: {folder}", self.output)
+        self.assertIn("playback: Block Ads off, Hardware Decoding on, Filter Video Codecs off, Low Memory Mode off, Unlock Resolution on",
+                      self.output)
+
 
 
 class SteamPlayTests(CliTestCase):
@@ -1026,8 +1036,8 @@ class HeliumAppTests(CliTestCase):
         (calendar / str(BETA) / "Default").mkdir(parents=True)
         (calendar / str(BETA) / "Default" / "Cookies").write_bytes(b"signed in")
         program = Path(self.tmp.name) / "helium"
-        shutil.copy2(shutil.which("sleep"), program)
-        running = subprocess.Popen([str(program), "30"])
+        _fakes.sleeper(program)
+        running = _fakes.sleeping(program)
         self.addCleanup(running.wait)
         self.addCleanup(running.kill)
         (calendar / str(ALPHA)).mkdir()

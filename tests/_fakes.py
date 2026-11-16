@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from typing import Optional
 from pathlib import Path
@@ -14,6 +15,21 @@ from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
 ALPHA, BETA = 111, 222
+
+
+def sleeper(path: Path) -> None:
+    """Make ``path`` a copy of this Python, which :func:`sleeping` runs as a process that bears ``path``'s name.
+
+    A copy of ``sleep`` would not do: where ``sleep`` is one binary for all of coreutils, as uutils' is on
+    Ubuntu 26.04, that binary picks its tool by its own file name, and knows no other.
+    """
+    shutil.copy2(sys.executable, path)
+
+
+def sleeping(program: Path, seconds: int = 30) -> subprocess.Popen:
+    """Run ``program``, a :func:`sleeper` or a link to one, for ``seconds``; its ``/proc/<pid>/exe`` bears the copy's name."""
+    return subprocess.Popen([str(program), "-S", "-c", f"import time; time.sleep({seconds})"],
+                            env={**os.environ, "PYTHONHOME": sys.base_prefix})
 
 
 class FakeFlatpak:

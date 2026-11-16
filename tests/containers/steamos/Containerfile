@@ -7,7 +7,7 @@
 # flatpak package ships.
 # compose.yaml builds and runs it; STEAMOS chooses the release.
 FROM archlinux:latest AS bootstrap
-ARG STEAMOS=3.8
+ARG STEAMOS=3.9
 ARG MIRROR=https://steamdeck-packages.steamos.cloud/archlinux-mirror
 RUN set -eu \
     && printf 'Server = %s/$repo/os/$arch\n' "$MIRROR" > /etc/pacman.d/steamos-mirrorlist \
@@ -33,7 +33,7 @@ RUN set -eu \
     && cp -a /etc/pacman.d/gnupg /rootfs/etc/pacman.d/gnupg
 
 FROM scratch
-ARG STEAMOS=3.8
+ARG STEAMOS=3.9
 COPY --from=bootstrap /rootfs/ /
 ENV LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 STEAMOS_RELEASE=$STEAMOS
 RUN ldconfig \

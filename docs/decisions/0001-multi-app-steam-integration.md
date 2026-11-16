@@ -726,6 +726,59 @@ The owner answered the open questions. Where these answers differ from the text 
     - **README:** its troubleshooting now describes the October change, YouTube's autoplay, the black screen that stays on, and the TV waking the device.
     - **Not verified:** on the Steam Machine.
 
+88. **Chapters red while seeking (bug fix, owner report; correction to item 86); version 2.39.4.** After item 86, the owner saw the chapters already played in red while seeking.
+    - **Why red:** while the bar is selected for seeking, YouTube gives it a style that fills the chapters already played, and the playhead's part, with `#f03` in place of `#f1f1f1` [191].
+    - **What the theme missed:** item 86 found a played chapter by the chapter after it holding a part named `current-chapter`. In a rebuild of YouTube's bar with YouTube's own style sheet, in its seeking style and through the changes seeking makes, that rule held. So on the owner's device the part is probably not named that way, or the device was not yet on 2.39.3.
+    - **Fix:** the playhead's part is the only element YouTube puts inside a chapter, and item 43's rule, which tints any part inside a chapter, has worked on the device. So the theme now finds the playhead's chapter by its holding a part at all, whatever the part's name.
+    - **Also fixed:** item 86 tinted played chapters with the filter. A filter also changes what is drawn over an element, and VacuumTube's SponsorBlock draws each chapter's segments over it, as the chapter's `::after` [201]. So on played chapters those segments turned blue. Played chapters are now painted blue with `background`, which wins over YouTube's fills, by class or inline alike, and leaves the segments' colours.
+    - **Tests**, in a real Chromium:
+      - YouTube's seeking style;
+      - a playhead's part without the name;
+      - a SponsorBlock segment on a played chapter.
+      Against the 2.39.3 sheet, the unnamed part gave the owner's red (`#ff0033`) while seeking and light grey otherwise, and the segment turned blue.
+    - **Not verified:** on the Steam Machine.
+
+89. **YouTube's own pause (correction to item 87).** Item 87 offered pausing playback after a while without input as an option to build. YouTube's TV interface already does this: after a while without input it pauses and asks "Video paused. Continue watching?". That would end VacuumTube's request to keep the screen on. However, VacuumTube's **Block Continue Watching** removes the prompt [202], and NonSteamApps turns it on for new folders (item 13). So turning that setting off is the option, without any change to NonSteamApps. The README's troubleshooting now says so.
+
+90. **The theme: what has loaded, and the newer thumbnail bars (owner request); version 2.40.0.** The owner asked for any further CSS adjustments the theme should have.
+    - **What has loaded:** in a video without chapters, YouTube's bar is a track holding two parts: what has loaded, then what has played, and sometimes the ad marks [191]. Item 43 tinted every part blue, the loaded part included, so blue ran past the playhead to the end of what had loaded. The theme now tints only the parts after the first, and turns the first grey. That keeps YouTube's grey, and on a live stream it turns YouTube's red (`#e1002d`) grey.
+    - **The newer thumbnail bars:** besides `ytlr-thumbnail-overlay-resume-playback-renderer`, YouTube's TV interface draws the bar on a video already started with `yt-thumbnail-overlay-progress-bar-view-model`, in its red-to-pink gradient [191]. The parts of that bar are named after YouTube's minified classes, so the theme takes the last of its two parts.
+    - **Order of parts:** both rules find a part by its place in its bar rather than by a name. Where YouTube draws only one part, it is taken as what has played.
+    - **Tests**, in a real Chromium: the bar without chapters while playing, while seeking and on a live stream, and both kinds of thumbnail bar. Against the 2.39.4 sheet, the loaded part was blue and the newer bar red.
+    - **Not verified:** on the Steam Machine.
+
+91. **YouTube buffering (owner report); version 2.40.0.** The owner reported that videos load slowly and keep buffering, even at the lowest quality, and that only YouTube in VacuumTube is affected. The owner's device could not be reached from here, so this item records what was ruled out, what is known, and what the owner can try.
+    - **NonSteamApps' part:** none of the VacuumTube settings NonSteamApps sets (item 13 and later) changes how video loads. The settings are SponsorBlock and its skips, DeArrow, dislikes, Block Continue Watching, hidden Shorts, extended features, the remaining-time display, Wayland HDR and user styles. Wayland HDR does nothing in Game Mode, where VacuumTube runs on X11 (item 46). Unlock Resolution, which the TV scale needs, lets Auto pick more than 4K on a video that has it, but cannot explain buffering at the lowest quality. The theme only changes colours.
+    - **VacuumTube's own code** [203]:
+      - Ad blocking empties the player's ad placements as YouTube's responses are parsed.
+      - Its hook on requests changes text responses only.
+      - Hardware decoding, on by default, turns on Chromium's GPU video decoding through GL.
+      - None of these delays the video's own downloads.
+    - **Reports** [204][205][206]:
+      - Stalls and frozen frames in Game Mode on the Steam Deck that turning Hardware Decoding off cured (VacuumTube issues 134 and 218).
+      - Videos that stop after a few minutes with an error and buffer without end after a skip. VacuumTube's developer puts this down to YouTube's bot check; it was fixed in VacuumTube 1.8.2, and 2.0.0 made the check less likely, but reports continue (issue 198).
+      - Very high GPU use and about 5 frames a second at 4K in Game Mode, but not at 1080p (issue 272, open).
+      - YouTube holding back video from clients that block its ads, reported since 2025.
+      - VacuumTube 2.1.0 came out on 15 November 2026 with Electron 45.
+    - **Done:** `nonsteamapps doctor` now shows, for each account's data folder, the five VacuumTube switches that change how videos load and play: Block Ads, Hardware Decoding, Filter Video Codecs, Low Memory Mode and Unlock Resolution, each as set or as VacuumTube's default. The README's troubleshooting lists the checks in order: update, Hardware Decoding off, Block Ads off as a test, the bot check, and 1080p for choppy pictures.
+    - **Not changed:** the defaults. Each fix trades something away: Hardware Decoding off moves decoding to the processor, and Block Ads off shows ads. None has been shown to apply to the owner's device.
+
+92. **Versions brought up to date (owner request).** The owner asked for everything to be on its latest version.
+    - **Updated:**
+      - CI runs on GitHub's `ubuntu-26.04` runner [208], with `actions/checkout` v7 [207].
+      - The CI image follows it to Ubuntu 26.04, which brings Python 3.14.4, ShellCheck 0.11.0 and pyflakes 3.4.0.
+      - The SteamOS image is built from SteamOS 3.9, the stable release, unless `STEAMOS` names another [209]. That brings Python 3.14.6, Flatpak 1.18.4, bubblewrap 0.12.0 and Chromium 150. SteamOS 3.10 is a preview, so it is not the default, but Valve's mirror has its repositories for `STEAMOS=3.10`.
+    - **Already the latest:**
+      - Nexus Mods' icon is from NexusMods.App v0.21.1, its last release before the project was archived [210].
+      - Eden-NX2 builds on KDE's runtime 6.11, the one Eden's own Flathub package uses [211].
+      - The SteamOS image starts from `archlinux:latest`.
+    - **Kept on purpose:** Python 3.8 in `unit-py38`, the oldest Python NonSteamApps supports. On the Steam Machine, `nonsteamapps update` brings each app and NonSteamApps itself up to date.
+    - **Found on the way:** Ubuntu 26.04's coreutils are uutils', one binary that picks its tool by its own file name. Three tests stood in for a running Helium or KytyPS5 with a copy of `sleep` renamed to the program's name, and on Ubuntu 26.04 that copy exited at once ("coreutils: unknown program 'helium'"). One failed outright; the other two passed only because they checked before the copy exited. The tests now copy Python, which runs under any name, so its `/proc/<pid>/exe` bears the name the check looks for. NonSteamApps' own code was unaffected.
+    - **Checks**, all passing:
+      - lint;
+      - the unit tests on Python 3.14 and on Python 3.8;
+      - the sandbox, on Ubuntu 26.04 and on SteamOS 3.9.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -930,3 +983,29 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 198. [VLC 3.0](https://github.com/videolan/vlc/blob/3.0.x/modules/misc/inhibit/dbus.c) `modules/misc/inhibit/dbus.c`, which uses the first of `org.freedesktop.ScreenSaver`, `org.freedesktop.PowerManagement`, `org.mate.SessionManager` and `org.gnome.SessionManager` with an owner, and [Flathub's VLC manifest](https://github.com/flathub/org.videolan.VLC), which lets it talk to the first two only
 199. [SteamOS issue 2619](https://github.com/ValveSoftware/SteamOS/issues/2619) (open), "Steam Game Mode incorrectly displays sleep animation when suspend is inhibited", with a comment of 17 October 2026 (later sleep requests ignored until Steam restarts), and [SteamOS issue 1881](https://github.com/ValveSoftware/SteamOS/issues/1881)'s comments of 23 and 24 October 2026 (on SteamOS 3.8.28 a logind `sleep` lock leaves the screen black with the device awake, an `idle` lock does not stop it sleeping, and Steam does not check whether the device slept), read on 13 November 2026
 200. [SteamOS issue 2626](https://github.com/ValveSoftware/SteamOS/issues/2626) (open), "Steammachine not staying asleep due to Anynet+ CEC on Samsung TV", read on 13 November 2026
+201. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/sponsorblock.js) as read on 14 November 2026: `src/preload/modules/sponsorblock.js`, which draws the segments over each chapter as the chapter's `::after`, at `opacity: 0.7`, in SponsorBlock's colours (none of them red)
+202. [VacuumTube](https://github.com/shy1132/VacuumTube/blob/main/src/preload/modules/block-continue-watching.js) as read on 14 November 2026: `src/preload/modules/block-continue-watching.js`, which removes YouTube's `youThereRenderer` from the player's messages, and `locale/en.json`: "Block Continue Watching", "Blocks the "Video paused. Continue watching?" prompt that appears after being idle for a while"
+203. [VacuumTube](https://github.com/shy1132/VacuumTube/tree/main/src) as read on 15 November 2026:
+     - `src/config.js`: defaults Block Ads and Hardware Decoding on, and Filter Video Codecs, Low Memory Mode, Unlock Resolution and Wayland HDR off;
+     - `src/index.js`: Hardware Decoding turns on Chromium's `AcceleratedVideoDecoder`, `AcceleratedVideoDecodeLinuxGL` and `AcceleratedVideoDecodeLinuxZeroCopyGL`;
+     - `src/preload/modules/adblock.js`: empties `adPlacements` and `adSlots` through `JSON.parse`;
+     - `src/preload/util/xhrModifiers.js`: changes text responses only;
+     - `src/preload/modules/media-capabilities.js`;
+     - `locale/en.json`, whose Hardware Decoding reads "Disabling this may fix playback issues, but can cause lag".
+204. VacuumTube's issues, read on 15 November 2026:
+     - [134](https://github.com/shy1132/VacuumTube/issues/134), "Video stutter";
+     - [218](https://github.com/shy1132/VacuumTube/issues/218), the same frame repeating when docked on a Steam Deck, cured by turning Hardware Decoding off;
+     - [198](https://github.com/shy1132/VacuumTube/issues/198), "Videos stop playing, error message", put down to YouTube's bot check;
+     - [272](https://github.com/shy1132/VacuumTube/issues/272), "High gpu usage in steamOS gamemode".
+205. [VacuumTube's releases](https://github.com/shy1132/VacuumTube/releases), read on 15 November 2026:
+     - 2.1.0 (15 November 2026): Electron 45.3.2, and a fix for quality limited to 480p after changing playback speed;
+     - 2.0.0 (10 October 2026): "Improved playback reliability (should be less likely to get bot check)";
+     - 1.8.2 (30 July 2026): the fix for issue 198.
+206. On YouTube holding back video from clients that block its ads, through its SABR streaming:
+     - [GIGAZINE](https://gigazine.net/gsc_news/en/20250624-youtube-fake-buffering/) (June 2025), "What is YouTube's new ad blocking strategy, 'Fake Buffering'?";
+     - [iter.ca](https://iter.ca/post/yt-adblock/), "YouTube's new anti-adblock measures".
+207. [actions/checkout's releases](https://github.com/actions/checkout/releases), read on 15 November 2026: v7.0.1 is the latest, after v7.0.0 (18 June 2026) and v6
+208. [actions/runner-images](https://github.com/actions/runner-images), read on 15 November 2026: `ubuntu-26.04` is listed among the available images, and `ubuntu-latest` is still Ubuntu 24.04
+209. [SteamOS's issues](https://github.com/ValveSoftware/SteamOS/issues), read on 15 November 2026, which name SteamOS 3.9.5 as the stable release and 3.10.0 as a preview; and [Valve's package mirror](https://steamdeck-packages.steamos.cloud/archlinux-mirror/), which has the `holo`, `jupiter`, `core` and `extra` repositories for 3.9 and 3.10
+210. [NexusMods.App's releases](https://github.com/Nexus-Mods/NexusMods.App/releases), read on 15 November 2026: v0.21.1 is the latest, and the repository has been archived since 20 February 2026
+211. [Flathub's Eden manifest](https://github.com/flathub/dev.eden_emu.eden/blob/master/dev.eden_emu.eden.yml), read on 15 November 2026: `runtime: org.kde.Platform`, `runtime-version: '6.11'`

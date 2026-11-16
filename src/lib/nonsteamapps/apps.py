@@ -32,6 +32,13 @@ VACUUMTUBE_DEFAULTS = {
     "wayland_hdr": True,
     "userstyles": True,
 }
+VACUUMTUBE_PLAYBACK = (
+    ("adblock", "Block Ads", True),
+    ("hardware_decoding", "Hardware Decoding", True),
+    ("h264ify", "Filter Video Codecs", False),
+    ("low_memory_mode", "Low Memory Mode", False),
+    ("unlock_resolution", "Unlock Resolution", False),
+)
 CHANGES_FILE = "nonsteamapps.json"
 USERSTYLES = "userstyles"
 
@@ -136,6 +143,17 @@ class IniSettings:
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
         return True
+
+
+def playback_report(switches: Sequence[Tuple[str, str, bool]], folder: Path) -> Optional[str]:
+    """Each of ``switches`` as set in ``folder``'s ``config.json``, its default where unset, or ``None`` if the file is unreadable."""
+    try:
+        data = json.loads((Path(folder) / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return ", ".join(f"{name} {'on' if data.get(key, default) else 'off'}" for key, name, default in switches)
 
 
 def place_userstyles(source: Path, folder: Path, names: Sequence[str]) -> List[str]:
@@ -929,7 +947,9 @@ class App:
     a fallback the emulator saved after one failed start does not stay. An emulator with ``keys_from`` takes
     the decryption keys installed in that app at every start, where its own are missing or older (see
     :func:`copy_keys`), and one with ``firmware_from`` the firmware installed there, while it has none of its
-    own (see :func:`share_firmware`).
+    own (see :func:`share_firmware`). ``playback`` names the switches in an app's ``config.json`` that change
+    how videos load and play, as ``(key, the app's own name for it, its default)``, which ``doctor`` reports for
+    each data folder (see :func:`playback_report`).
     """
 
     id: str
@@ -970,6 +990,7 @@ class App:
     command: str = ""
     branch: str = ""
     icon: str = ""
+    playback: Tuple[Tuple[str, str, bool], ...] = ()
 
     @property
     def profiles_name(self) -> str:
@@ -1041,6 +1062,7 @@ APPS: Tuple[App, ...] = (
         ),
         controller=YOUTUBE.title,
         userstyles=("nonsteamapps-steamos.css",),
+        playback=VACUUMTUBE_PLAYBACK,
         tv_scale=TvScale(
             argument="--force-device-scale-factor={factor}",
             layout=1080,

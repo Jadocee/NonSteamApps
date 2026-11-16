@@ -1506,6 +1506,9 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
             folders = app.profile.existing(app.home(paths.home)) if app.profile else []
         for folder in folders:
             print(f"  {'':<10} data: {folder} ({_size(folder)})")
+            playback = apps.playback_report(app.playback, folder) if app.playback else None
+            if playback:
+                print(f"  {'':<12} playback: {playback}")
         origin = _studio(paths).origin(app.id) if _own_icons(paths) else ""
         print(f"  {'':<10} artwork: " + (f"drawn around its own icon, {origin}" if origin else "NonSteamApps' own"))
         log = paths.log(app.id)

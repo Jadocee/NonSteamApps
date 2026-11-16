@@ -1,11 +1,10 @@
 import json
 import os
-import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+import _fakes
 import _paths  # noqa: F401
 from nonsteamapps import browser
 
@@ -152,8 +151,8 @@ class ProfileTests(unittest.TestCase):
     def test_a_profile_is_in_use_while_a_running_helium_holds_its_lock(self):
         self.assertFalse(browser.in_use(self.profile))
         program = self.dir / "helium"
-        shutil.copy2(shutil.which("sleep"), program)
-        helium = subprocess.Popen([str(program), "30"])
+        _fakes.sleeper(program)
+        helium = _fakes.sleeping(program)
         self.addCleanup(helium.wait)
         self.addCleanup(helium.kill)
         lock = self.profile / "SingletonLock"

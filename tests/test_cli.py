@@ -13,7 +13,7 @@ from unittest import mock
 
 import _fakes
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, vdf
+from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf
 
 
 class Exec(Exception):
@@ -171,6 +171,45 @@ class InstallTests(CliTestCase):
         self.assertIn("    LocalSend: Steam ▸ Library ▸ Non-Steam ▸ LocalSend\n", self.errors)
         self.assertIn("    Sign-ins:  separate for each Steam account\n", self.errors)
         self.assertNotIn("Note:", self.errors)
+
+    def run_on_terminal(self, *argv):
+        terminal = _fakes.Terminal()
+        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(terminal):
+            status = cli.main(list(argv), self.paths, self.flatpak)
+        return status, terminal.getvalue()
+
+    @staticmethod
+    def steps(text):
+        """The step each progress bar drawn in ``text`` names, once for each time it changes."""
+        steps = []
+        for line in _fakes.bars(text):
+            step = " · ".join(line.split("%  ", 1)[1].split(" · ")[:2])
+            if not steps or steps[-1] != step:
+                steps.append(step)
+        return steps
+
+    def test_on_a_terminal_a_progress_bar_counts_the_install_beneath_its_messages(self):
+        status, text = self.run_on_terminal("install", "youtube", "netflix", "--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive),
+                                            "--skip-verify")
+        self.assertEqual(status, 0, text)
+        self.assertEqual(self.steps(text), ["1 of 5 · Helium", "2 of 5 · YouTube", "3 of 5 · Netflix", "4 of 5 · Firewall, TV remote and updates",
+                                            "5 of 5 · Steam library"])
+        self.assertIn("2 of 5 · YouTube · part 2 of 2, 50%, 1.0 MB/s", [line.split("%  ", 1)[1] for line in _fakes.bars(text)])
+        self.assertEqual(self.fake.calls("install")[-1], ["install", "--user", "-y", "flathub", "rocks.shy.VacuumTube"])
+        screen = _fakes.screen(text)
+        self.assertIn(" ✓  Installed VacuumTube", screen)
+        self.assertTrue(any(line.endswith("Steam ▸ Library ▸ Non-Steam ▸ YouTube (VacuumTube)") for line in screen))
+        self.assertNotIn("\r\033[2K", text[text.index("==> Done"):])
+        self.assertEqual(screen[-1], "")
+
+    def test_apps_left_out_leave_the_progress_bars_count(self):
+        with mock.patch("nonsteamapps.builds.net.fetch_text", side_effect=OSError("offline")):
+            status, text = self.run_on_terminal("install", "localsend", "kytyps5", "--yes", "--no-auto-update")
+        self.assertEqual(status, 0, text)
+        self.assertEqual(self.steps(text), ["1 of 5 · KytyPS5", "1 of 4 · KytyPS5", "2 of 4 · LocalSend", "3 of 4 · Firewall, TV remote and updates",
+                                            "4 of 4 · Steam library"])
+        self.assertIn("warning: KytyPS5 was not installed, so it is left out: could not read KytyPS5's releases from GitHub: offline", _fakes.screen(text))
 
     def test_rerunning_without_names_installs_every_app_and_puts_back_their_set_up(self):
         self.install("youtube")
@@ -1420,7 +1459,7 @@ class KytyTests(CliTestCase):
         archive = _fakes.make_kyty_archive(Path(self.tmp.name) / "newer", newer)
         releases = json.dumps([_fakes.kyty_release(archive, newer, "2026-11-05T08:00:00Z")])
         with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
-                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(archive, target)):
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target, progress=None: shutil.copyfile(archive, target)):
             self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
             self.assertEqual(cli._kyty(self.paths).current(), _fakes.KYTY_TAG)
             self.assertEqual(self.run_cli("update"), 0, self.errors)
@@ -1526,7 +1565,7 @@ class LichiiTests(CliTestCase):
         newer = _fakes.make_lichii_appimage(Path(self.tmp.name) / "newer")
         releases = json.dumps([_fakes.lichii_release(newer, "build-84")])
         with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
-                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target, progress=None: shutil.copyfile(newer, target)):
             self.assertEqual(self.run_cli("update", "--apps-only"), 0, self.errors)
             self.assertEqual(cli._lichii(self.paths).current(), installed)
             self.assertEqual(self.run_cli("update"), 0, self.errors)
@@ -1641,7 +1680,7 @@ class ArtworkTests(CliTestCase):
         files = {"icon": "lichii_icon.png", "capsule": "lichii_vertical_grid.png", "wide": "lichii_square_grid.png", "logo": "lichii_logo.png"}
         self.downloads.update({f"{base}/{files[slot]}": data for slot, data in art.items()})
         with mock.patch("nonsteamapps.builds.net.fetch_text", return_value=releases), \
-                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target: shutil.copyfile(newer, target)):
+                mock.patch("nonsteamapps.builds.net.download", side_effect=lambda url, target, progress=None: shutil.copyfile(newer, target)):
             self.assertEqual(self.run_cli("update"), 0, self.errors)
         self.assertIn("Drew Steam artwork around each app's own icon: Lichii\n", self.errors)
         for slot, suffix in (("capsule", "p.png"), ("wide", ".png"), ("logo", "_logo.png")):

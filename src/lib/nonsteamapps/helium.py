@@ -115,7 +115,7 @@ class Runtime:
         self.downloads.mkdir(parents=True, exist_ok=True)
         ui.info(f"Downloading {name}")
         net.download(f"{base}/{name}.asc", archive.with_name(name + ".asc"))
-        net.download(f"{base}/{name}", archive)
+        net.download(f"{base}/{name}", archive, ui.downloaded)
         return archive
 
     def verify(self, archive: Path) -> bool:

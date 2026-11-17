@@ -1,12 +1,13 @@
-"""Test doubles: fake flatpak, steam, firewall-cmd and sudo commands, and a throwaway home with Steam and a NonSteamApps program folder."""
+"""Test doubles: fake flatpak, steam, firewall-cmd and sudo commands, a terminal, and a throwaway home with Steam and a NonSteamApps program folder."""
 
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
-from typing import Optional
+from typing import List, Optional
 from pathlib import Path
 
 import _paths
@@ -15,6 +16,23 @@ from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
 ALPHA, BETA = 111, 222
+
+
+class Terminal(io.StringIO):
+    """What a terminal is sent, as a progress bar sees it: a TTY whose size cannot be read, so it counts as 80 columns."""
+
+    def isatty(self):
+        return True
+
+
+def screen(text: str) -> List[str]:
+    """The lines a terminal shows once it is sent ``text``, where each ``\\r\\033[2K`` clears the line the cursor is on."""
+    return [line.rsplit("\r\033[2K", 1)[-1] for line in text.split("\n")]
+
+
+def bars(text: str) -> List[str]:
+    """Each progress bar drawn in ``text``: what follows a ``\\r\\033[2K`` and is not a line of its own."""
+    return [part for part in text.split("\r\033[2K")[1:] if part and "\n" not in part]
 
 
 def sleeper(path: Path) -> None:

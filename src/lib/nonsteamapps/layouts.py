@@ -68,7 +68,10 @@ layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` 
   its release, as Jellyfin quits when Escape is held for half a second; Valve's View, Ctrl+W, would quit at once.
 - **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
   the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
-  home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down.
+  home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down. The
+  triggers press the gamepad's triggers, YouTube's rewind and fast forward, only when pulled all the way, and
+  send nothing until then: Valve's pass on every bit of travel, which VacuumTube takes as a press from about an
+  eighth of the way in, and repeats while held, so a controller resting on a cushion kept seeking.
 """
 
 from __future__ import annotations
@@ -235,9 +238,25 @@ def _tools(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pai
     return group
 
 
+def _full_pull(group: vdf.Pairs, binding: str) -> vdf.Pairs:
+    """A trigger's group that sends ``binding`` once the trigger is pulled all the way, and nothing while it is part pulled.
+
+    Valve's Gamepad layout passes the trigger's travel on as the gamepad's analog trigger, which a browser counts as
+    pressed from about an eighth of the way in.
+    """
+    inputs = [("click", [("activators", [("Full_Press", [("bindings", [("binding", binding)])])])])]
+    settings = [(name, value) for name, value in _find(group, "settings") or [] if name != "output_trigger"]
+    kept = [(name, value) for name, value in group if name not in ("inputs", "settings")]
+    return [*kept, ("inputs", inputs), ("settings", settings)]
+
+
 def _youtube(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
     if source == "switch":
         _hold(group, VIEW, ["key_press LEFT_CONTROL, Reload", "key_press R"])
+    elif source == "left_trigger":
+        group = _full_pull(group, "xinput_button TRIGGER_LEFT, Rewind")
+    elif source == "right_trigger":
+        group = _full_pull(group, "xinput_button TRIGGER_RIGHT, Fast forward")
     return group
 
 
@@ -455,10 +474,10 @@ BOTTLES = Layout(
 YOUTUBE = Layout(
     slug="youtube",
     title="YouTube (NonSteamApps)",
-    description="Steam's Gamepad layout, which VacuumTube reads as a controller, with View held to reload YouTube and refresh its home screen",
+    description="Steam's Gamepad layout, which VacuumTube reads as a controller; the triggers rewind and fast forward only when pulled all the way, and holding View reloads YouTube and refreshes its home screen",
     base="controller_neptune_gamepad_joystick.vdf",
     change=_youtube,
-    revision="2",
+    revision="3",
 )
 LAYOUTS = (BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, VLC, YOUTUBE)
 

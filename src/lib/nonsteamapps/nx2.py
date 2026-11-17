@@ -178,11 +178,15 @@ def rename_exports(files: Path) -> List[Path]:
 
 
 def _show_progress(line: str, shown: Tuple[int, int]) -> Tuple[int, int]:
-    """Show each tenth of Ninja's steps done, from a line of its output; ``shown`` is the steps it counts and the tenth last shown."""
+    """Show each tenth of Ninja's steps done, and each step on the progress bar, from a line of its output.
+
+    ``shown`` is the steps Ninja counts and the tenth last shown.
+    """
     match = _PROGRESS.match(line)
     if not match:
         return shown
     done, total = int(match.group(1)), int(match.group(2))
+    ui.advance(done / max(total, 1), f"{done} of {total} steps")
     last = shown[1] if total == shown[0] else 0
     step = done * 100 // max(total, 1) // 10 * 10
     if step > last:
@@ -320,8 +324,10 @@ class Builder:
                 build = self._fetch(commit)
                 count = jobs()
                 ui.info(f"Building {NAME} {describe(build)} with {count} jobs at once; this can take an hour, and the log is {self.log}")
+                ui.advance(0.0, "configuring the build")
                 self._sdk("cmake", "-S", f"{SANDBOX}/source", "-B", f"{SANDBOX}/build", *CONFIGURE, network=True)
                 self._sdk("cmake", "--build", f"{SANDBOX}/build", "--parallel", str(count), progress=True)
+                ui.advance(1.0, "installing")
                 self._sdk("cmake", "--install", f"{SANDBOX}/build")
                 rename_exports(self.stage / "files")
                 if not os.access(self.stage / "files" / "bin" / "eden", os.X_OK):
@@ -375,7 +381,10 @@ class Builder:
         if missing:
             ui.info(f"Installing {' and '.join(missing)} from Flathub, which the build needs")
             self._call("remote-add", "--user", "--if-not-exists", flatpak.REMOTE, flatpak.REMOTE_URL)
-            self._call("install", "--user", "--noninteractive", "-y", flatpak.REMOTE, *missing)
+            if ui.progressing():
+                self._call("install", "--user", "-y", flatpak.REMOTE, *missing, follow="SDK")
+            else:
+                self._call("install", "--user", "--noninteractive", "-y", flatpak.REMOTE, *missing)
         shutil.rmtree(self.stage, ignore_errors=True)
         shutil.rmtree(self.work, ignore_errors=True)
         for folder in (self.work, self.cpm, self.ccache):
@@ -387,6 +396,7 @@ class Builder:
         shutil.rmtree(self.source, ignore_errors=True)
         (self.source / CPM_CACHE).mkdir(parents=True)
         ui.info(f"Fetching {NAME}'s source at {commit[:8]} from {self.repository}")
+        ui.advance(0.0, "fetching its source")
         git = ("git", "-C", f"{SANDBOX}/source")
         self._sdk(*git, "init", "-q")
         self._sdk(*git, "fetch", "-q", "--depth", "1", self.repository, commit, network=True)
@@ -418,8 +428,8 @@ class Builder:
         return self._logged([self.command, "build", *self._sandbox(network), str(self.stage), *command], " ".join(command[:2]),
                             progress=progress, capture=capture)
 
-    def _call(self, *arguments: str, check: bool = True, log: bool = True) -> None:
-        self._logged([self.command, *arguments], f"flatpak {arguments[0]}", check=check, log=log)
+    def _call(self, *arguments: str, check: bool = True, log: bool = True, follow: str = "") -> None:
+        self._logged([self.command, *arguments], f"flatpak {arguments[0]}", check=check, log=log, follow=follow)
 
     def _output(self, *arguments: str) -> str:
         try:
@@ -429,7 +439,12 @@ class Builder:
         return result.stdout.strip() if result.returncode == 0 else ""
 
     def _logged(self, arguments: List[str], label: str, check: bool = True, progress: bool = False, capture: bool = False,
-                log: bool = True) -> str:
+                log: bool = True, follow: str = "") -> str:
+        """Run ``arguments`` with their output in the log; return it when ``capture``.
+
+        With ``progress``, Ninja's steps are shown (see :func:`_show_progress`). With ``follow``, the progress of a
+        Flatpak install goes to the progress bar as ``follow``'s instead of the log (see :class:`flatpak.Progress`).
+        """
         output = open(self.log, "a", encoding="utf-8") if log else open(os.devnull, "w", encoding="utf-8")
         with output:
             output.write("$ " + " ".join(arguments) + "\n")
@@ -441,8 +456,13 @@ class Builder:
                 raise NX2Error(f"could not run {arguments[0]}: {exc}") from exc
             captured: List[str] = []
             shown = (0, 0)
+            reader = flatpak.Progress() if follow else None
             with process:
                 for line in process.stdout:
+                    found = reader.read(line) if reader else None
+                    if found:
+                        ui.advance(0.0, f"{follow}: {found[1]}")
+                        continue
                     output.write(line)
                     if capture:
                         captured.append(line)

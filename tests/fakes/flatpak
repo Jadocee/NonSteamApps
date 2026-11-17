@@ -9,10 +9,14 @@ FAKE_FLATPAK_FAIL   a subcommand (for example "install") that should fail
 FAKE_FLATPAK_BUILD_FAIL  the start of a command (for example "cmake --build") that fails in "flatpak build"
 FAKE_FLATPAK_GIT_HEAD    the commit git reports checked out, in place of the one fetched
 FAKE_FLATPAK_ICONS  set to 1 to export an icon for each app installed, as Flatpak exports an app's own icon
+FAKE_FLATPAK_WARN   a line that "install" prints on stderr
 FAKE_FLATPAK_OPEN   a link that "flatpak run" opens with xdg-open from the PATH given with --env, as an app
                     in its sandbox would; it then waits for FAKE_FLATPAK_DONE, which a later run creates
                     when it is handed one of the --env NONSTEAMAPPS_SCHEMES links, as the app's second
                     instance would
+
+"install" without --noninteractive prints the progress Flatpak 1.18 prints when its output is not a terminal,
+for a runtime the app needs and each ref, and keeps FLATPAK_FANCY_OUTPUT in the state as "fancy_output".
 
 "flatpak build" acts as Eden's build would in the SDK: git reports the commit it fetched, Ninja counts
 its steps and "cmake --install" installs an eden program, its menu entry and its icon. "build-export"
@@ -60,6 +64,23 @@ def act_as_app(argv):
     deadline = time.monotonic() + 15
     while not Path(done).exists() and time.monotonic() < deadline:
         time.sleep(0.05)
+
+
+def show_progress(names):
+    """Print what Flatpak 1.18's install prints, when it may ask questions and its output is not a terminal."""
+    operations = ["org.freedesktop.Platform.GL.default", *names]
+    print("Looking for matches…")
+    print("\n        ID    Branch    Op    Remote    Download")
+    for number, name in enumerate(operations, 1):
+        print(f" {number}.     {name}    stable    i    flathub    < 1.0 MB")
+    print("\n\n")
+    for number in range(1, len(operations) + 1):
+        heading = f"Installing {number}/{len(operations)}…"
+        print(heading)
+        for percent in (0, 50, 100):
+            bar = "█" * (percent // 5) + " " * (20 - percent // 5)
+            print(f"{heading} {bar} {percent:3d}%" + ("  1.0 MB/s  00:01" if percent else ""))
+    print("Installation complete.")
 
 
 def positional(arguments):
@@ -117,6 +138,11 @@ def main(argv):
     elif command == "install":
         refs = positional(argv[1:])
         remote, names = (refs[0], refs[1:]) if len(refs) > 1 else ("", refs)
+        if "--noninteractive" not in argv:
+            state["fancy_output"] = os.environ.get("FLATPAK_FANCY_OUTPUT", "")
+            show_progress(names)
+        if os.environ.get("FAKE_FLATPAK_WARN"):
+            print(os.environ["FAKE_FLATPAK_WARN"], file=sys.stderr)
         for name in names:
             app_id, _, branch = name.partition("//")
             if branch and RUNTIME.search(app_id):

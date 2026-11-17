@@ -333,6 +333,20 @@ class FilesLayoutTests(unittest.TestCase):
                 self.assertEqual([kind for kind, _ in find(find(find(switch, "inputs"), layouts.MENU), "activators")], ["Full_Press"])
                 self.assertEqual(bindings(found["button_diamond"], "button_a"), ["xinput_button A"])
 
+    def test_youtubes_triggers_seek_only_when_pulled_all_the_way(self):
+        gamepad = self.read("controller_neptune_gamepad_joystick.vdf")
+        valves = groups(gamepad)
+        for source, axis in (("left_trigger", "1"), ("right_trigger", "2")):
+            find(valves[source], "settings").append(("output_trigger", axis))
+        for template in ("controller_neptune_gamepad_joystick.vdf", "controller_xboxone_gamepad_joystick.vdf"):
+            with self.subTest(template=template):
+                found = groups(layouts.build(layouts.YOUTUBE, gamepad, self.read(template)))
+                for source, binding in (("left_trigger", "xinput_button TRIGGER_LEFT, Rewind"), ("right_trigger", "xinput_button TRIGGER_RIGHT, Fast forward")):
+                    self.assertEqual(find(found[source], "mode"), "trigger")
+                    self.assertEqual([name for name, _ in find(found[source], "inputs")], ["click"])
+                    self.assertEqual(bindings(found[source], "click"), [binding])
+                    self.assertEqual(find(found[source], "settings"), [("requires_click", "0")])
+
     def test_apps_find_the_layouts_they_ask_for(self):
         self.assertEqual(layouts.used_by(["Web Browser", layouts.MINECRAFT.title, layouts.FILES.title]), [layouts.FILES, layouts.MINECRAFT])
         self.assertEqual(layouts.used_by([layouts.TOOLS.title]), [layouts.TOOLS])

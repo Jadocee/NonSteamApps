@@ -70,7 +70,7 @@ class RuntimeTests(unittest.TestCase):
             self.addCleanup(patch.stop)
         self.downloads = []
 
-    def download(self, url, target):
+    def download(self, url, target, progress=None):
         self.downloads.append(url)
         shutil.copyfile(self.appimages[url.rsplit("/", 2)[-2]], target)
 

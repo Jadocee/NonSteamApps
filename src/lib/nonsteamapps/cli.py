@@ -121,7 +121,8 @@ def _open_ports(record: Record, chosen: Sequence[App]) -> None:
             ui.info(f"{app.client} cannot be reached while the firewall blocks port {ports}; to open it, run the installer again")
             continue
         try:
-            wall.change("add", closed)
+            with ui.paused():
+                wall.change("add", closed)
         except FirewallError as error:
             ui.warn(f"Could not open port {ports} for {app.client} ({error}). If your account has no password, set one with passwd and run the installer again, or run:")
             for command in error.commands:
@@ -603,55 +604,71 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         ui.info(message)
     separate = config.enabled(config.read_settings(paths.settings).get(PER_ACCOUNT), default=True)
 
-    if any(app.browser for app in chosen):
-        _install_helium(paths, args.helium_archive, not args.skip_verify)
-    if any(app.release for app in chosen):
-        try:
-            _install_kyty(paths, args.kytyps5_archive, not args.skip_verify)
-        except (kyty.KytyError, OSError) as exc:
-            if all(app.release for app in chosen):
-                raise ui.Abort(f"KytyPS5 was not installed: {exc}") from exc
-            ui.warn(f"KytyPS5 was not installed, so it is left out: {exc}")
-            chosen = [app for app in chosen if not app.release]
-    if any(app.appimage for app in chosen):
-        try:
-            _install_lichii(paths, args.lichii_archive, not args.skip_verify)
-        except (lichii.LichiiError, OSError) as exc:
-            if all(app.appimage for app in chosen):
-                raise ui.Abort(f"Lichii was not installed: {exc}") from exc
-            ui.warn(f"Lichii was not installed, so it is left out: {exc}")
-            chosen = [app for app in chosen if not app.appimage]
-    if any(app.from_source for app in chosen):
-        try:
-            _install_nx2(paths, flatpak, args.eden_nx2_commit)
-        except (nx2.NX2Error, OSError) as exc:
-            if all(app.from_source for app in chosen):
-                raise ui.Abort(f"Eden-NX2 was not installed: {exc}") from exc
-            ui.warn(f"Eden-NX2 was not installed, so it is left out: {exc}")
-            chosen = [app for app in chosen if not app.from_source]
-    installed = flatpak.installed() if any(app.flatpak for app in chosen) else {}
-    for app in chosen:
-        _install_app(paths, flatpak, record, app, installed.get(app.flatpak))
+    engines = [any(app.browser for app in chosen), any(app.release for app in chosen), any(app.appimage for app in chosen),
+               any(app.from_source for app in chosen)]
+    with ui.progress(sum(engines) + len(chosen) + 1 + bool(args.steam)):
+        if any(app.browser for app in chosen):
+            ui.step("Helium")
+            _install_helium(paths, args.helium_archive, not args.skip_verify)
+        if any(app.release for app in chosen):
+            ui.step("KytyPS5")
+            try:
+                _install_kyty(paths, args.kytyps5_archive, not args.skip_verify)
+            except (kyty.KytyError, OSError) as exc:
+                if all(app.release for app in chosen):
+                    raise ui.Abort(f"KytyPS5 was not installed: {exc}") from exc
+                ui.warn(f"KytyPS5 was not installed, so it is left out: {exc}")
+                chosen = _left_out(chosen, [app for app in chosen if app.release])
+        if any(app.appimage for app in chosen):
+            ui.step("Lichii")
+            try:
+                _install_lichii(paths, args.lichii_archive, not args.skip_verify)
+            except (lichii.LichiiError, OSError) as exc:
+                if all(app.appimage for app in chosen):
+                    raise ui.Abort(f"Lichii was not installed: {exc}") from exc
+                ui.warn(f"Lichii was not installed, so it is left out: {exc}")
+                chosen = _left_out(chosen, [app for app in chosen if app.appimage])
+        if any(app.from_source for app in chosen):
+            ui.step("Eden-NX2")
+            try:
+                _install_nx2(paths, flatpak, args.eden_nx2_commit)
+            except (nx2.NX2Error, OSError) as exc:
+                if all(app.from_source for app in chosen):
+                    raise ui.Abort(f"Eden-NX2 was not installed: {exc}") from exc
+                ui.warn(f"Eden-NX2 was not installed, so it is left out: {exc}")
+                chosen = _left_out(chosen, [app for app in chosen if app.from_source])
+        installed = flatpak.installed() if any(app.flatpak for app in chosen) else {}
+        for app in chosen:
+            ui.step(app.name)
+            _install_app(paths, flatpak, record, app, installed.get(app.flatpak))
+            record.save()
+            reset = _reset(paths, app, separate)
+            if reset:
+                ui.ok(f"Put back {app.name}'s TV settings ({reset} data folder{'s' if reset > 1 else ''}); sign-ins are kept")
+            if app.desktop:
+                _add_to_desktop(paths, app)
+        ui.step("Firewall, TV remote and updates")
+        _open_ports(record, chosen)
         record.save()
-        reset = _reset(paths, app, separate)
-        if reset:
-            ui.ok(f"Put back {app.name}'s TV settings ({reset} data folder{'s' if reset > 1 else ''}); sign-ins are kept")
-        if app.desktop:
-            _add_to_desktop(paths, app)
-    _open_ports(record, chosen)
-    record.save()
-    _remote_only(paths, force=True)
-    _pin_konsole(paths)
+        _remote_only(paths, force=True)
+        _pin_konsole(paths)
 
-    if args.auto_update:
-        timer.install(paths)
-    else:
-        timer.remove(paths)
-    managed = _managed(record)
-    if args.steam:
-        steam_add(paths, chosen, args.steam_user, args.restart_steam)
+        if args.auto_update:
+            timer.install(paths)
+        else:
+            timer.remove(paths)
+        managed = _managed(record)
+        if args.steam:
+            ui.step("Steam library")
+            steam_add(paths, chosen, args.steam_user, args.restart_steam)
     _summary(paths, managed, separate)
     return 0
+
+
+def _left_out(chosen: List[App], gone: Sequence[App]) -> List[App]:
+    """``chosen`` without the apps in ``gone``, whose steps the progress bar no longer counts."""
+    ui.skip(len(gone))
+    return [app for app in chosen if app not in gone]
 
 
 def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:

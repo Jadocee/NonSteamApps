@@ -8,7 +8,7 @@ from unittest import mock
 
 import _fakes
 import _paths  # noqa: F401
-from nonsteamapps import nx2
+from nonsteamapps import nx2, ui
 
 COMMIT = _fakes.NX2_COMMIT
 NEWER = _fakes.NX2_NEWER
@@ -188,6 +188,28 @@ class BuilderTests(unittest.TestCase):
         self.assertIn("Eden-NX2 is 100% built (4 of 4 steps)", self.errors)
         self.assertNotIn("of 2 steps", self.errors)
         self.assertIn("$ flatpak build", self.builder.log.read_text().replace(self.fake.command, "flatpak"))
+
+    def test_with_a_progress_bar_the_sdks_download_and_the_builds_steps_go_to_it(self):
+        terminal = _fakes.Terminal()
+        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), \
+                contextlib.redirect_stderr(terminal), ui.progress(1):
+            ui.step("Eden-NX2")
+            self.builder.build(COMMIT)
+        self.assertEqual(self.fake.calls("install")[0], ["install", "--user", "-y", "flathub", "org.kde.Sdk//6.11", "org.kde.Platform//6.11"])
+        self.assertEqual(self.fake.calls("install")[-1], ["install", "--user", "--noninteractive", "-y", "nonsteamapps", nx2.APP_ID])
+        drawn = _fakes.bars(terminal.getvalue())
+        details = {line.split("Eden-NX2", 1)[1] for line in drawn}
+        for detail in ("SDK: part 1 of 3, 50%, 1.0 MB/s", "SDK: part 3 of 3, 100%, 1.0 MB/s", "fetching its source", "configuring the build",
+                       "2 of 4 steps", "installing"):
+            self.assertIn(f" · {detail}", details)
+        self.assertTrue(next(line for line in drawn if "SDK: part 3 of 3" in line).startswith("░" * 18 + "   0%"))
+        self.assertTrue(next(line for line in drawn if "2 of 4 steps" in line).startswith("█" * 9 + "░" * 9 + "  50%"))
+        screen = _fakes.screen(terminal.getvalue())
+        self.assertIn("      Eden-NX2 is 50% built (2 of 4 steps)", screen)
+        self.assertEqual(screen[-1], "")
+        log = self.builder.log.read_text()
+        self.assertIn("Installing 1/3…\n", log)
+        self.assertNotIn("Installing 1/3… ", log)
 
     def test_an_sdk_already_installed_is_used_as_it_is(self):
         self.fake.state.write_text('{"apps": {}, "runtimes": ["org.kde.Sdk//6.11", "org.kde.Platform//6.11"]}')

@@ -832,6 +832,65 @@ The owner answered the open questions. Where these answers differ from the text 
       3. **On Steam's side:** a Decky Loader plugin could end the app when Steam starts to sleep, but Decky's view of Steam is unofficial and nothing shows that Steam waits for a plugin [238]; a system unit before `sleep.target` needs root and changes to `/etc`.
       4. **Without a change:** for a screen that stays on, items 87 and 89 apply: VacuumTube's Block Continue Watching off, or YouTube's autoplay off.
 
+97. **Closing apps before sleep and shutdown (owner request); version 2.43.0.** The owner chose item 96's first option, for VacuumTube and the other apps.
+    - **How:** in Game Mode, the launcher starts a helper that ends with the app, beside item 66's. The helper holds a logind delay lock for sleep and shutdown, under the name NonSteamApps, and follows logind's `PrepareForSleep` and `PrepareForShutdown` on the system bus [236].
+      - When either announces that the Steam Machine is about to sleep or shut down, the helper sends SIGTERM to the app's main process. It waits up to 4 seconds for the app to close, then lets the lock go, so that logind goes on.
+      - The app's log says what happened: `closing <app>: the Steam Machine sleeps` (or `shuts down`), followed by `closed <app>`, `<app> did not close within 4 seconds`, or the reason it could not.
+    - **The main process:**
+      - For a Flatpak, the helper finds the sandbox the launcher started, by its `child-pid` in `flatpak ps` [233]. This works even for Element and Bitwarden, whose launcher stays as their parent. Under that, it takes the first process that is not a wrapper: bubblewrap, which passes no signal on [234], a shell or zypak's helper.
+      - For any other app, it starts from the process the launcher became; each Helium app's launcher becomes Helium itself.
+      - The helpers the launcher starts before it becomes the app are that process's children, and keep the launcher's command line, so they are passed over, with their own processes.
+    - **Which apps:** `CLOSE_BEFORE_SLEEP` decides, `default` unless set.
+      - By default, ten apps stay open, as Steam leaves a game, because closing them could lose work. Prism Launcher, Eden, Eden-NX2, Lichii and KytyPS5 could lose a game's or an emulator's unsaved progress. Bottles, ProtonUp-Qt, Protontricks and Winetricks could have an install or a download part way through. Files could have a copy or a move under way.
+      - The other eighteen close first: YouTube, Element, Signal, Discord, Bitwarden, Jellyfin, VLC, LocalSend and the ten Helium apps.
+      - `all` closes every app first, `off` none, and a list of app IDs only those.
+    - **Only in Game Mode:** in Desktop Mode, Plasma's session runs the apps as on any desktop, and nothing changes.
+    - **When something fails:** if the system bus or logind cannot be reached, or logind gives no lock, the helper logs why and the app stays open, as before. The helper never delays sleep beyond its 4 seconds, and logind waits at most `InhibitDelayMaxSec` in any case [236].
+    - **D-Bus:** NonSteamApps' own D-Bus client now reaches the system bus too. It also takes file descriptors, the form logind's lock comes in, after `NEGOTIATE_UNIX_FD`.
+    - **Tests:** a fake logind on a private `dbus-daemon` hands out a real file descriptor and sees it closed. Finding the main process and the SIGTERM are tried on real processes. Nothing touches the real logind, Steam or Flatpak.
+    - **Not yet tried on the device:**
+      - SteamOS's `InhibitDelayMaxSec`.
+      - How Steam's own sleep takes an app that ends part way through it.
+      - That the Steam Machine then wakes to Steam's library.
+
+98. **Pausing a video when the TV switches input or turns off (owner request; research).** The owner asked whether videos can be paused when the TV switches to another source, and in similar cases.
+    - **What a TV sends:**
+      - Under CEC's routing control, a TV that switches to another HDMI input broadcasts `<Routing Change>` with the old and new physical addresses.
+      - A TV that switches to its own tuner or apps broadcasts `<Active Source>` with its own address, `0.0.0.0`.
+      - Android's TV implementation does exactly this, and sends `<Set Stream Path>` when it selects a device directly [239].
+      - A player that takes over the TV announces itself with `<Active Source>`, and a TV that turns off sends `<Standby>`.
+      - Which of these a given TV sends, for its own apps above all, was not found documented.
+    - **What `cecd` makes of it:**
+      - Its `Active` property, on each device's `com.steampowered.CecDaemon1.CecDevice1` on the session bus, turns false on a `<Routing Change>` or `<Set Stream Path>` to another address, and on `<Active Source>` from another address. It turns true again when the TV routes back to the Steam Machine. Each change is signalled with `PropertiesChanged`.
+      - On waking or starting, `cecd` counts itself active and asks for the active source. Its own documentation calls that unreliable [244].
+      - `<Standby>` does not change `Active`. With Steam's setting to sleep with the TV, `cecd` suspends the Steam Machine instead, and item 97 then closes the app first.
+      - Every message it receives is also signalled as `ReceivedMessage`, so a `<Standby>` can be seen either way. `cecd` 0.4.0 does the same [244].
+    - **What other CEC players do:**
+      - Android's players pause every active media session whenever they lose the active source, through any of those messages or `<Routing Information>`. They can also go to standby after a prompt [240].
+      - Kodi offers "Action when switching to another source": none by default, pause or stop. It acts when libCEC marks Kodi inactive, on another device's `<Active Source>` or a `<Set Stream Path>` to an address libCEC does not know. When Kodi becomes active again, it resumes what it paused [241][242].
+    - **How the apps can be paused:**
+      - The apps that play video each publish an MPRIS player on the session bus [194][95][179][175]:
+        - VacuumTube and the Helium apps: Chromium's, `org.mpris.MediaPlayer2.chromium.instance<N>`, which handles `Pause` as well as `PlayPause` [235].
+        - Jellyfin: `org.mpris.MediaPlayer2.JellyfinDesktop.*`.
+        - VLC: `org.mpris.MediaPlayer2.vlc`.
+        - Discord has none.
+      - To pause only the app it started, a helper asks the bus which process owns each player, with `GetConnectionUnixProcessID`, and keeps those under the launcher. For a Flatpak, that process is the `xdg-dbus-proxy` that `flatpak run` starts as its child before it becomes bubblewrap [243].
+    - **VacuumTube's own option:** "pause when out of focus" (`pause_on_blur`), off by default, pauses when its window loses focus [232].
+      - It covers leaving the app in Steam, not the TV switching away.
+      - In Game Mode, the window probably also loses focus whenever Steam's menu or Quick Access opens, for the volume say. This was not tried.
+    - **Options put to the owner:**
+      1. **Pause on the TV's messages (recommended):** item 66's helper already follows `cecd` while an app runs in Game Mode. It would also pause the app's own MPRIS players when `Active` turns false or a `<Standby>` arrives.
+         - By default this would cover the apps that play video and music: YouTube, Jellyfin, VLC and the Helium streaming apps. A setting like `CLOSE_BEFORE_SLEEP`'s would change which.
+         - Nothing resumes by itself.
+         - It needs no root and no change to `cecd`, but works only as far as the TV reports its changes.
+      2. **The same, and resume:** as Kodi does, play again what was paused once the TV routes back to the Steam Machine. A video that starts by itself can surprise. And since `cecd` counts itself active at every wake, it could resume while the TV still shows another input.
+      3. **Pause every player, as Android does:** simpler, with no matching of processes, but it also pauses players NonSteamApps did not start.
+      4. **VacuumTube's pause when out of focus:** NonSteamApps would turn it on among VacuumTube's TV defaults. It helps only when leaving YouTube for Steam, and may pause whenever Steam's menus open.
+      5. **Without a change:** with Steam's setting to sleep with the TV on, turning the TV off puts the Steam Machine to sleep, and item 97 closes the app first.
+    - **First, on the owner's TV:** item 66's helper already writes each CEC message to the app's log, so the log can show whether the TV sends what option 1 needs.
+      - Play a video, switch the TV to another input and back, then turn the TV off.
+      - Then read the log with `nonsteamapps doctor`. After the sender and receiver, such as `0>f` for the TV to every device, `80` is `<Routing Change>`, `82` is `<Active Source>`, `86` is `<Set Stream Path>` and `36` is `<Standby>`.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -1089,3 +1148,9 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 236. [systemd](https://github.com/systemd/systemd/tree/6501c454c47ad39d241ad71ea7f69b4ee72e06fd) at `6501c45`: `src/login/org.freedesktop.login1.policy` (`inhibit-delay-sleep` and `inhibit-delay-shutdown` allowed in any session), `src/login/logind.conf.in` (`InhibitDelayMaxSec=5`) and `src/login/logind-dbus.c` (`PrepareForSleep` and `PrepareForShutdown`; skipping inhibitors skips only block locks)
 237. [Kodi](https://github.com/xbmc/xbmc/blob/master/xbmc/platform/linux/powermanagement/LogindUPowerSyscall.cpp): `LogindUPowerSyscall.cpp`, which holds logind delay locks for sleep and shutdown
 238. [decky-frontend-lib](https://github.com/SteamDeckHomebrew/decky-frontend-lib), unofficial typings of Steam's client: `SteamClient.System.RegisterForOnSuspendRequest` and `SteamClient.Apps.TerminateApp`
+239. [Android](https://github.com/aosp-mirror/platform_frameworks_base/blob/1cdfff555f4a21f71ccc978290e2e212e2f8b168/services/core/java/com/android/server/hdmi/HdmiCecLocalDeviceTv.java) `frameworks/base` at `1cdfff5`: `HdmiCecLocalDeviceTv.java` (`handleSelectInternalSource`, which broadcasts `<Active Source>` with the TV's own address; `doManualPortSwitching` and `startRoutingControl`, which broadcast `<Routing Change>`, or `<Set Stream Path>` for the same path; `deviceSelect`, with `DeviceSelectActionFromTv.java`, which sends `<Set Stream Path>` for a device chosen directly)
+240. [Android](https://github.com/aosp-mirror/platform_frameworks_base/tree/1cdfff555f4a21f71ccc978290e2e212e2f8b168/services/core/java/com/android/server/hdmi) `frameworks/base` at `1cdfff5`: `HdmiCecLocalDeviceSource.java` (the active source lost on `<Active Source>`, `<Set Stream Path>`, `<Routing Change>` and `<Routing Information>`), `HdmiCecLocalDevicePlayback.java` (`onActiveSourceLost`, which pauses, then the standby setting's pop-up after 5 seconds and standby after 30) and `HdmiControlService.java` (`pauseActiveMediaSessions`, for every active session)
+241. [Kodi](https://github.com/xbmc/xbmc/tree/84cee51f21ec1c62b62d4b0ec846a9bc55d311c4) at `84cee51`: `xbmc/peripherals/devices/PeripheralCecAdapter.cpp` (`CecSourceActivated`, which pauses or stops on deactivation and resumes what it paused), `system/peripherals.xml` (`pause_or_stop_playback_on_deactivate`, none by default) and `addons/resource.language.en_gb/resources/strings.po` ("Action when switching to another source")
+242. [libCEC](https://github.com/Pulse-Eight/libcec/tree/libcec-8.1.7) 8.1.7: `src/libcec/implementations/CECCommandHandler.cpp` and `src/libcec/devices/CECBusDevice.cpp`, for the messages that mark a device inactive
+243. [Flatpak](https://github.com/flatpak/flatpak/tree/1.18.4) 1.18.4: `common/flatpak-run-dbus.c` (`xdg-dbus-proxy` started with `g_spawn_async`) and `common/flatpak-run.c` (bubblewrap started with `execvpe` in the same process, unless run in the background)
+244. [`cecd`](https://gitlab.steamos.cloud/holo/linux-cec) at `cecd-0.3.0` and at `cecd-0.4.0`: `cecd/src/device.rs` (`set_active` on `<Set Stream Path>`, `<Active Source>` and `<Routing Change>`; `pending_activate` on waking and starting; `<Standby>` acted on only with `allow_standby`; `ReceivedMessage` for every message, before it is handled), `cecd/src/dbus.rs` (`CecDevice1`'s `Active` property, under `/com/steampowered/CecDaemon1/Devices/`) and `README.md` (`request_active_source`, "unreliable and can erroneously determine we're active when we're not")

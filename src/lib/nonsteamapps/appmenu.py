@@ -29,10 +29,13 @@ METHOD_CALL, METHOD_RETURN, ERROR, SIGNAL = 1, 2, 3, 4
 NO_REPLY_EXPECTED, NO_AUTO_START = 1, 2
 DO_NOT_QUEUE = 4
 PRIMARY_OWNER = 1
-PATH, INTERFACE, MEMBER, ERROR_NAME, REPLY_SERIAL, DESTINATION, SENDER, SIGNATURE = range(1, 9)
-FIELD_TYPES = {PATH: "o", INTERFACE: "s", MEMBER: "s", ERROR_NAME: "s", REPLY_SERIAL: "u", DESTINATION: "s", SENDER: "s", SIGNATURE: "g"}
+PATH, INTERFACE, MEMBER, ERROR_NAME, REPLY_SERIAL, DESTINATION, SENDER, SIGNATURE, UNIX_FDS = range(1, 10)
+FIELD_TYPES = {PATH: "o", INTERFACE: "s", MEMBER: "s", ERROR_NAME: "s", REPLY_SERIAL: "u", DESTINATION: "s", SENDER: "s", SIGNATURE: "g",
+               UNIX_FDS: "u"}
 ANSWERED = ("RegisterWindow", "UnregisterWindow")
 MAX_MESSAGE = 1 << 20
+MAX_FDS = 16
+SYSTEM_BUS = "/run/dbus/system_bus_socket"
 
 
 class Message(NamedTuple):
@@ -149,9 +152,9 @@ def uint32(message: Message) -> int:
     return struct.unpack_from(message.order + "I", message.body)[0]
 
 
-def session_bus(environ: Mapping[str, str]) -> Optional[str]:
-    """The session bus's socket: a path, or an abstract name that starts with a NUL."""
-    for entry in environ.get("DBUS_SESSION_BUS_ADDRESS", "").split(";"):
+def _socket(address: str) -> Optional[str]:
+    """The socket a D-Bus address names: a path, or an abstract name that starts with a NUL."""
+    for entry in address.split(";"):
         transport, _, parameters = entry.partition(":")
         if transport != "unix":
             continue
@@ -160,19 +163,38 @@ def session_bus(environ: Mapping[str, str]) -> Optional[str]:
             return urllib.parse.unquote(options["path"])
         if options.get("abstract"):
             return "\0" + urllib.parse.unquote(options["abstract"])
+    return None
+
+
+def session_bus(environ: Mapping[str, str]) -> Optional[str]:
+    """The session bus's socket: a path, or an abstract name that starts with a NUL."""
+    found = _socket(environ.get("DBUS_SESSION_BUS_ADDRESS", ""))
+    if found:
+        return found
     runtime = environ.get("XDG_RUNTIME_DIR")
     return os.path.join(runtime, "bus") if runtime else None
 
 
-class Connection:
-    """An authenticated connection to a bus, through which messages are sent and read."""
+def system_bus(environ: Mapping[str, str]) -> str:
+    """The system bus's socket, where logind is."""
+    return _socket(environ.get("DBUS_SYSTEM_BUS_ADDRESS", "")) or SYSTEM_BUS
 
-    def __init__(self, address: str, timeout: float = 2.0) -> None:
+
+class Connection:
+    """An authenticated connection to a bus, through which messages are sent and read.
+
+    With ``unix_fds``, it also takes the file descriptors that messages carry, such as a logind lock, which
+    :meth:`take_fds` hands over.
+    """
+
+    def __init__(self, address: str, timeout: float = 2.0, unix_fds: bool = False) -> None:
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(timeout)
         self.serial = 0
         self.buffer = b""
         self.pending: List[Message] = []
+        self.unix_fds = unix_fds
+        self.fds: List[int] = []
         try:
             self.socket.connect(address)
             self._authenticate()
@@ -180,19 +202,35 @@ class Connection:
             self.socket.close()
             raise
 
-    def _authenticate(self) -> None:
-        self.socket.sendall(b"\0AUTH EXTERNAL " + str(os.getuid()).encode().hex().encode() + b"\r\n")
+    def _line(self) -> bytes:
         line = b""
         while not line.endswith(b"\r\n") and len(line) < 512:
             chunk = self.socket.recv(1)
             if not chunk:
                 break
             line += chunk
+        return line
+
+    def _authenticate(self) -> None:
+        self.socket.sendall(b"\0AUTH EXTERNAL " + str(os.getuid()).encode().hex().encode() + b"\r\n")
+        line = self._line()
         if not line.startswith(b"OK "):
-            raise OSError(f"the session bus refused to authenticate: {line.strip()!r}")
+            raise OSError(f"the bus refused to authenticate: {line.strip()!r}")
+        if self.unix_fds:
+            self.socket.sendall(b"NEGOTIATE_UNIX_FD\r\n")
+            line = self._line()
+            if not line.startswith(b"AGREE_UNIX_FD"):
+                raise OSError(f"the bus does not pass file descriptors: {line.strip()!r}")
         self.socket.sendall(b"BEGIN\r\n")
 
+    def take_fds(self) -> List[int]:
+        """The file descriptors received so far, which the caller now owns and closes."""
+        found, self.fds = self.fds, []
+        return found
+
     def close(self) -> None:
+        for fd in self.take_fds():
+            os.close(fd)
         self.socket.close()
 
     def send(self, kind: int, fields: Mapping[int, object], body: bytes = b"", flags: int = 0) -> int:
@@ -208,9 +246,15 @@ class Connection:
         return self._read()
 
     def _read(self) -> List[Message]:
-        chunk = self.socket.recv(65536)
+        if self.unix_fds:
+            chunk, ancillary, _, _ = self.socket.recvmsg(65536, socket.CMSG_SPACE(MAX_FDS * 4), socket.MSG_CMSG_CLOEXEC)
+            for level, kind, data in ancillary:
+                if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                    self.fds.extend(struct.unpack(f"{len(data) // 4}i", data[:len(data) // 4 * 4]))
+        else:
+            chunk = self.socket.recv(65536)
         if not chunk:
-            raise EOFError("the session bus closed the connection")
+            raise EOFError("the bus closed the connection")
         self.buffer += chunk
         found = []
         while True:

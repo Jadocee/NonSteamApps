@@ -21,6 +21,13 @@ class SettingsTests(unittest.TestCase):
         self.assertTrue(config.enabled(None, default=True))
         self.assertTrue(config.enabled("  ", default=True))
 
+    def test_a_setting_that_names_apps_covers_all_none_or_those_listed(self):
+        for default in (True, False):
+            self.assertEqual(config.covers(None, "youtube", default), default)
+            self.assertEqual(config.covers(" Default ", "youtube", default), default)
+        self.assertTrue(all(config.covers(value, "eden", False) for value in ("all", "On", "1", "eden", "youtube, Eden", "vlc eden")))
+        self.assertFalse(any(config.covers(value, "eden", True) for value in ("", "off", "none", "0", "youtube", "edennx2")))
+
     def test_paths_follow_xdg_variables(self):
         environ = {"HOME": "/home/deck", "XDG_CONFIG_HOME": "/cfg", "XDG_STATE_HOME": "relative"}
         paths = config.Paths.detect(Path("/opt/nsa"), environ)

@@ -192,7 +192,7 @@ class Builds:
         archive = self.downloads / self.asset(build.tag)
         ui.info(f"Downloading {archive.name} ({build.size / 1048576:.0f} MB)")
         try:
-            net.download(build.url, archive)
+            net.download(build.url, archive, ui.downloaded)
         except OSError as exc:
             raise self.error(f"could not download {archive.name}: {exc}") from exc
         return archive

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-import shutil
 import urllib.request
 from pathlib import Path
+from typing import Callable, Optional
 
 TIMEOUT = 30
+CHUNK = 1 << 18
 
 
 def request(url: str, accept: str = "") -> urllib.request.Request:
@@ -32,14 +33,30 @@ def final_url(url: str) -> str:
         return response.geturl()
 
 
-def download(url: str, target: Path) -> None:
-    """Save ``url`` as ``target``, which never holds part of a download."""
+def download(url: str, target: Path, progress: Optional[Callable[[int, int], None]] = None) -> None:
+    """Save ``url`` as ``target``, which never holds part of a download.
+
+    After each part received, ``progress`` hears the bytes received so far and the download's size, which is 0
+    when the server does not give it.
+    """
     target = Path(target)
     partial = target.with_name(target.name + ".part")
     try:
         with urllib.request.urlopen(request(url), timeout=TIMEOUT) as response, open(partial, "wb") as output:
-            shutil.copyfileobj(response, output, 1 << 20)
+            size, received = _size(response), 0
+            for chunk in iter(lambda: response.read(CHUNK), b""):
+                output.write(chunk)
+                received += len(chunk)
+                if progress is not None:
+                    progress(received, size)
         os.replace(partial, target)
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
+
+
+def _size(response) -> int:
+    try:
+        return max(int(response.headers.get("Content-Length") or 0), 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0

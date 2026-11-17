@@ -1,12 +1,15 @@
+import contextlib
 import io
 import os
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import _fakes
 import _paths
-from nonsteamapps import selfupdate
+from nonsteamapps import selfupdate, ui
 from nonsteamapps.config import Paths
 
 
@@ -59,6 +62,19 @@ class SelfUpdateTests(unittest.TestCase):
         tree = selfupdate.fetch(archive.as_uri(), self.work)
         self.assertEqual((tree / "src/lib/nonsteamapps/__init__.py").read_text(), '__version__ = "9.9.9"\n')
         self.assertEqual(selfupdate.fetch(str(self.dir / "clone"), self.work), self.dir / "clone")
+
+    def test_a_download_shows_its_progress_on_the_bar(self):
+        archive = self.archive({"NonSteamApps-main/install.sh": b"#!/bin/bash\n", "NonSteamApps-main/assets/artwork.png": os.urandom(3 << 19)})
+        size = archive.stat().st_size / (1 << 20)
+        terminal = _fakes.Terminal()
+        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), contextlib.redirect_stderr(terminal), \
+                ui.progress(1):
+            ui.step("NonSteamApps")
+            tree = selfupdate.fetch(archive.as_uri(), self.work)
+        self.assertTrue((tree / "install.sh").is_file())
+        drawn = [line.split(" · ", 2)[-1] for line in _fakes.bars(terminal.getvalue())]
+        self.assertIn(f"0.2 of {size:.1f} MB", drawn)
+        self.assertEqual(drawn[-1], f"{size:.1f} of {size:.1f} MB")
 
     def test_a_missing_or_foreign_archive_is_reported(self):
         with self.assertRaises(selfupdate.UpdateError):

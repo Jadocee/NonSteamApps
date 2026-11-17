@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from . import ui
 
 REMOTE = "flathub"
 REMOTE_URL = "https://dl.flathub.org/repo/flathub.flatpakrepo"
+
+_COUNTS = re.compile(r"(\d+)\s*/\s*(\d+)")
+_PERCENT = re.compile(r"(\d{1,3})\s?%|%\s?(\d{1,3})")
+_DURATION = re.compile(r"\d+(?::\d\d)+")
 
 
 def x11_options() -> List[str]:
@@ -22,6 +31,49 @@ def x11_options() -> List[str]:
 
 class FlatpakError(RuntimeError):
     """A ``flatpak`` command failed."""
+
+
+class Progress:
+    """Reads the progress that ``flatpak install`` or ``update`` prints without ``--noninteractive`` when its output is not a terminal.
+
+    As each operation starts, such as a runtime or the app, Flatpak prints a line like ``Installing 2/4…`` or
+    ``Updating 1/3…``, and then, as it goes on, that line again with a bar, a percentage and the speed after it (as
+    Flatpak 1.14 to 1.18 do). Only that shape is relied on, not the words, which are in the user's language.
+    """
+
+    def __init__(self) -> None:
+        self.previous = ""
+        self.heading = ""
+        self.operation = 0
+        self.operations = 0
+
+    def read(self, line: str) -> Optional[Tuple[float, str]]:
+        """How far the whole install or update has got, from 0 to 1, and what it is doing, when ``line`` says so."""
+        line = line.rstrip("\r\n")
+        if not (self.heading and line.startswith(self.heading + " ")):
+            if not (self.previous and line.startswith(self.previous + " ")):
+                self.previous = line
+                return None
+            self._start(self.previous)
+        found = _PERCENT.search(line, len(self.heading) + 1)
+        if not found:
+            return None
+        percent = min(int(found.group(1) or found.group(2)), 100)
+        operations = max(self.operations, self.operation)
+        words = [f"part {self.operation} of {operations}"] if operations > 1 else []
+        words.append(f"{percent}%")
+        speed = " ".join(word for word in line[found.end():].split() if not _DURATION.fullmatch(word))
+        if speed:
+            words.append(speed)
+        return min((self.operation - 1 + percent / 100) / operations, 1.0), ", ".join(words)
+
+    def _start(self, heading: str) -> None:
+        self.heading = heading
+        counts = _COUNTS.search(heading)
+        if counts:
+            self.operation, self.operations = int(counts.group(1)), int(counts.group(2))
+        else:
+            self.operation += 1
 
 
 @dataclass(frozen=True)
@@ -40,6 +92,10 @@ class Flatpak:
         return shutil.which(self.command) is not None
 
     def _call(self, *args: str, quiet: bool = False) -> None:
+        """Run ``flatpak args``, or while a progress bar is shown, follow it on the bar (see :meth:`_follow`)."""
+        if ui.progressing():
+            self._follow(*args)
+            return
         stream = subprocess.DEVNULL if quiet else None
         try:
             result = subprocess.run([self.command, *args], stdin=subprocess.DEVNULL, stdout=stream, check=False)
@@ -47,6 +103,27 @@ class Flatpak:
             raise FlatpakError(f"could not run {self.command}: {exc}") from exc
         if result.returncode != 0:
             raise FlatpakError(f"'flatpak {' '.join(args)}' failed with exit status {result.returncode}")
+
+    def _follow(self, *args: str) -> None:
+        """Run ``flatpak args`` with its progress on the progress bar, and print what it says on stderr above the bar."""
+        reader = Progress()
+        with tempfile.TemporaryFile() as said:
+            try:
+                process = subprocess.Popen([self.command, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=said,
+                                           env={**os.environ, "FLATPAK_FANCY_OUTPUT": "0"}, encoding="utf-8", errors="replace")
+            except OSError as exc:
+                raise FlatpakError(f"could not run {self.command}: {exc}") from exc
+            with process:
+                for line in process.stdout:
+                    found = reader.read(line)
+                    if found:
+                        ui.advance(*found)
+            said.seek(0)
+            for line in said.read().decode("utf-8", "replace").splitlines():
+                if line.strip():
+                    ui.info(line.strip())
+        if process.returncode != 0:
+            raise FlatpakError(f"'flatpak {' '.join(args)}' failed with exit status {process.returncode}")
 
     def installed(self) -> Dict[str, Installed]:
         """Map installed app IDs to their version and installation, preferring the user installation."""
@@ -76,13 +153,24 @@ class Flatpak:
         found = self.installed().get(app_id)
         return found.installation if found else None
 
+    @staticmethod
+    def _noninteractive() -> Tuple[str, ...]:
+        """``--noninteractive``, unless a progress bar is shown (see :func:`ui.progress`).
+
+        ``--noninteractive`` prints no progress, so under a bar it is left out and Flatpak's progress goes to the bar
+        (see :class:`Progress`); ``-y``, which ``--noninteractive`` implies, answers Flatpak's questions as it does.
+        """
+        return () if ui.progressing() else ("--noninteractive",)
+
     def install(self, app_id: str) -> None:
+        """Install ``app_id`` from Flathub into the user installation."""
         self._call("remote-add", "--user", "--if-not-exists", REMOTE, REMOTE_URL)
-        self._call("install", "--user", "--noninteractive", "-y", REMOTE, app_id)
+        self._call("install", "--user", *self._noninteractive(), "-y", REMOTE, app_id)
 
     def update(self, app_ids: Sequence[str], quiet: bool = False) -> None:
+        """Update ``app_ids`` in the user installation."""
         if app_ids:
-            self._call("update", "--user", "--noninteractive", "-y", *app_ids, quiet=quiet)
+            self._call("update", "--user", *self._noninteractive(), "-y", *app_ids, quiet=quiet)
 
     def uninstall(self, app_id: str) -> None:
         self._call("uninstall", "--user", "--noninteractive", "-y", app_id)

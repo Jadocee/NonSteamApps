@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Mapping
 
-from . import net
+from . import net, ui
 from .config import Paths
 from .fsutil import atomic_write_json
 
@@ -59,7 +59,7 @@ def fetch(source: str, work: Path) -> Path:
         return Path(source)
     archive = Path(work) / "nonsteamapps.tar.gz"
     try:
-        net.download(source, archive)
+        net.download(source, archive, ui.downloaded)
     except (OSError, ValueError) as exc:
         raise UpdateError(f"could not download {source}: {exc}") from exc
     tree = Path(work) / "source"

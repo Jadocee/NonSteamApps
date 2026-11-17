@@ -129,6 +129,21 @@ class FlatpakTests(unittest.TestCase):
         self.assertTrue(_fakes.bars(terminal.getvalue())[-1].startswith("█" * 9 + "░" * 9 + "  50%"))
         self.assertEqual(_fakes.screen(terminal.getvalue()), ["    Warning: Jellyfin's runtime is end-of-life", ""])
 
+    def test_updates_with_flatpaks_progress_on_the_bar_while_one_is_shown(self):
+        terminal = _fakes.Terminal()
+        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), contextlib.redirect_stderr(terminal), \
+                ui.progress(1):
+            ui.step("Flathub apps")
+            self.flatpak.update(["rocks.shy.VacuumTube", "im.riot.Riot"], quiet=True)
+            self.flatpak.remove_unused()
+        self.assertEqual(self.fake.calls()[-2:], [["update", "--user", "-y", "rocks.shy.VacuumTube", "im.riot.Riot"],
+                                                  ["uninstall", "--user", "--unused", "--noninteractive", "-y"]])
+        self.assertEqual(self.fake.state_value("fancy_output"), "0")
+        drawn = [line.split("%", 1)[1] for line in _fakes.bars(terminal.getvalue())]
+        self.assertIn("  1 of 1 · Flathub apps · part 1 of 3, 50%, 1.0 MB/s", drawn)
+        self.assertIn("  1 of 1 · Flathub apps · part 3 of 3, 100%, 1.0 MB/s", drawn)
+        self.assertEqual(_fakes.screen(terminal.getvalue()), [""])
+
     def test_a_failed_install_on_the_bar_says_why_and_raises(self):
         terminal = _fakes.Terminal()
         with mock.patch.dict(os.environ, {"TERM": "xterm", "FAKE_FLATPAK_FAIL": "install"}), mock.patch.object(ui, "_COLOUR", False), \

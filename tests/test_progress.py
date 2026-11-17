@@ -164,7 +164,7 @@ class MessagesTests(unittest.TestCase):
             "  2 of 3 · YouTube · part 1 of 2, 100%",
             "  2 of 3 · YouTube · drawn after the pause",
             "  3 of 3 · Steam library",
-            "  3 of 3 · Steam library · 5 MB",
+            "  3 of 3 · Steam library · 5.0 MB",
         ])
         self.assertTrue(next(line for line in _fakes.bars(text) if "part 1 of 2" in line).startswith("█" * 9 + "░" * 9 + "  50%"))
         self.assertTrue(self.during.endswith("\r\033[2Kwarning: asked while paused\n"))

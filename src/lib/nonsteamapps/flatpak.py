@@ -34,11 +34,11 @@ class FlatpakError(RuntimeError):
 
 
 class Progress:
-    """Reads the progress that ``flatpak install`` prints without ``--noninteractive`` when its output is not a terminal.
+    """Reads the progress that ``flatpak install`` or ``update`` prints without ``--noninteractive`` when its output is not a terminal.
 
-    As each operation of the install starts, such as a runtime or the app, Flatpak prints a line like
-    ``Installing 2/4…``, and then, as it goes on, that line again with a bar, a percentage and the speed after it
-    (as Flatpak 1.14 to 1.18 do). Only that shape is relied on, not the words, which are in the user's language.
+    As each operation starts, such as a runtime or the app, Flatpak prints a line like ``Installing 2/4…`` or
+    ``Updating 1/3…``, and then, as it goes on, that line again with a bar, a percentage and the speed after it (as
+    Flatpak 1.14 to 1.18 do). Only that shape is relied on, not the words, which are in the user's language.
     """
 
     def __init__(self) -> None:
@@ -48,7 +48,7 @@ class Progress:
         self.operations = 0
 
     def read(self, line: str) -> Optional[Tuple[float, str]]:
-        """How far the whole install has got, from 0 to 1, and what it is doing, when ``line`` says so."""
+        """How far the whole install or update has got, from 0 to 1, and what it is doing, when ``line`` says so."""
         line = line.rstrip("\r\n")
         if not (self.heading and line.startswith(self.heading + " ")):
             if not (self.previous and line.startswith(self.previous + " ")):
@@ -92,6 +92,10 @@ class Flatpak:
         return shutil.which(self.command) is not None
 
     def _call(self, *args: str, quiet: bool = False) -> None:
+        """Run ``flatpak args``, or while a progress bar is shown, follow it on the bar (see :meth:`_follow`)."""
+        if ui.progressing():
+            self._follow(*args)
+            return
         stream = subprocess.DEVNULL if quiet else None
         try:
             result = subprocess.run([self.command, *args], stdin=subprocess.DEVNULL, stdout=stream, check=False)
@@ -149,20 +153,24 @@ class Flatpak:
         found = self.installed().get(app_id)
         return found.installation if found else None
 
-    def install(self, app_id: str) -> None:
-        """Install ``app_id`` from Flathub into the user installation.
+    @staticmethod
+    def _noninteractive() -> Tuple[str, ...]:
+        """``--noninteractive``, unless a progress bar is shown (see :func:`ui.progress`).
 
-        While a progress bar is shown (see :func:`ui.progress`), Flatpak's progress goes to it (see :class:`Progress`):
-        ``--noninteractive`` would print none, so it is left out, and ``-y`` answers Flatpak's questions as it does.
+        ``--noninteractive`` prints no progress, so under a bar it is left out and Flatpak's progress goes to the bar
+        (see :class:`Progress`); ``-y``, which ``--noninteractive`` implies, answers Flatpak's questions as it does.
         """
-        following = ui.progressing()
-        run = self._follow if following else self._call
-        run("remote-add", "--user", "--if-not-exists", REMOTE, REMOTE_URL)
-        run("install", "--user", *(() if following else ("--noninteractive",)), "-y", REMOTE, app_id)
+        return () if ui.progressing() else ("--noninteractive",)
+
+    def install(self, app_id: str) -> None:
+        """Install ``app_id`` from Flathub into the user installation."""
+        self._call("remote-add", "--user", "--if-not-exists", REMOTE, REMOTE_URL)
+        self._call("install", "--user", *self._noninteractive(), "-y", REMOTE, app_id)
 
     def update(self, app_ids: Sequence[str], quiet: bool = False) -> None:
+        """Update ``app_ids`` in the user installation."""
         if app_ids:
-            self._call("update", "--user", "--noninteractive", "-y", *app_ids, quiet=quiet)
+            self._call("update", "--user", *self._noninteractive(), "-y", *app_ids, quiet=quiet)
 
     def uninstall(self, app_id: str) -> None:
         self._call("uninstall", "--user", "--noninteractive", "-y", app_id)

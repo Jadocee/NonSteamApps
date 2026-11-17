@@ -93,6 +93,24 @@ class CliTestCase(unittest.TestCase):
         self.output, self.errors = output.getvalue(), errors.getvalue()
         return status
 
+    def run_on_terminal(self, *argv, terminal=None):
+        """Run the command with stderr on ``terminal``, a :class:`_fakes.Terminal` unless one is given; return its status and what the terminal was sent."""
+        terminal = terminal or _fakes.Terminal()
+        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(terminal):
+            status = cli.main(list(argv), self.paths, self.flatpak)
+        return status, terminal.getvalue()
+
+    @staticmethod
+    def steps(text):
+        """The step each progress bar drawn in ``text`` names, once for each time it changes."""
+        steps = []
+        for line in _fakes.bars(text):
+            step = " · ".join(line.split("%  ", 1)[1].split(" · ")[:2])
+            if not steps or steps[-1] != step:
+                steps.append(step)
+        return steps
+
     def install(self, *names):
         options = ("--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive), "--kytyps5-archive", str(self.kyty_archive),
                    "--lichii-archive", str(self.lichii_appimage), "--skip-verify")
@@ -171,23 +189,6 @@ class InstallTests(CliTestCase):
         self.assertIn("    LocalSend: Steam ▸ Library ▸ Non-Steam ▸ LocalSend\n", self.errors)
         self.assertIn("    Sign-ins:  separate for each Steam account\n", self.errors)
         self.assertNotIn("Note:", self.errors)
-
-    def run_on_terminal(self, *argv):
-        terminal = _fakes.Terminal()
-        with mock.patch.dict(os.environ, {"TERM": "xterm"}), mock.patch.object(ui, "_COLOUR", False), \
-                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(terminal):
-            status = cli.main(list(argv), self.paths, self.flatpak)
-        return status, terminal.getvalue()
-
-    @staticmethod
-    def steps(text):
-        """The step each progress bar drawn in ``text`` names, once for each time it changes."""
-        steps = []
-        for line in _fakes.bars(text):
-            step = " · ".join(line.split("%  ", 1)[1].split(" · ")[:2])
-            if not steps or steps[-1] != step:
-                steps.append(step)
-        return steps
 
     def test_on_a_terminal_a_progress_bar_counts_the_install_beneath_its_messages(self):
         status, text = self.run_on_terminal("install", "youtube", "netflix", "--yes", "--no-auto-update", "--helium-archive", str(self.helium_archive),
@@ -1824,6 +1825,26 @@ class UpdateTests(CliTestCase):
         self.assertIn("left the Steam library as it was: Steam is running in Game Mode", self.errors)
         self.assertEqual(self.entries(ALPHA)["LocalSend"].get("StartDir"), '"/somewhere/else"')
 
+    def test_on_a_terminal_a_progress_bar_counts_the_update_beneath_its_messages(self):
+        self.install("youtube", "netflix")
+        status, text = self.run_on_terminal("update", "--yes")
+        self.assertEqual(status, 0, text)
+        self.assertEqual(self.steps(text), ["1 of 5 · NonSteamApps", "2 of 5 · Helium", "3 of 5 · Flathub apps",
+                                            "4 of 5 · Settings, TV remote and Desktop Mode", "5 of 5 · Steam library"])
+        self.assertIn("3 of 5 · Flathub apps · part 2 of 2, 50%, 1.0 MB/s", [line.split("%  ", 1)[1] for line in _fakes.bars(text)])
+        self.assertEqual(self.fake.calls("update"), [["update", "--user", "-y", "rocks.shy.VacuumTube"]])
+        screen = _fakes.screen(text)
+        self.assertIn(" ✓  Apps are up to date", screen)
+        self.assertIn(" ✓  The Steam library is up to date", screen)
+        self.assertEqual(screen[-1], "")
+
+    def test_apps_only_on_a_terminal_counts_only_the_apps(self):
+        self.install("youtube", "netflix")
+        status, text = self.run_on_terminal("update", "--apps-only")
+        self.assertEqual(status, 0, text)
+        self.assertEqual(self.steps(text), ["1 of 2 · Helium", "2 of 2 · Flathub apps"])
+        cli._update_program.assert_not_called()
+
     def test_apps_only_leaves_nonsteamapps_and_the_steam_library_alone(self):
         self.install("youtube")
         with mock.patch("nonsteamapps.cli.steam_add") as add:
@@ -1855,6 +1876,21 @@ class SelfUpdateTests(CliTestCase):
         self.assertEqual(handed_over, __version__)
         self.assertEqual(marker.read_text(), f"1 {self.paths.program}\n")
         self.assertEqual(self.fake.calls("update"), [])
+
+    def test_the_progress_bar_is_off_the_terminal_when_the_new_version_takes_over(self):
+        self.install("localsend")
+        self.make_source("#!/bin/bash\n")
+        terminal, seen = _fakes.Terminal(), []
+
+        def hand_over(file, argv):
+            seen.append(terminal.getvalue())
+            raise Exec(argv)
+
+        with mock.patch("nonsteamapps.cli.os.execv", side_effect=hand_over), mock.patch.dict(os.environ), self.assertRaises(Exec):
+            self.run_on_terminal("update", "--yes", terminal=terminal)
+        self.assertEqual(self.steps(seen[0]), ["1 of 4 · NonSteamApps"])
+        self.assertTrue(seen[0].endswith("\r\033[2K"))
+        self.assertEqual(_fakes.screen(seen[0])[-1], "")
 
     def test_the_new_version_says_what_it_replaced_and_updates_the_apps(self):
         self.install("localsend")

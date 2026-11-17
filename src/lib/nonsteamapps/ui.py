@@ -112,10 +112,14 @@ def advance(fraction: float, detail: str = "") -> None:
 
 
 def downloaded(received: int, size: int) -> None:
-    """Show a download's progress on the progress bar: ``received`` bytes of ``size``, which is 0 when unknown."""
+    """Show a download's progress on the progress bar: ``received`` bytes of ``size``, which is 0 when unknown.
+
+    Under 10 MB, the megabytes have one decimal place.
+    """
     if _bar is not None:
-        got = f"{received / MEGABYTE:.0f}"
-        _bar.update(received / size if size else 0.0, f"{got} of {size / MEGABYTE:.0f} MB" if size else f"{got} MB")
+        places = 0 if max(received, size) >= 10 * MEGABYTE else 1
+        got = f"{received / MEGABYTE:.{places}f}"
+        _bar.update(received / size if size else 0.0, f"{got} of {size / MEGABYTE:.{places}f} MB" if size else f"{got} MB")
 
 
 def skip(count: int) -> None:

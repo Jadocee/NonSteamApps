@@ -909,6 +909,30 @@ The owner answered the open questions. Where these answers differ from the text 
       - Which of these messages the owner's TV sends; item 98's test shows it.
       - How VacuumTube, Jellyfin, VLC and the Helium apps take `Pause` in Game Mode.
 
+100. **Samsung TVs running Tizen, such as the 2026 models on Tizen 10: what is known (owner request; verification).** The owner asked for items 97 and 99 to be verified on a Tizen 10 TV. No TV or Steam Machine can be reached from here, so this item records what is known, what replaying it showed, and what the owner can check on the TV.
+    - **Tizen 10** is the software of Samsung's 2026 TVs [245]. No public account of its HDMI-CEC behaviour was found. What follows comes from Samsung TVs of 2017 to 2024 connected to a Steam Machine, and from Samsung's own pages.
+    - **Turning the TV off:** with Anynet+ on, a Samsung TV that is turned off sends the Steam Machine `<Standby>`. This is reported for a Frame (QN65LS03D), a Q90A and a QN90 [246].
+      - Samsung's manuals say connected devices turn off with the TV when Anynet+'s Auto Turn Off is on [247]. On a TV that still has that setting, it must be on.
+      - With Steam's setting to sleep with the TV on, `cecd` then suspends the Steam Machine and item 97 closes the app first. With it off, item 99 pauses the app.
+    - **Switching input:** a forum report has a Samsung TV broadcast `<Routing Change>` when the user switches input [248], which item 99 counts.
+    - **The TV's own apps:** nothing found shows what a Samsung TV sends when it switches to its own apps or tuner. If it sends nothing, nothing can be paused then.
+    - **Samsung's other messages:** libCEC's handler for Samsung TVs expects these [249]. None is a routing message:
+      - a vendor command announcing that the TV has powered up;
+      - remote keys sent as vendor commands;
+      - `<Set Menu Language>`;
+      - power-status replies.
+    - **Replay:** those frames, a Sony TV's from a capture [250] and an LG TV's vendor ID broadcast every 15 seconds [246] were run through item 99's rules. None of them pauses, and `<Standby>` does; a test now covers this.
+    - **Known problems:** three problems between Samsung TVs and the Steam Machine are open in SteamOS's tracker, independent of NonSteamApps:
+      - The Steam Machine wakes a few seconds after it sleeps, woken by CEC traffic [246]. With item 97, the app has been closed by then.
+      - CEC stops working for the TV's other devices once a Steam Machine boots connected [251].
+      - `cecd` suspends again straight after waking, on a `<Standby>` it received before; this was seen with a Steam Deck and a Q90A [252]. Item 99 may then pause an app left open.
+    - **Effect of items 97 and 99 on those problems:** neither sends anything on the HDMI bus, so neither can add to them. Item 97's lock holds sleep back until the app has closed. That may give `cecd`'s own message to the TV time to go out before user processes freeze, which the third report asks for [252]; this was not tried.
+    - **To check on the owner's TV:** Anynet+ (HDMI-CEC) on, under External Device Manager in the TV's settings; then, with a video playing in YouTube:
+      1. Switch the TV to another input and back: the video should be paused, and `nonsteamapps doctor` should show a `CEC` line starting `0>f: 80` and then `the TV switched to …; paused YouTube`.
+      2. Switch to one of the TV's own apps and back: a `0>f: 82 00 00` or `0>f: 80 … 00 00` line, with the pause, shows that the TV reports it. No `CEC` line shows that it does not.
+      3. With Steam's setting to sleep with the TV off, turn the TV off and on: `0>f: 36`, then `the TV is turning off; paused YouTube`.
+      4. With it on, turn the TV off, then wake the Steam Machine: Steam's library, with `closing VacuumTube: the Steam Machine sleeps` and `closed VacuumTube` in the log. If the Steam Machine wakes by itself within a minute, that is the first known problem above.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -1172,3 +1196,11 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 242. [libCEC](https://github.com/Pulse-Eight/libcec/tree/libcec-8.1.7) 8.1.7: `src/libcec/implementations/CECCommandHandler.cpp` and `src/libcec/devices/CECBusDevice.cpp`, for the messages that mark a device inactive
 243. [Flatpak](https://github.com/flatpak/flatpak/tree/1.18.4) 1.18.4: `common/flatpak-run-dbus.c` (`xdg-dbus-proxy` started with `g_spawn_async`) and `common/flatpak-run.c` (bubblewrap started with `execvpe` in the same process, unless run in the background)
 244. [`cecd`](https://gitlab.steamos.cloud/holo/linux-cec) at `cecd-0.3.0` and at `cecd-0.4.0`: `cecd/src/device.rs` (`set_active` on `<Set Stream Path>`, `<Active Source>` and `<Routing Change>`; `pending_activate` on waking and starting; `<Standby>` acted on only with `allow_standby`; `ReceivedMessage` for every message, before it is handled), `cecd/src/dbus.rs` (`CecDevice1`'s `Active` property, under `/com/steampowered/CecDaemon1/Devices/`) and `README.md` (`request_active_source`, "unreliable and can erroneously determine we're active when we're not")
+245. Samsung's [general specifications for Smart TV developers](https://developer.samsung.com/smarttv/develop/specifications/general-specifications.html), which list Tizen 10.0 for 2026, and [SamMobile](https://www.sammobile.com/opinion/samsung-tv-tizen-9-update-fixes-four-major-issues-i-faced/), as search results summarised them on 18 November 2026, not opened here
+246. [SteamOS issue 2626](https://github.com/ValveSoftware/SteamOS/issues/2626), "Steammachine not staying asleep due to Anynet+ CEC on Samsung TV", 17 July to 10 November 2026, read on 18 November 2026: a Frame QN65LS03D, a Q90A and a QN90 sending `<Standby>` on power-off; the wake a few seconds after sleep; an LG TV's `<Device Vendor ID>` every 14 to 15 seconds
+247. Samsung's support page [What is Anynet+ on your Samsung TV](https://www.samsung.com/au/support/tv-audio-video/what-is-anynet-plus) and its TV manuals on [ManualsLib](https://www.manualslib.com/manual/752124/Samsung-Tv.html?page=171), for Auto Turn Off, as search results summarised them on 18 November 2026, not opened here
+248. [XBian's forum, "Samsung CEC"](http://forum.xbian.org/thread-2351-page-2.html), for the TV's `<Routing Change>` on an input switch, as a search result summarised it on 18 November 2026; the forum could not be reached from here
+249. [libCEC](https://github.com/Pulse-Eight/libcec/blob/libcec-8.1.7/src/libcec/implementations/ANCommandHandler.cpp) 8.1.7: `src/libcec/implementations/ANCommandHandler.cpp`, its handler for Samsung's Anynet+ (the powered-up vendor command `0x0000f0` `0x23`, vendor remote keys, `<Set Menu Language>`, power-status quirks from 2016's sets on)
+250. [SteamOS issue 2916](https://github.com/ValveSoftware/SteamOS/issues/2916), "HDMI-CEC does not put tv into standby mode when goes to sleep", from 11 October 2026, read on 18 November 2026: a Sony TV's traffic in a `cec-ctl --monitor` capture
+251. [SteamOS issue 2817](https://github.com/ValveSoftware/SteamOS/issues/2817), "Steam Machine breaks HDMI-CEC for all other connected devices", from 16 September 2026, read on 18 November 2026, with Samsung UE55MU7000 and UN55MU8000 TVs
+252. [SteamOS issue 2997](https://github.com/ValveSoftware/SteamOS/issues/2997), "S3 suspend/resume race conditions", 27 October 2026, read on 18 November 2026: `cecd` suspending again on a held `<Standby>` after waking, and user processes frozen before its `<Standby>` to the TV goes out, with a Steam Deck and a Q90A

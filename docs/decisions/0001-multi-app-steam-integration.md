@@ -891,6 +891,24 @@ The owner answered the open questions. Where these answers differ from the text 
       - Play a video, switch the TV to another input and back, then turn the TV off.
       - Then read the log with `nonsteamapps doctor`. After the sender and receiver, such as `0>f` for the TV to every device, `80` is `<Routing Change>`, `82` is `<Active Source>`, `86` is `<Set Stream Path>` and `36` is `<Standby>`.
 
+99. **Pausing on the TV's messages (owner request); version 2.44.0.** The owner chose item 98's first option.
+    - **How:** item 66's helper, which follows `cecd` while an app runs in Game Mode, now also reads each message `cecd` receives. When one shows that the TV no longer shows the Steam Machine, the helper pauses the app's own MPRIS players that are playing. Nothing resumes by itself.
+    - **Which messages count:**
+      - `<Standby>`: the TV is turning off.
+      - `<Active Source>` from another address: another device, or the TV's own apps at `0.0.0.0`, took over.
+      - `<Set Stream Path>`, or the TV's `<Routing Change>`, to a route that does not lead to the Steam Machine.
+      - For a Steam Machine behind an AV receiver: the receiver's `<Routing Change>` away from it, or its `<Routing Information>` for another of its inputs on the same TV input.
+      - A route leads to the Steam Machine when it ends at the Steam Machine's physical address, which `cecd` gives as `PhysicalAddress` [244], or at a switch on the way to it. A route to `0.0.0.0` is the TV's own apps.
+    - **Why not `cecd`'s `Active`:** it turns false on a route to an AV receiver in front of the Steam Machine, and it is signalled only when it changes, so after one wrong turn the next switch away would go unnoticed [244]. The helper judges each message alone instead; a player already paused is not asked again.
+    - **The app's own players:** the helper lists the bus's names under `org.mpris.MediaPlayer2.` and asks the bus for each one's process (`GetConnectionUnixProcessID`). It keeps those under the process the launcher became: the app itself, or for a Flatpak the `xdg-dbus-proxy` that `flatpak run` starts [243]. It reads each one's `PlaybackStatus` and calls `Pause` only on one that is playing, so no other program's player is touched.
+    - **Which apps:** `PAUSE_WHEN_TV_SWITCHES` decides, `default` unless set: YouTube, Jellyfin, VLC, Helium, Prime Video, HBO Max, Netflix and Disney+. `all`, `off` or a list of app IDs replace that. Discord has no player to pause [175].
+    - **The log** shows what happened, under the message that caused it: for example `CEC 512.034 0>f: 80 10 00 20 00`, then `the TV switched to 2.0.0.0; paused YouTube`, or `YouTube was not playing`.
+    - **Shared code:** item 97's process-tree functions move to a module both helpers use. NonSteamApps' D-Bus client now also reads arrays of strings and variants.
+    - **Tests:** a fake `cecd` and fake players run as processes of their own on a private `dbus-daemon`. They check that only the app's own playing player is paused, and that the TV's messages are judged correctly both with the Steam Machine on the TV directly and behind an AV receiver.
+    - **Not yet tried on the device:**
+      - Which of these messages the owner's TV sends; item 98's test shows it.
+      - How VacuumTube, Jellyfin, VLC and the Helium apps take `Pause` in Game Mode.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources

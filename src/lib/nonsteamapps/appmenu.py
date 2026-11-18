@@ -36,6 +36,7 @@ ANSWERED = ("RegisterWindow", "UnregisterWindow")
 MAX_MESSAGE = 1 << 20
 MAX_FDS = 16
 SYSTEM_BUS = "/run/dbus/system_bus_socket"
+UNREADABLE = (struct.error, ValueError, IndexError)
 
 
 class Message(NamedTuple):
@@ -83,6 +84,74 @@ class Writer:
         if kind == "g":
             return self.signature(value)
         return self.string(value)
+
+
+class Reader:
+    """Reads D-Bus values from a message body, aligned from its start; what runs past the body raises one of
+    :data:`UNREADABLE`."""
+
+    def __init__(self, data: bytes, order: str = "<") -> None:
+        self.data, self.order, self.offset = data, order, 0
+
+    @classmethod
+    def of(cls, message: "Message") -> "Reader":
+        return cls(message.body, message.order)
+
+    def align(self, size: int) -> None:
+        self.offset += -self.offset % size
+
+    def _unpack(self, kind: str, size: int) -> int:
+        self.align(size)
+        (value,) = struct.unpack_from(self.order + kind, self.data, self.offset)
+        self.offset += size
+        return value
+
+    def byte(self) -> int:
+        return self._unpack("B", 1)
+
+    def uint16(self) -> int:
+        return self._unpack("H", 2)
+
+    def uint32(self) -> int:
+        return self._unpack("I", 4)
+
+    def uint64(self) -> int:
+        return self._unpack("Q", 8)
+
+    def byte_array(self) -> bytes:
+        length = self.uint32()
+        if self.offset + length > len(self.data):
+            raise struct.error("a byte array runs past the message")
+        value = self.data[self.offset:self.offset + length]
+        self.offset += length
+        return bytes(value)
+
+    def string(self) -> str:
+        length = self.uint32()
+        if self.offset + length >= len(self.data):
+            raise struct.error("a string runs past the message")
+        value = self.data[self.offset:self.offset + length].decode("utf-8", "replace")
+        self.offset += length + 1
+        return value
+
+    def strings(self) -> List[str]:
+        """An array of strings (``as``), whose first element needs no padding after the array's length."""
+        end = self.uint32()
+        end += self.offset
+        found = []
+        while self.offset < end:
+            found.append(self.string())
+        return found
+
+    def signature(self) -> str:
+        length = self.byte()
+        value = self.data[self.offset:self.offset + length].decode("ascii", "replace")
+        self.offset += length + 1
+        return value
+
+    def variant(self, signature: str) -> Optional["Reader"]:
+        """This reader at the value of a variant, as a reply to ``Get`` holds one, when it has ``signature``."""
+        return self if self.signature() == signature else None
 
 
 def encode(kind: int, serial: int, fields: Mapping[int, object], body: bytes = b"", flags: int = 0) -> bytes:

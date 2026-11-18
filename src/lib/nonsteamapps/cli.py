@@ -864,7 +864,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     if steamclient.leave_steam_environment(os.environ):
         print("  without Steam's overlay library and Steam Runtime paths")
     _hide_from_friends(paths, app, settings, hint)
-    _follow_remote()
+    _follow_remote(app, settings)
     _close_before_sleep(app, settings, flatpak)
     if app.browser:
         return _launch_helium(paths, app, account, extra)
@@ -916,10 +916,13 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     return EXIT_ERROR
 
 
-def _follow_remote() -> None:
-    """In Game Mode, where ``cecd`` reads the TV's remote, let go of a key the TV leaves pressed while the app runs (see :mod:`cecwatch`)."""
+def _follow_remote(app: App, settings: Dict[str, str]) -> None:
+    """In Game Mode, where ``cecd`` reads the TV's remote, follow the TV's messages while the app runs: let go of a key the
+    TV leaves pressed, and pause the app when the TV switches away or turns off, as ``PAUSE_WHEN_TV_SWITCHES`` says
+    (see :mod:`cecwatch`)."""
     if steamclient.in_game_mode() and remote.cecd_present():
-        cecwatch.watch(os.getpid())
+        pausing = cecwatch.pauses(settings.get(cecwatch.SETTING), app)
+        cecwatch.watch(os.getpid(), pausing=app.name if pausing else None)
 
 
 def _close_before_sleep(app: App, settings: Dict[str, str], flatpak: Flatpak) -> None:

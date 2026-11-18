@@ -516,11 +516,29 @@ class LaunchTests(CliTestCase):
             self.units.mkdir()
             (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
             self.launch("localsend", "--steam-account", str(ALPHA))
-            cli.cecwatch.watch.assert_called_once_with(os.getpid())
+            cli.cecwatch.watch.assert_called_once_with(os.getpid(), pausing=None)
             self.launch("jellyfin", "--steam-account", str(ALPHA))
             self.assertEqual(cli.cecwatch.watch.call_count, 2)
         self.launch("localsend", "--steam-account", str(ALPHA))
         self.assertEqual(cli.cecwatch.watch.call_count, 2)
+
+    def test_in_game_mode_the_apps_that_play_media_are_paused_when_the_tv_switches_away(self):
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        if not self.paths.settings.exists():
+            self.paths.settings.write_text("")
+        self.units.mkdir()
+        (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080):
+            for app_id in ("youtube", "localsend"):
+                self.launch(app_id, "--steam-account", str(ALPHA))
+            config.set_setting(self.paths.settings, cli.cecwatch.SETTING, "localsend")
+            for app_id in ("youtube", "localsend"):
+                self.launch(app_id, "--steam-account", str(ALPHA))
+            config.set_setting(self.paths.settings, cli.cecwatch.SETTING, "off")
+            self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual([call.kwargs["pausing"] for call in cli.cecwatch.watch.call_args_list],
+                         ["YouTube", None, None, "LocalSend", None])
 
     def test_in_game_mode_apps_close_before_sleep_unless_closing_could_lose_work(self):
         self.paths.settings.parent.mkdir(parents=True, exist_ok=True)

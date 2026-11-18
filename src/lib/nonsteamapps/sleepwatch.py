@@ -29,6 +29,7 @@ from typing import Callable, Dict, List, Mapping, Optional
 
 from . import appmenu, config
 from .apps import App
+from .proctree import PROC, command_line, descends, parents, program
 from .x11 import running
 
 SETTING = "CLOSE_BEFORE_SLEEP"
@@ -40,56 +41,12 @@ ANNOUNCEMENTS = {"PrepareForSleep": "sleeps", "PrepareForShutdown": "shuts down"
 GRACE = 4.0
 INTERVAL = 0.25
 WRAPPERS = frozenset({"bwrap", "sh", "bash", "dash", "zypak-helper"})
-PROC = Path("/proc")
 
 
 def applies(value: Optional[str], app: App) -> bool:
     """Whether ``CLOSE_BEFORE_SLEEP``'s ``value`` closes ``app`` first: ``default``, as when unset, leaves it to each
     app (see :attr:`App.stays_open_in_sleep`); otherwise ``all``, ``off`` or a list of app IDs."""
     return config.covers(value, app.id, default=not app.stays_open_in_sleep)
-
-
-def parents(proc: Path = PROC) -> Dict[int, int]:
-    """Each process's parent, from ``/proc``."""
-    found: Dict[int, int] = {}
-    for entry in proc.iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            fields = (entry / "stat").read_text().rpartition(")")[2].split()
-        except OSError:
-            continue
-        if len(fields) > 1 and fields[1].isdigit():
-            found[int(entry.name)] = int(fields[1])
-    return found
-
-
-def command_line(pid: int, proc: Path = PROC) -> List[str]:
-    try:
-        return (proc / str(pid) / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")[:-1]
-    except OSError:
-        return []
-
-
-def program(pid: int, proc: Path = PROC) -> str:
-    """The program ``pid`` runs, by the name it was started with, which for a script is its interpreter."""
-    argv = command_line(pid, proc)
-    if argv:
-        return os.path.basename(argv[0])
-    try:
-        return (proc / str(pid) / "comm").read_text().strip()
-    except OSError:
-        return ""
-
-
-def descends(pid: int, ancestor: int, tree: Mapping[int, int]) -> bool:
-    seen = set()
-    while pid and pid not in seen:
-        if pid == ancestor:
-            return True
-        seen.add(pid)
-        pid = tree.get(pid, 0)
-    return False
 
 
 def sandbox(app_id: str, pid: int, tree: Mapping[int, int], flatpak: str = "flatpak") -> Optional[int]:

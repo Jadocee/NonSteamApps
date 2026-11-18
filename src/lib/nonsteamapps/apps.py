@@ -949,7 +949,12 @@ class App:
     :func:`copy_keys`), and one with ``firmware_from`` the firmware installed there, while it has none of its
     own (see :func:`share_firmware`). ``playback`` names the switches in an app's ``config.json`` that change
     how videos load and play, as ``(key, the app's own name for it, its default)``, which ``doctor`` reports for
-    each data folder (see :func:`playback_report`).
+    each data folder (see :func:`playback_report`). An app that ``stays_open_in_sleep`` is left running when the
+    device sleeps or shuts down from Game Mode, as Steam leaves a game, because closing it could lose work: an
+    emulator's or a game's progress, a Wine install part way through or a copy of files; any other is closed
+    first, unless ``CLOSE_BEFORE_SLEEP`` says otherwise (see :mod:`sleepwatch`). An app that ``plays_media``, video or
+    music, is paused when the TV switches away from the device or turns off, unless ``PAUSE_WHEN_TV_SWITCHES`` says
+    otherwise (see :mod:`cecwatch`).
     """
 
     id: str
@@ -991,6 +996,8 @@ class App:
     branch: str = ""
     icon: str = ""
     playback: Tuple[Tuple[str, str, bool], ...] = ()
+    stays_open_in_sleep: bool = False
+    plays_media: bool = False
 
     @property
     def profiles_name(self) -> str:
@@ -1048,6 +1055,7 @@ LICHII_PROFILE = PortableProfile(
 APPS: Tuple[App, ...] = (
     App(
         id="youtube",
+        plays_media=True,
         name="YouTube",
         client="VacuumTube",
         flatpak="rocks.shy.VacuumTube",
@@ -1156,6 +1164,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="jellyfin",
+        plays_media=True,
         name="Jellyfin",
         client="Jellyfin Desktop",
         flatpak="org.jellyfin.JellyfinDesktop",
@@ -1168,6 +1177,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="vlc",
+        plays_media=True,
         name="VLC",
         client="VLC media player",
         flatpak="org.videolan.VLC",
@@ -1193,6 +1203,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="prism",
+        stays_open_in_sleep=True,
         name="Prism Launcher",
         client="Prism Launcher",
         flatpak="org.prismlauncher.PrismLauncher",
@@ -1213,6 +1224,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="eden",
+        stays_open_in_sleep=True,
         name="Eden",
         client="Eden",
         flatpak="dev.eden_emu.eden",
@@ -1232,6 +1244,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="edennx2",
+        stays_open_in_sleep=True,
         name="Eden-NX2",
         client="Eden-NX2",
         flatpak=nx2.APP_ID,
@@ -1254,6 +1267,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="lichii",
+        stays_open_in_sleep=True,
         name="Lichii",
         client="Lichii",
         appimage=True,
@@ -1277,6 +1291,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="kytyps5",
+        stays_open_in_sleep=True,
         name="KytyPS5",
         client="KytyPS5",
         summary="PlayStation 5 games you own, run natively through the KytyPS5 translation layer, which is early work: many games do not run yet",
@@ -1290,6 +1305,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="protonup",
+        stays_open_in_sleep=True,
         name="ProtonUp-Qt",
         client="ProtonUp-Qt",
         flatpak="net.davidotek.pupgui2",
@@ -1306,6 +1322,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="protontricks",
+        stays_open_in_sleep=True,
         name="Protontricks",
         client="Protontricks",
         flatpak="com.github.Matoking.protontricks",
@@ -1320,6 +1337,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="winetricks",
+        stays_open_in_sleep=True,
         name="Winetricks",
         client="Winetricks",
         flatpak="org.winehq.Wine",
@@ -1336,6 +1354,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="bottles",
+        stays_open_in_sleep=True,
         name="Bottles",
         client="Bottles",
         flatpak="com.usebottles.bottles",
@@ -1349,6 +1368,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="files",
+        stays_open_in_sleep=True,
         name="Files",
         client="Dolphin",
         summary="Browse and open your files with SteamOS's file manager, set up for a TV and a controller",
@@ -1376,6 +1396,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="helium",
+        plays_media=True,
         name="Helium",
         client="Helium",
         summary="A private, ad-blocking web browser, set up for a TV and a controller",
@@ -1386,6 +1407,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="primevideo",
+        plays_media=True,
         name="Prime Video",
         client="Helium",
         summary="Prime Video's films and series, full screen in Helium",
@@ -1395,6 +1417,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="hbomax",
+        plays_media=True,
         name="HBO Max",
         client="Helium",
         summary="HBO Max's series and films, full screen in Helium",
@@ -1404,6 +1427,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="netflix",
+        plays_media=True,
         name="Netflix",
         client="Helium",
         summary="Netflix's series and films, full screen in Helium",
@@ -1413,6 +1437,7 @@ APPS: Tuple[App, ...] = (
     ),
     App(
         id="disneyplus",
+        plays_media=True,
         name="Disney+",
         client="Helium",
         summary="Disney+'s films and series, full screen in Helium",

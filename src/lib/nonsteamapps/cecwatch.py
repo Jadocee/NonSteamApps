@@ -1,4 +1,5 @@
-"""Let go of a TV remote's key that the TV leaves pressed, while an app runs.
+"""Follow the TV's HDMI-CEC messages while an app runs: let go of a remote key the TV leaves pressed, and pause the
+app when the TV switches away from the Steam Machine or turns off.
 
 Valve's ``cecd`` holds a key of its virtual keyboard down from each ``<User Control Pressed>`` until the TV's
 ``<User Control Released>`` or its next press, however long that takes (see :mod:`remote`). A TV repeats the press
@@ -10,18 +11,25 @@ sound, until something resets it. So while an app runs in Game Mode, a helper fo
 its keyboard for it, the helper has ``cecd`` reload, which makes its keyboard again, so that the held key is let go.
 It never starts a ``cecd`` that is not running. It also writes each message ``cecd`` receives to the app's log, with
 the time the kernel received it, for what the TV sends to be seen.
+
+``cecd`` signals each message it receives with ``ReceivedMessage``. When one shows that the TV no longer shows the
+Steam Machine, because the TV switched to another input or to its own apps, another device took over, or the TV is
+turning off (see :func:`departure`), the helper pauses the app's own media players (see :mod:`mpris`), as
+``PAUSE_WHEN_TV_SWITCHES`` says (see :func:`pauses`). Nothing resumes by itself. ``cecd`` keeps an ``Active``
+property of its own, but it takes a route through an AV receiver for one elsewhere and signals only its changes, so
+the helper judges each message itself, against the Steam Machine's physical address.
 """
 
 from __future__ import annotations
 
 import os
 import select
-import struct
 import sys
 import time
 from typing import Callable, FrozenSet, Mapping, Optional, Tuple
 
-from . import appmenu
+from . import appmenu, config, mpris
+from .apps import App
 from .x11 import running
 
 SERVICE = "com.steampowered.CecDaemon1"
@@ -31,55 +39,24 @@ DEVICE = "com.steampowered.CecDaemon1.CecDevice1"
 PROPERTIES = "org.freedesktop.DBus.Properties"
 MATCH = f"type='signal',sender='{SERVICE}',interface='{DEVICE}'"
 TIMEOUT = 2.0
-UNREADABLE = (struct.error, ValueError, IndexError)
+UNREADABLE = appmenu.UNREADABLE
+SETTING = "PAUSE_WHEN_TV_SWITCHES"
+STANDBY, ROUTING_CHANGE, ROUTING_INFORMATION, ACTIVE_SOURCE, SET_STREAM_PATH = 0x36, 0x80, 0x81, 0x82, 0x86
+ROUTING = frozenset({ROUTING_CHANGE, ROUTING_INFORMATION, ACTIVE_SOURCE, SET_STREAM_PATH})
+TV, AUDIO_SYSTEM = 0, 5
+NO_ADDRESS = 0xFFFF
 
 
-class Reader:
-    """Reads D-Bus values from a message body, aligned from its start."""
-
-    def __init__(self, data: bytes, order: str = "<") -> None:
-        self.data, self.order, self.offset = data, order, 0
-
-    def align(self, size: int) -> None:
-        self.offset += -self.offset % size
-
-    def _unpack(self, kind: str, size: int) -> int:
-        self.align(size)
-        (value,) = struct.unpack_from(self.order + kind, self.data, self.offset)
-        self.offset += size
-        return value
-
-    def byte(self) -> int:
-        return self._unpack("B", 1)
-
-    def uint16(self) -> int:
-        return self._unpack("H", 2)
-
-    def uint32(self) -> int:
-        return self._unpack("I", 4)
-
-    def uint64(self) -> int:
-        return self._unpack("Q", 8)
-
-    def byte_array(self) -> bytes:
-        length = self.uint32()
-        if self.offset + length > len(self.data):
-            raise struct.error("a byte array runs past the message")
-        value = self.data[self.offset:self.offset + length]
-        self.offset += length
-        return bytes(value)
-
-    def signature(self) -> str:
-        length = self.byte()
-        value = self.data[self.offset:self.offset + length].decode("ascii", "replace")
-        self.offset += length + 1
-        return value
+def pauses(value: Optional[str], app: App) -> bool:
+    """Whether ``PAUSE_WHEN_TV_SWITCHES``'s ``value`` pauses ``app`` when the TV switches away: ``default``, as when
+    unset, pauses the apps that play video or music (see :attr:`App.plays_media`); otherwise ``all``, ``off`` or a
+    list of app IDs."""
+    return config.covers(value, app.id, default=app.plays_media)
 
 
-def _variant(message: appmenu.Message, signature: str) -> Optional[Reader]:
+def _variant(message: appmenu.Message, signature: str) -> Optional[appmenu.Reader]:
     """A reader at the value of a reply to ``Get``, a variant, where that value has ``signature``."""
-    reader = Reader(message.body, message.order)
-    return reader if reader.signature() == signature else None
+    return appmenu.Reader.of(message).variant(signature)
 
 
 def mapped_buttons(message: appmenu.Message) -> Optional[FrozenSet[bytes]]:
@@ -108,10 +85,73 @@ def describe(message: appmenu.Message) -> Optional[str]:
     """A line for the log about a message ``cecd`` received, timed in seconds as the kernel times it, or ``None`` for another signal."""
     if message.fields.get(appmenu.MEMBER) != "ReceivedMessage":
         return None
-    reader = Reader(message.body, message.order)
+    reader = appmenu.Reader.of(message)
     initiator, destination = reader.byte(), reader.byte()
     received = reader.uint64()
     return f"  CEC {received / 1e9:.3f} {initiator:x}>{destination:x}: {reader.byte_array().hex(' ')}"
+
+
+def address_text(address: int) -> str:
+    """A physical address as CEC writes it, such as ``2.0.0.0``: the first number is the TV's HDMI input."""
+    return ".".join(format((address >> shift) & 0xF, "x") for shift in (12, 8, 4, 0))
+
+
+def _steps(address: int) -> Tuple[int, ...]:
+    return tuple((address >> shift) & 0xF for shift in (12, 8, 4, 0))
+
+
+def leads_to(route: int, address: int) -> bool:
+    """Whether a route to physical address ``route`` shows the device at ``address``: it ends there, or at a switch on
+    the way, such as an AV receiver, which passes the picture on. A route to the TV itself, ``0.0.0.0``, shows the
+    TV's own apps."""
+    if NO_ADDRESS in (route, address) or route == 0:
+        return False
+    if route == address:
+        return True
+    steps = _steps(route)
+    depth = max(index for index, step in enumerate(steps) if step) + 1
+    return steps[:depth] == _steps(address)[:depth]
+
+
+def _who(initiator: int) -> str:
+    return {TV: "the TV", AUDIO_SYSTEM: "the audio system"}.get(initiator, f"device {initiator:x}")
+
+
+def _place(route: int) -> str:
+    return "its own apps" if route == 0 else address_text(route)
+
+
+def departure(initiator: int, data: bytes, address: Optional[int]) -> Optional[str]:
+    """Why a message ``cecd`` received means the TV no longer shows the device at physical ``address``, or ``None``.
+
+    ``data`` is the message, its opcode first, sent by logical address ``initiator``. ``<Standby>`` always counts. The
+    others need ``address``, and count when they take the picture elsewhere: another device's ``<Active Source>``, a
+    ``<Set Stream Path>`` or the TV's ``<Routing Change>`` to a route that does not lead to the device, a switch's
+    ``<Routing Change>`` away from it, and a switch's ``<Routing Information>`` for a route on the device's own HDMI
+    input that leads elsewhere.
+    """
+    if not data:
+        return None
+    opcode, operands = data[0], data[1:]
+    if opcode == STANDBY:
+        return "the TV is turning off" if initiator == TV else f"{_who(initiator)} asked for standby"
+    if address is None or opcode not in ROUTING or len(operands) < (4 if opcode == ROUTING_CHANGE else 2):
+        return None
+    route = operands[0] << 8 | operands[1]
+    if opcode == ACTIVE_SOURCE:
+        if route == address:
+            return None
+        return "the TV switched to its own apps" if route == 0 else f"the device at {address_text(route)} took over the TV"
+    if opcode == SET_STREAM_PATH:
+        return None if leads_to(route, address) else f"the TV switched to {_place(route)}"
+    if opcode == ROUTING_CHANGE:
+        new = operands[2] << 8 | operands[3]
+        if leads_to(new, address) or (initiator != TV and not leads_to(route, address)):
+            return None
+        return f"{_who(initiator)} switched to {_place(new)}"
+    if leads_to(route, address) or _steps(route)[0] != _steps(address)[0]:
+        return None
+    return f"{_who(initiator)} switched to {_place(route)}"
 
 
 class Follower:
@@ -157,13 +197,44 @@ def _presses_key(connection: appmenu.Connection, button: bytes) -> Optional[bool
     return None if mapped is None else button in mapped
 
 
+def _physical_address(connection: appmenu.Connection, path: object) -> Optional[int]:
+    """The physical address of ``cecd``'s device at ``path``, :data:`NO_ADDRESS` while it has none, or ``None`` when
+    ``cecd`` does not say."""
+    if not isinstance(path, str):
+        return None
+    body = bytes(appmenu.Writer().string(DEVICE).string("PhysicalAddress").data)
+    try:
+        reader = _variant(connection.call(SERVICE, path, PROPERTIES, "Get", "ss", body, appmenu.NO_AUTO_START), "q")
+        return None if reader is None else reader.uint16()
+    except (OSError, *UNREADABLE):
+        return None
+
+
+def _departure(connection: appmenu.Connection, message: appmenu.Message) -> Optional[str]:
+    """Why a ``ReceivedMessage`` signal means the TV no longer shows the Steam Machine, if it does; ``cecd`` is asked
+    for the device's address only for a message that needs it."""
+    if message.kind != appmenu.SIGNAL or message.fields.get(appmenu.INTERFACE) != DEVICE \
+            or message.fields.get(appmenu.MEMBER) != "ReceivedMessage":
+        return None
+    try:
+        reader = appmenu.Reader.of(message)
+        initiator = reader.byte()
+        reader.byte()
+        reader.uint64()
+        data = reader.byte_array()
+    except UNREADABLE:
+        return None
+    address = _physical_address(connection, message.fields.get(appmenu.PATH)) if data[:1] and data[0] in ROUTING else None
+    return departure(initiator, data, address)
+
+
 def _handle(message: appmenu.Message, follower: Follower, now: float, log: Callable[[str], None]) -> None:
     if message.kind != appmenu.SIGNAL or message.fields.get(appmenu.INTERFACE) != DEVICE:
         return
     member = message.fields.get(appmenu.MEMBER)
     try:
         line = describe(message)
-        button = Reader(message.body, message.order).byte_array() if member == "UserControlPressed" else None
+        button = appmenu.Reader.of(message).byte_array() if member == "UserControlPressed" else None
     except UNREADABLE:
         return
     if line:
@@ -176,9 +247,10 @@ def _handle(message: appmenu.Message, follower: Follower, now: float, log: Calla
 
 def follow(alive: Callable[[], bool], ready: Callable[[], None] = lambda: None, environ: Mapping[str, str] = os.environ,
            log: Callable[[str], None] = _print, timeout: float = TIMEOUT, interval: float = 0.25,
-           clock: Callable[[], float] = time.monotonic) -> Tuple[bool, int]:
-    """Follow ``cecd``'s key signals while ``alive()``, and have it reload when a key it presses stays pressed for ``timeout``.
+           clock: Callable[[], float] = time.monotonic, players: Optional[mpris.Players] = None) -> Tuple[bool, int]:
+    """Follow ``cecd``'s signals while ``alive()``, and have it reload when a key it presses stays pressed for ``timeout``.
 
+    With ``players``, the app's, also pause them when a message shows that the TV no longer shows the Steam Machine.
     ``ready()`` is called once the signals are followed. Returns whether they were followed until ``alive()`` turned
     false, and how many times ``cecd`` was made to let a key go.
     """
@@ -196,11 +268,17 @@ def follow(alive: Callable[[], bool], ready: Callable[[], None] = lambda: None, 
         connection.bus("Hello")
         connection.bus("AddMatch", "s", bytes(appmenu.Writer().string(MATCH).data))
         log("  following the TV remote's keys, to let go of one the TV leaves pressed")
+        if players is not None:
+            log(f"  following the TV's input, to pause {players.client} when the TV switches away or turns off")
         ready()
         while alive():
             if connection.pending or select.select([connection.socket], [], [], interval)[0]:
                 for message in connection.messages():
                     _handle(message, follower, clock(), log)
+                    if players is not None:
+                        reason = _departure(connection, message)
+                        if reason:
+                            players.pause(connection, reason, log)
             held = follower.due(clock())
             if held is None:
                 continue
@@ -221,9 +299,10 @@ def follow(alive: Callable[[], bool], ready: Callable[[], None] = lambda: None, 
         connection.close()
 
 
-def watch(pid: int, timeout: float = TIMEOUT) -> int:
-    """Start a helper process that follows the TV remote's keys while ``pid`` runs; return its ID, or 0 when it cannot start.
+def watch(pid: int, timeout: float = TIMEOUT, pausing: Optional[str] = None) -> int:
+    """Start a helper process that follows ``cecd``'s signals while ``pid`` runs; return its ID, or 0 when it cannot start.
 
+    With ``pausing``, the app's name, the helper also pauses the app's players when the TV switches away or turns off.
     Its lines go where the launcher's output goes: the app's log.
     """
     sys.stdout.flush()
@@ -235,6 +314,6 @@ def watch(pid: int, timeout: float = TIMEOUT) -> int:
     if child:
         return child
     try:
-        follow(lambda: running(pid), timeout=timeout)
+        follow(lambda: running(pid), timeout=timeout, players=mpris.Players(pid, pausing) if pausing else None)
     finally:
         os._exit(0)

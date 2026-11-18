@@ -53,6 +53,7 @@ class CliTestCase(unittest.TestCase):
         patches.append(self.watch)
         patches.append(mock.patch("nonsteamapps.cli.appmenu.watch", return_value=False))
         patches.append(mock.patch("nonsteamapps.cli.cecwatch.watch", return_value=0))
+        patches.append(mock.patch("nonsteamapps.cli.sleepwatch.watch", return_value=0))
         patches.append(mock.patch("nonsteamapps.desktop.plasma_running", return_value=False))
         self.branch = _fakes.NX2_COMMIT
         patches.append(mock.patch("nonsteamapps.nx2.remote_refs", side_effect=lambda repository, fetch=None: {"refs/heads/eden-nx2": self.branch}))
@@ -515,11 +516,50 @@ class LaunchTests(CliTestCase):
             self.units.mkdir()
             (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
             self.launch("localsend", "--steam-account", str(ALPHA))
-            cli.cecwatch.watch.assert_called_once_with(os.getpid())
+            cli.cecwatch.watch.assert_called_once_with(os.getpid(), pausing=None)
             self.launch("jellyfin", "--steam-account", str(ALPHA))
             self.assertEqual(cli.cecwatch.watch.call_count, 2)
         self.launch("localsend", "--steam-account", str(ALPHA))
         self.assertEqual(cli.cecwatch.watch.call_count, 2)
+
+    def test_in_game_mode_the_apps_that_play_media_are_paused_when_the_tv_switches_away(self):
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        if not self.paths.settings.exists():
+            self.paths.settings.write_text("")
+        self.units.mkdir()
+        (self.units / remote.CECD_UNIT).write_text("[Unit]\n")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080):
+            for app_id in ("youtube", "localsend"):
+                self.launch(app_id, "--steam-account", str(ALPHA))
+            config.set_setting(self.paths.settings, cli.cecwatch.SETTING, "localsend")
+            for app_id in ("youtube", "localsend"):
+                self.launch(app_id, "--steam-account", str(ALPHA))
+            config.set_setting(self.paths.settings, cli.cecwatch.SETTING, "off")
+            self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual([call.kwargs["pausing"] for call in cli.cecwatch.watch.call_args_list],
+                         ["YouTube", None, None, "LocalSend", None])
+
+    def test_in_game_mode_apps_close_before_sleep_unless_closing_could_lose_work(self):
+        self.paths.settings.parent.mkdir(parents=True, exist_ok=True)
+        if not self.paths.settings.exists():
+            self.paths.settings.write_text("")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.display.screen_height", return_value=1080):
+            self.launch("youtube", "--steam-account", str(ALPHA))
+            cli.sleepwatch.watch.assert_called_once_with(os.getpid(), apps.by_id("youtube"), self.fake.command)
+            self.launch("prism", "--steam-account", str(ALPHA))
+            self.assertEqual(cli.sleepwatch.watch.call_count, 1)
+            config.set_setting(self.paths.settings, cli.sleepwatch.SETTING, "prism")
+            self.launch("prism", "--steam-account", str(ALPHA))
+            self.launch("youtube", "--steam-account", str(ALPHA))
+            self.assertEqual([call.args[1].id for call in cli.sleepwatch.watch.call_args_list], ["youtube", "prism"])
+            config.set_setting(self.paths.settings, cli.sleepwatch.SETTING, "off")
+            self.launch("youtube", "--steam-account", str(ALPHA))
+            self.assertEqual(cli.sleepwatch.watch.call_count, 2)
+        config.set_setting(self.paths.settings, cli.sleepwatch.SETTING, "all")
+        self.launch("youtube", "--steam-account", str(ALPHA))
+        self.assertEqual(cli.sleepwatch.watch.call_count, 2)
 
     def test_prism_starts_with_each_accounts_folder_and_is_scaled_for_a_tv(self):
         folder = self.home / f".var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher-steam-{ALPHA}"

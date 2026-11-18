@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
     __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, display, kyty, layouts, lichii,
-    links, nx2, presence, remote, selfupdate, steam, steamclient, timer, ui, x11,
+    links, nx2, presence, remote, selfupdate, sleepwatch, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -864,7 +864,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     if steamclient.leave_steam_environment(os.environ):
         print("  without Steam's overlay library and Steam Runtime paths")
     _hide_from_friends(paths, app, settings, hint)
-    _follow_remote()
+    _follow_remote(app, settings)
+    _close_before_sleep(app, settings, flatpak)
     if app.browser:
         return _launch_helium(paths, app, account, extra)
     if app.system:
@@ -915,10 +916,19 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     return EXIT_ERROR
 
 
-def _follow_remote() -> None:
-    """In Game Mode, where ``cecd`` reads the TV's remote, let go of a key the TV leaves pressed while the app runs (see :mod:`cecwatch`)."""
+def _follow_remote(app: App, settings: Dict[str, str]) -> None:
+    """In Game Mode, where ``cecd`` reads the TV's remote, follow the TV's messages while the app runs: let go of a key the
+    TV leaves pressed, and pause the app when the TV switches away or turns off, as ``PAUSE_WHEN_TV_SWITCHES`` says
+    (see :mod:`cecwatch`)."""
     if steamclient.in_game_mode() and remote.cecd_present():
-        cecwatch.watch(os.getpid())
+        pausing = cecwatch.pauses(settings.get(cecwatch.SETTING), app)
+        cecwatch.watch(os.getpid(), pausing=app.name if pausing else None)
+
+
+def _close_before_sleep(app: App, settings: Dict[str, str], flatpak: Flatpak) -> None:
+    """In Game Mode, close the app before the device sleeps or shuts down, as ``CLOSE_BEFORE_SLEEP`` says (see :mod:`sleepwatch`)."""
+    if steamclient.in_game_mode() and sleepwatch.applies(settings.get(sleepwatch.SETTING), app):
+        sleepwatch.watch(os.getpid(), app, flatpak.command)
 
 
 def _hide_from_friends(paths: Paths, app: App, settings: Dict[str, str], hint: Optional[str]) -> None:

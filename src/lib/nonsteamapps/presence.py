@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
-from . import steamclient, vdf
+from . import config, steamclient, vdf
 
 SETTING = "INVISIBLE_WHILE_RUNNING"
 OFFLINE, ONLINE, AWAY, INVISIBLE = 0, 1, 3, 7
@@ -40,12 +40,7 @@ RECENT = 60
 
 def applies(value: Optional[str], app_id: str) -> bool:
     """Whether the setting's ``value`` covers ``app_id``: ``all``, the default, ``off``, or a list of app IDs."""
-    text = (value if value is not None else "all").strip().lower()
-    if text in ("all", "1", "on", "yes", "true"):
-        return True
-    if text in ("", "off", "0", "no", "none", "false"):
-        return False
-    return app_id.lower() in text.replace(",", " ").split()
+    return config.covers(value, app_id, default=True)
 
 
 def desired_state(localconfig: Path) -> Optional[int]:

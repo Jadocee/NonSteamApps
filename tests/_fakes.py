@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -49,6 +50,75 @@ def sleeping(program: Path, seconds: int = 30) -> subprocess.Popen:
     return subprocess.Popen([str(program), "-S", "-c", f"import time; time.sleep({seconds})"],
                             env={**os.environ, "PYTHONHOME": sys.base_prefix})
 
+
+
+MEDIA_PLAYER = r"""
+import os, select, sys
+sys.path.insert(0, sys.argv[1])
+from nonsteamapps import appmenu
+address, folder = sys.argv[2], sys.argv[3]
+statuses = dict(entry.split("=", 1) for entry in sys.argv[4:])
+connection = appmenu.Connection(address)
+connection.bus("Hello")
+for name in statuses:
+    connection.bus("RequestName", "su", bytes(appmenu.Writer().string(name).uint32(appmenu.DO_NOT_QUEUE).data))
+open(os.path.join(folder, sys.argv[4].split("=", 1)[0] + ".ready"), "w").close()
+while True:
+    if not connection.pending and not select.select([connection.socket], [], [], 1)[0]:
+        continue
+    for call in connection.messages():
+        if call.kind != appmenu.METHOD_CALL:
+            continue
+        name, member = call.fields.get(appmenu.DESTINATION), call.fields.get(appmenu.MEMBER)
+        reply = {appmenu.REPLY_SERIAL: call.serial, appmenu.DESTINATION: call.fields[appmenu.SENDER]}
+        if member == "Get" and name in statuses:
+            body = bytes(appmenu.Writer().signature("s").string(statuses[name]).data)
+            connection.send(appmenu.METHOD_RETURN, {**reply, appmenu.SIGNATURE: "v"}, body)
+        elif member == "Pause" and name in statuses and not name.endswith(".broken"):
+            statuses[name] = "Paused"
+            with open(os.path.join(folder, "paused"), "a") as out:
+                out.write(name + "\n")
+            connection.send(appmenu.METHOD_RETURN, reply)
+        else:
+            connection.send(appmenu.ERROR, {**reply, appmenu.ERROR_NAME: "org.freedesktop.DBus.Error.UnknownMethod"})
+"""
+
+
+def media_players(folder: Path, address: str, *players: str, wrapped: bool = False) -> subprocess.Popen:
+    """Start a process that owns MPRIS players on the bus at ``address``, each ``name=status``, in a session of its own.
+
+    Each player tells its status, and one that is paused is written to ``folder/paused``, unless its name ends in
+    ``.broken``, which answers ``Pause`` with an error. With ``wrapped``, the process runs under a shell, as an app
+    runs under the process its launcher became. Returns once the players are on the bus.
+    """
+    script = folder / "media-player.py"
+    script.write_text(MEDIA_PLAYER)
+    argv = [sys.executable, "-I", str(script), str(_paths.LIB), address, str(folder), *players]
+    if wrapped:
+        argv = ["sh", "-c", '"$@"; exit', "sh", *argv]
+    process = subprocess.Popen(argv, start_new_session=True)
+    ready = folder / (players[0].split("=", 1)[0] + ".ready")
+    deadline = time.monotonic() + 10
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return process
+
+
+def stop_media(process: subprocess.Popen) -> None:
+    """End a :func:`media_players` process and what runs under it, if they still run."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
+
+
+def paused(folder: Path) -> List[str]:
+    """The players a :func:`media_players` process was asked to pause, in turn."""
+    try:
+        return (folder / "paused").read_text().split()
+    except FileNotFoundError:
+        return []
 
 class FakeFlatpak:
     def __init__(self, directory: Path, installed=None):

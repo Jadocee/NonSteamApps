@@ -170,6 +170,21 @@ def enabled(value: Optional[str], default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+def covers(value: Optional[str], app_id: str, default: bool) -> bool:
+    """Whether a setting that names apps covers ``app_id``: ``all``, ``off``, or a list of app IDs.
+
+    Unset, or ``default``, it is ``default``; set but empty, it is off.
+    """
+    if value is None or value.strip().lower() == "default":
+        return default
+    text = value.strip().lower()
+    if text in ("all", "1", "on", "yes", "true"):
+        return True
+    if text in ("", "off", "0", "no", "none", "false"):
+        return False
+    return app_id.lower() in text.replace(",", " ").split()
+
+
 def _digest(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

@@ -10,6 +10,7 @@ FAKE_FLATPAK_BUILD_FAIL  the start of a command (for example "cmake --build") th
 FAKE_FLATPAK_GIT_HEAD    the commit git reports checked out, in place of the one fetched
 FAKE_FLATPAK_ICONS  set to 1 to export an icon for each app installed, as Flatpak exports an app's own icon
 FAKE_FLATPAK_WARN   a line that "install" prints on stderr
+FAKE_FLATPAK_PS     the running instances "flatpak ps" lists, as "PID CHILD-PID APP" entries separated by ";"
 FAKE_FLATPAK_OPEN   a link that "flatpak run" opens with xdg-open from the PATH given with --env, as an app
                     in its sandbox would; it then waits for FAKE_FLATPAK_DONE, which a later run creates
                     when it is handed one of the --env NONSTEAMAPPS_SCHEMES links, as the app's second
@@ -164,6 +165,9 @@ def main(argv):
             status = 1
     elif command == "info":
         status = 0 if argv[-1] in state["runtimes"] or argv[-1] in state["apps"] else 1
+    elif command == "ps":
+        for entry in filter(None, os.environ.get("FAKE_FLATPAK_PS", "").split(";")):
+            print("\t".join(entry.split()))
     elif command == "--default-arch":
         print("x86_64")
     elif command == "build-init":

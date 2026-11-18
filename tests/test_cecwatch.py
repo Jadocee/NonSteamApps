@@ -160,6 +160,28 @@ class RoutingTests(unittest.TestCase):
             (0, "", None),
         ])
 
+    def test_what_tvs_send_all_day_never_pauses_and_turning_off_does(self):
+        """Frames from real TVs: a Sony's in SteamOS issue 2916, an LG's vendor ID broadcast every 15 seconds in issue
+        2626, and what libCEC's handler for Samsung TVs expects of them, from their power-up announcement and remote
+        keys to their menu language."""
+        self.departures(0x1000, [
+            (0, "8f", None),
+            (0, "a0 08 00 46 00 3f 00 00 00 00 00", None),
+            (0, "00 71 01", None),
+            (0, "84 00 00 00", None),
+            (0, "87 00 e0 91", None),
+            (0, "87 00 00 f0", None),
+            (0, "a0 00 00 f0 23", None),
+            (0, "8a 91", None),
+            (0, "8b", None),
+            (0, "32 65 6e 67", None),
+            (0, "90 01", None),
+            (0, "85", None),
+            (0, "83", None),
+            (0, "46", None),
+            (0, "36", "the TV is turning off"),
+        ])
+
     def test_through_an_av_receiver_only_the_receivers_own_input_counts(self):
         self.departures(0x1100, [
             (0, "80 20 00 10 00", None),

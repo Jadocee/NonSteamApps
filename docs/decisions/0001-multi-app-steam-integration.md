@@ -933,6 +933,37 @@ The owner answered the open questions. Where these answers differ from the text 
       3. With Steam's setting to sleep with the TV off, turn the TV off and on: `0>f: 36`, then `the TV is turning off; paused YouTube`.
       4. With it on, turn the TV off, then wake the Steam Machine: Steam's library, with `closing VacuumTube: the Steam Machine sleeps` and `closed VacuumTube` in the log. If the Steam Machine wakes by itself within a minute, that is the first known problem above.
 
+101. **Everything brought up to date again, and checked (owner request).** The owner asked for everything to be on its latest version, and for it to be checked that it all still works.
+    - **Already the latest, so nothing changed:**
+      - CI runs on `ubuntu-26.04`, still GitHub's newest Ubuntu runner [253], with `actions/checkout@v7`, whose newest release is v7.0.1.
+      - SteamOS 3.9 is still the stable release. 3.10 has been in Preview since 13 November, as 3.10.1 since 16 November, and Valve's mirror has nothing newer [254]. The SteamOS image stays on 3.9, and this pass also checked 3.10.
+      - Eden-NX2 builds on KDE's runtime 6.11, which Eden's own Flathub package still uses [211]. Its branch's head is still `50fa86bb`, the commit item 51 built.
+      - Nexus Mods' icon comes from NexusMods.App v0.21.1, still its last release [210].
+      - LocalSend is still 1.18.2, the version NonSteamApps marks as seen so that LocalSend's "What's new" stays closed.
+      - Python 3.8 stays in `unit-py38`, the oldest Python NonSteamApps supports.
+    - **Rebuilt from the newest:** both test images were rebuilt without a cache, from the newest base images and packages:
+      - Ubuntu 26.04.1: Python 3.14.4, ShellCheck 0.11.0, pyflakes 3.4.0, and Python 3.8.20;
+      - SteamOS 3.9: Python 3.14.6, Flatpak 1.18.4, bubblewrap 0.12.0, Chromium 150, KWallet 6.28 and Dolphin 26.04.3;
+      - SteamOS 3.10: Python 3.14.8, Flatpak 1.18.4, bubblewrap 0.13.1, Chromium 156, KWallet 6.31 and Dolphin 26.08.2.
+    - **What the installer fetches, against the newest releases:**
+      - Helium 0.22.1.1 still publishes `helium-0.22.1.1-x86_64_linux.tar.xz` and its signature, made on 18 November by the key NonSteamApps carries, which Helium still publishes. Its tarball still holds `helium` and `helium-wrapper` [255].
+      - KytyPS5's `KytyPS5-2026-11-20-a1fc5ae` and Lichii's `build-341` still publish the archive and the AppImage NonSteamApps takes, each with the SHA-256 it requires [256].
+    - **What NonSteamApps sets in each app, against the app's newest version:**
+      - Of the Flathub packages researched, eight have moved since; Eden's has not [260]. VacuumTube is now 2.1.1, Bitwarden 2026.11.0, Discord 1.0.170 and Signal 8.36.0, and Element, Bottles, VLC and Jellyfin Desktop took newer libraries. Their launch scripts and the permissions NonSteamApps relies on are unchanged; Bitwarden only adds other browsers' native-messaging folders.
+      - VacuumTube 2.1.1 is one commit after the researched `0c7df3a`. It fixes the captions key and a command helper; its settings are the same, and the YouTube layout does not use that key [257].
+      - Bitwarden 2026.11.0 keeps the names of the three settings NonSteamApps writes [258].
+      - Every setting, value and switch NonSteamApps uses is still in Element 1.12.13, KytyPS5 of 20 November (where theme 1 is still dark), Lichii build-341, Prism Launcher 11.1.1, ProtonUp-Qt 2.16.0 and Protontricks 1.15.0 [259].
+    - **Found on the way:**
+      - SteamOS 3.9.6's presets renamed the script that sets up the wallet at Desktop Mode's first sign-in, from `steamos-setup-kwallet` [162] to `holo-setup-kwallet`. It does the same: it copies the default wallet and marks it set up [261]. The keyring check called the old name, and now runs the command of SteamOS's autostart entry, so that a later rename is followed. What the README says about the wallet still holds, on 3.9 and on 3.10.
+      - The sandbox's Eden-NX2 step refused to build with less than 6 GB free, as it should, while the rebuilt images had filled the test machine's disk. With Docker's build cache cleared, it passed.
+    - **Checks**, all passing:
+      - lint, the unit tests on Python 3.14 and on Python 3.8, and the sandbox, on Ubuntu 26.04.1;
+      - the unit tests and the sandbox, on SteamOS 3.9 and on SteamOS 3.10;
+      - the artwork, on SteamOS 3.9;
+      - the keyring, on SteamOS 3.9 and on SteamOS 3.10;
+      - every Flatpak still on Flathub;
+      - a real install of LocalSend from Flathub, and its removal.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources
@@ -1204,3 +1235,12 @@ Still open: Maximum Game Resolution (the rest of migration phase 4).
 250. [SteamOS issue 2916](https://github.com/ValveSoftware/SteamOS/issues/2916), "HDMI-CEC does not put tv into standby mode when goes to sleep", from 11 October 2026, read on 18 November 2026: a Sony TV's traffic in a `cec-ctl --monitor` capture
 251. [SteamOS issue 2817](https://github.com/ValveSoftware/SteamOS/issues/2817), "Steam Machine breaks HDMI-CEC for all other connected devices", from 16 September 2026, read on 18 November 2026, with Samsung UE55MU7000 and UN55MU8000 TVs
 252. [SteamOS issue 2997](https://github.com/ValveSoftware/SteamOS/issues/2997), "S3 suspend/resume race conditions", 27 October 2026, read on 18 November 2026: `cecd` suspending again on a held `<Standby>` after waking, and user processes frozen before its `<Standby>` to the TV goes out, with a Steam Deck and a Q90A
+253. [GitHub's runner images](https://github.com/actions/runner-images/blob/main/README.md), read on 20 November 2026: `ubuntu-26.04` is the newest Ubuntu runner, and `ubuntu-latest` is still 24.04
+254. Reports of SteamOS 3.10's Preview, as search results summarised them on 20 November 2026, not opened here: [GamingOnLinux](https://www.gamingonlinux.com/2026/11/steamos-3-10-0-preview-brings-hdmi-2-1-vrr-frl-and-allm-for-amd-and-improvements-for-nvidia/) (3.10.0 Preview, 13 November), [igor'sLAB](https://www.igorslab.de/en/steamos-3-10-1-valve-fixes-forza-issues-expands-amd-nvidia-gpu-support/) (3.10.1 Preview, 16 November) and [Gaming on Steam](https://gamingonsteam.com/2026/11/14/steam-deck-news-steamos-3-10-preview) (stable still 3.9, with 3.9.6 in beta); and [Valve's mirror](https://steamdeck-packages.steamos.cloud/archlinux-mirror/), read the same day, whose newest repositories are `jupiter-3.10` and `holo-3.10`
+255. [Helium for Linux](https://github.com/imputnet/helium-linux/tree/0.22.1.1) at `0.22.1.1`: `pubkey.asc` (fingerprint `BE677C1989D35EAB2C5F26C9351601AD01D6378E`) and `scripts/package.sh` (the tarball's files, `helium-wrapper` among them); and the [release 0.22.1.1](https://github.com/imputnet/helium-linux/releases/tag/0.22.1.1), read on 20 November 2026, with each asset's SHA-256 and the signature's own packets
+256. [KytyPS5's release `KytyPS5-2026-11-20-a1fc5ae`](https://github.com/KytyPS5/KytyPS5/releases/tag/KytyPS5-2026-11-20-a1fc5ae) and [Lichii's `build-341`](https://github.com/zortos293/Lichii/releases/tag/build-341), read on 20 November 2026, with their assets' SHA-256
+257. [VacuumTube](https://github.com/shy1132/VacuumTube/compare/0c7df3a1e2411b430e416a0b8f3c872bb1f8fb4d...8f1ceab66da7cecf2077610ab2d2cb4d88224bf1) from `0c7df3a` to `8f1ceab` (v2.1.1, which Flathub builds): `src/config.js`, unchanged in its settings, `src/preload/modules/keybinds.js` and `src/preload/util/resolveCommandModifiers.js`
+258. [Bitwarden's clients](https://github.com/bitwarden/clients) at `desktop-v2026.10.2` and `desktop-v2026.11.0`: `apps/desktop/src/platform/services/desktop-settings.service.ts`, `libs/common/src/platform/theming/theme-state.service.ts` and `libs/state/src/core/state-definitions.ts`, for `desktopSettings`, `theming`, `runInBackground`, `openAtLogin` and `selection`
+259. [Element Desktop](https://github.com/element-hq/element-desktop/tree/v1.12.13) v1.12.13, [KytyPS5](https://github.com/KytyPS5/KytyPS5/tree/KytyPS5-2026-11-20-a1fc5ae) at its tag of 20 November 2026 (`src/launcher/src/mainDialog.cpp`, theme 1 for dark), [Lichii](https://github.com/zortos293/Lichii/tree/build-341) at `build-341`, [Prism Launcher](https://github.com/PrismLauncher/PrismLauncher/tree/11.1.1) 11.1.1 (`launcher/ui/themes/DarkTheme.cpp`, `launcher/resources/flat_white`), [ProtonUp-Qt](https://github.com/DavidoTek/ProtonUp-Qt/tree/v2.16.0) v2.16.0 (`pupgui2/constants.py`, the `steam` theme) and [Protontricks](https://github.com/Matoking/protontricks/tree/1.15.0) 1.15.0, for each setting and switch NonSteamApps uses
+260. Flathub's repositories, from the commits researched to their heads on 20 November 2026: `com.bitwarden.desktop` (`24741fe` to `9e1d95d`), `com.discordapp.Discord` (`78203ad` to `7a9b8db`), `com.usebottles.bottles` (`65b266d` to `859e99d`), `im.riot.Riot` (`c582b67` to `e5e3c20`), `org.jellyfin.JellyfinDesktop` (`19065cd` to `72a7bd0`, still building `v2.1.0-pre1`), `org.signal.Signal` (`52e5556` to `ec21fd5`), `org.videolan.VLC` (`7c9d3a4` to `a0f425f`) and `rocks.shy.VacuumTube` (`7402045` to `1889356`); `dev.eden_emu.eden` still at `527a53d`
+261. SteamOS 3.9's and 3.10's `steamdeck-kde-presets-3.9.6-1`, as installed in the SteamOS images on 20 November 2026: `/usr/bin/holo-setup-kwallet` and `/etc/xdg/autostart/setup-kwallet.desktop`, which runs it

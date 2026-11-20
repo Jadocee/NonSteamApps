@@ -2,10 +2,12 @@
 # Checks what the README says about keyrings on SteamOS, with SteamOS's own KWallet and Valve's set-up of it, in the
 # SteamOS image: that nothing starts a Secret Service on demand, as in Game Mode, and that the wallet SteamOS gives
 # every device opens without a password, as does a copy of it. A SteamOS release that changes this fails here, and
-# the README's "Protecting your data" should then be reviewed.
+# the README's "Protecting your data" should then be reviewed. The wallet is set up as Plasma sets it up at the first
+# sign-in, with the command of SteamOS's autostart entry, which Valve renamed in SteamOS 3.9.6.
 set -Eeuo pipefail
 WORK=$(mktemp -d)
 SECRET=nonsteamapps-keyring-check
+AUTOSTART=/etc/xdg/autostart/setup-kwallet.desktop
 failed=0
 pids=()
 trap 'kill "${pids[@]}" 2>/dev/null; rm -rf "$WORK"' EXIT
@@ -70,7 +72,9 @@ start_home "$first"
 echo "==> SteamOS ${STEAMOS_RELEASE:-?}: $(pacman -Q kwallet steamdeck-kde-presets | tr '\n' ' ')"
 check "nothing starts a Secret Service on demand, as in Game Mode" not_activatable "$first"
 
-in_home "$first" steamos-setup-kwallet
+read -r -a setup <<<"$(sed -n 's/^Exec=//p' "$AUTOSTART")"
+echo "    setting up the wallet with ${setup[*]}, as $AUTOSTART does"
+in_home "$first" "${setup[@]}"
 start_kwallet "$first"
 printf %s "$SECRET" | in_home "$first" timeout 20 secret-tool store --label=NonSteamApps service nonsteamapps account keyring-check
 check "KWallet opens the wallet SteamOS gives every device without a password" reads_back "$first"

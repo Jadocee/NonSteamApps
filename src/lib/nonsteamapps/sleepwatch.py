@@ -12,7 +12,8 @@ SteamOS sets another.
 SIGTERM goes to the app's own main process (see :func:`target`): bubblewrap, which runs each Flatpak, passes no
 signal on, and neither does the shell of a start script. Chromium and Electron, like most programs, quit gracefully
 on SIGTERM, and VacuumTube saves its settings as it quits. Which apps close is ``CLOSE_BEFORE_SLEEP``'s to say (see
-:func:`applies`).
+:func:`applies`). On a Steam Deck, which sleeps whenever it is put down, apps stay open unless it names them, as a
+handheld's apps do, and carry on where they were when it wakes (see :mod:`device`).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional
 
-from . import appmenu, config
+from . import appmenu, config, device
 from .apps import App
 from .proctree import PROC, command_line, descends, parents, program
 from .x11 import running
@@ -43,10 +44,12 @@ INTERVAL = 0.25
 WRAPPERS = frozenset({"bwrap", "sh", "bash", "dash", "zypak-helper"})
 
 
-def applies(value: Optional[str], app: App) -> bool:
-    """Whether ``CLOSE_BEFORE_SLEEP``'s ``value`` closes ``app`` first: ``default``, as when unset, leaves it to each
-    app (see :attr:`App.stays_open_in_sleep`); otherwise ``all``, ``off`` or a list of app IDs."""
-    return config.covers(value, app.id, default=not app.stays_open_in_sleep)
+def applies(value: Optional[str], app: App, here: Optional[device.Device] = None) -> bool:
+    """Whether ``CLOSE_BEFORE_SLEEP``'s ``value`` closes ``app`` first on ``here``, this device unless given: ``default``,
+    as when unset, leaves it to each app (see :attr:`App.stays_open_in_sleep`), and on a Steam Deck closes none;
+    otherwise ``all``, ``off`` or a list of app IDs."""
+    here = here or device.current()
+    return config.covers(value, app.id, default=not app.stays_open_in_sleep and not here.steam_deck)
 
 
 def sandbox(app_id: str, pid: int, tree: Mapping[int, int], flatpak: str = "flatpak") -> Optional[int]:
@@ -163,7 +166,7 @@ def follow(pid: int, app_id: str, client: str, launcher: List[str], environ: Map
             for message in connection.messages():
                 about = announcement(message)
                 if about:
-                    log(f"  closing {client}: the Steam Machine {about}")
+                    log(f"  closing {client}: the {device.current().name} {about}")
                     return close(pid, target(pid, app_id, launcher, flatpak, proc), client, grace, log)
         return False
     except (OSError, EOFError) as exc:

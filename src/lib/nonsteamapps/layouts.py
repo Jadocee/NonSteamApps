@@ -66,6 +66,14 @@ layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` 
   (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
   Down), Menu plays or pauses (Space), held, quits (Ctrl+Q), and View goes home. B's short press waits for
   its release, as Jellyfin quits when Escape is held for half a second; Valve's View, Ctrl+W, would quit at once.
+- **Remote Play**, for chiaki-ng, starts from Gamepad with Mouse Trackpad: chiaki-ng reads the gamepad as the
+  console's controller, Menu (Start) as Options and View (Select) as Create. Steam keeps the controller's own
+  Steam or PS button, so the PS button is Escape, chiaki-ng's key for it, on a press of the left trackpad and on
+  a long press of View, for a controller without trackpads. A press of the right trackpad is the right mouse
+  button, which chiaki-ng takes as a press of the console controller's touchpad. Holding Menu sends Ctrl+Q,
+  which ends a stream, asking whether the console should sleep, and quits from the list of consoles. L4 opens
+  chiaki-ng's stream menu (Ctrl+O) and R4 turns the microphone on or off (Ctrl+M), on the controllers that
+  have them.
 - **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
   the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
   home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down. The
@@ -89,6 +97,7 @@ MENU = "button_escape"
 VIEW = "button_menu"
 _ALWAYS_ON = "always_on_action"
 _QUIT_HELIUM = ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]
+_PS_BUTTON = "key_press ESCAPE, PS button"
 
 Change = Callable[[str, vdf.Pairs, Dict[str, vdf.Pairs]], vdf.Pairs]
 
@@ -248,6 +257,26 @@ def _full_pull(group: vdf.Pairs, binding: str) -> vdf.Pairs:
     settings = [(name, value) for name, value in _find(group, "settings") or [] if name != "output_trigger"]
     kept = [(name, value) for name, value in group if name not in ("inputs", "settings")]
     return [*kept, ("inputs", inputs), ("settings", settings)]
+
+
+def _press_only(group: vdf.Pairs, binding: str) -> vdf.Pairs:
+    """A trackpad's group that sends ``binding`` when the pad is pressed, and nothing while it is only touched or swiped."""
+    inputs = [("click", [("activators", [("Full_Press", [("bindings", [("binding", binding)])])])])]
+    kept = [(name, value) for name, value in group if name not in ("mode", "inputs", "settings")]
+    return [*kept, ("mode", "single_button"), ("inputs", inputs)]
+
+
+def _remote_play(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
+    if source == "switch":
+        _hold(group, MENU, ["key_press LEFT_CONTROL, End the stream", "key_press Q"])
+        _hold(group, VIEW, [_PS_BUTTON])
+        _bind(group, "button_back_left", ["key_press LEFT_CONTROL, Stream menu", "key_press O"])
+        _bind(group, "button_back_right", ["key_press LEFT_CONTROL, Microphone", "key_press M"])
+    elif source == "left_trackpad":
+        group = _press_only(group, _PS_BUTTON)
+    elif source == "right_trackpad":
+        _bind(group, "click", ["mouse_button RIGHT, Touchpad"])
+    return group
 
 
 def _youtube(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> vdf.Pairs:
@@ -479,7 +508,14 @@ YOUTUBE = Layout(
     change=_youtube,
     revision="3",
 )
-LAYOUTS = (BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, VLC, YOUTUBE)
+REMOTE_PLAY = Layout(
+    slug="remoteplay",
+    title="Remote Play (NonSteamApps)",
+    description="Steam's Gamepad layout for a PlayStation's games: Menu is Options and View is Create; press the left trackpad or hold View for the PS button, press the right trackpad for the touchpad, hold Menu to end the stream and then to quit, L4 for chiaki-ng's stream menu and R4 to turn the microphone on or off",
+    base="controller_neptune_gamepad+mouse.vdf",
+    change=_remote_play,
+)
+LAYOUTS = (BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, REMOTE_PLAY, SIGNAL, TOOLS, VLC, YOUTUBE)
 
 
 def used_by(titles: Iterable[str]) -> List[Layout]:

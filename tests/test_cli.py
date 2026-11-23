@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import _fakes
+import _paths
 from _fakes import ALPHA, BETA
 from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf
 
@@ -153,15 +154,15 @@ class InstallTests(CliTestCase):
             [call[-1] for call in self.fake.calls("install")],
             ["org.kde.Platform//6.11", nx2.APP_ID, "rocks.shy.VacuumTube", "im.riot.Riot", "org.signal.Signal", "com.discordapp.Discord",
              "com.bitwarden.desktop", "org.jellyfin.JellyfinDesktop", "org.videolan.VLC", "org.localsend.localsend_app",
-             "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "net.davidotek.pupgui2", "com.github.Matoking.protontricks",
-             "org.winehq.Wine//stable", "com.usebottles.bottles"],
+             "org.prismlauncher.PrismLauncher", "dev.eden_emu.eden", "io.github.streetpea.Chiaki4deck", "net.davidotek.pupgui2",
+             "com.github.Matoking.protontricks", "org.winehq.Wine//stable", "com.usebottles.bottles"],
         )
         record = config.Record.load(self.paths.record)
         self.assertEqual(record.managed(), apps.ids())
         self.assertEqual(
             [app.id for app in apps.APPS if record.owns_flatpak(app.id)],
-            ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "protonup",
-             "protontricks", "winetricks", "bottles"],
+            ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "chiaki",
+             "protonup", "protontricks", "winetricks", "bottles"],
         )
         self.assertIn("Note:", self.errors)
         self.assertIn("Signal keeps its database key unencrypted on disk", self.errors)
@@ -228,20 +229,65 @@ class InstallTests(CliTestCase):
         self.assertEqual((data["disabled_tabs"], data["fullscreen"], data["volume"]), (["shorts", "podcasts"], True, 80))
         self.assertIn("Put back YouTube's TV settings (1 data folder); sign-ins are kept", self.errors)
 
-    def test_a_full_install_asks_first_and_declining_changes_nothing(self):
-        self.install("youtube")
+    def answer(self, wanted):
+        """Answer each install question yes for the apps whose names are in ``wanted``; return the questions with their defaults."""
         asked = []
 
         def confirm(question, default=False, unattended=None):
-            asked.append(question)
-            return False
+            asked.append((question, default))
+            return any(question.startswith((f"Install {name}", f"Set up {name}")) for name in wanted)
 
-        with mock.patch("nonsteamapps.ui.confirm", side_effect=confirm):
+        return asked, mock.patch("nonsteamapps.ui.confirm", side_effect=confirm)
+
+    def test_a_full_install_asks_about_each_app_and_installs_only_those_chosen(self):
+        asked, answers = self.answer(["YouTube", "chiaki-ng"])
+        with answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
+        self.assertEqual(len(asked), len(apps.APPS))
+        self.assertEqual(asked[0], ("Install YouTube (VacuumTube), YouTube's TV interface with ad blocking, SponsorBlock, DeArrow and dislike counts?", True))
+        self.assertIn(("Install Eden-NX2, " + apps.by_id("edennx2").summary + "? It is built here from its source, which can take an hour.", True), asked)
+        self.assertTrue(all(default for _, default in asked))
+        self.assertIn(f"NonSteamApps asks about each of its {len(apps.APPS)} apps for this Steam Machine", self.errors)
+        self.assertIn("for this Steam Machine\n", self.errors)
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "chiaki"])
+        self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube", "chiaki-ng"])
+        self.assertEqual([call[-1] for call in self.fake.calls("install")][-2:], ["rocks.shy.VacuumTube", "io.github.streetpea.Chiaki4deck"])
+        self.assertEqual(self.fake.calls("build-init"), [])
+
+    def test_declining_every_app_changes_nothing(self):
+        self.install("youtube")
+        asked, answers = self.answer([])
+        with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
-        self.assertTrue(asked[0].startswith("Install YouTube (VacuumTube), Element (Element Desktop), "))
-        self.assertIn("The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept.", asked[0])
+        self.assertEqual(asked[0], ("Set up YouTube (VacuumTube) again? It stays installed either way, with its sign-ins and data.", True))
         self.assertIn(f"or update the apps you have with: {self.paths.launcher} update", self.errors)
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube"])
+
+    def test_an_installed_app_left_out_keeps_its_own_settings(self):
+        self.install("youtube", "localsend")
+        settings = self.home / ".var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-111/config.json"
+        apps.by_id("youtube").profile.prepare(apps.by_id("youtube").home(self.home), ALPHA, lambda options: 0)
+        changed = json.loads(settings.read_text())
+        changed["fullscreen"] = False
+        settings.write_text(json.dumps(changed))
+        asked, answers = self.answer(["LocalSend"])
+        with answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
+        self.assertIn(("Set up LocalSend again? It stays installed either way, with its sign-ins and data.", True), asked)
+        self.assertFalse(json.loads(settings.read_text())["fullscreen"])
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "localsend"])
+        self.assertEqual(sorted(self.entries(ALPHA)), ["LocalSend", "YouTube"])
+
+    def test_on_a_steam_deck_an_app_that_needs_more_than_it_has_is_offered_with_no_as_the_answer(self):
+        asked, answers = self.answer(["Files"])
+        with _paths.on_device("steam-deck"), answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
+        nx2_question = next((question, default) for question, default in asked if question.startswith("Install Eden-NX2"))
+        self.assertEqual(nx2_question, (f"Install Eden-NX2, {apps.by_id('edennx2').summary}? On a Steam Deck it is best left out: "
+                                        f"{apps.by_id('edennx2').needs}.", False))
+        self.assertEqual([question for question, default in asked if not default], [nx2_question[0]])
+        self.assertIn("for this Steam Deck", self.errors)
+        self.assertEqual(config.Record.load(self.paths.record).managed(), ["files"])
 
     def test_unknown_app_is_rejected(self):
         self.assertEqual(self.run_cli("install", "kodi", "--yes"), 1)
@@ -321,6 +367,20 @@ class LaunchTests(CliTestCase):
         self.assertEqual(argv, [self.fake.command, "run", "rocks.shy.VacuumTube", "--fullscreen", f"--portable={folder}", "--debug-gpu"])
         self.assertTrue(folder.is_dir())
         redirect.assert_called_once_with(self.paths.log("youtube"))
+
+    def test_chiaki_ng_starts_with_the_accounts_profile_and_stays_open_while_the_device_sleeps(self):
+        self.install("chiaki")
+        argv, _ = self.launch("chiaki", "--steam-account", str(BETA))
+        self.assertEqual(argv, [self.fake.command, "run", "io.github.streetpea.Chiaki4deck", f"--profile=steam-{BETA}"])
+        conf = self.home / f".var/app/io.github.streetpea.Chiaki4deck/config/Chiaki/Chiaki-steam-{BETA}.conf"
+        self.assertEqual(conf.read_text(), "[settings]\nadd_steam_shortcut_ask=false\ncodec_local_ps5=h265_hdr\ncodec_remote_ps5=h265_hdr\n")
+        with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True):
+            self.launch("chiaki", "--steam-account", str(BETA))
+        cli.sleepwatch.watch.assert_not_called()
+        config.set_setting(self.paths.settings, cli.PER_ACCOUNT, "0")
+        argv, _ = self.launch("chiaki", "--steam-account", str(BETA))
+        self.assertEqual(argv, [self.fake.command, "run", "io.github.streetpea.Chiaki4deck"])
+        self.assertEqual((conf.parent / "Chiaki.conf").read_text(), conf.read_text())
 
     def test_vacuumtube_gets_the_steamos_theme_and_keeps_the_styles_turned_off(self):
         self.install("youtube")
@@ -834,6 +894,18 @@ class RemovalTests(CliTestCase):
         self.assertNotIn("rocks.shy.VacuumTube", self.fake.apps())
         self.assertEqual(self.fake.calls("uninstall")[-1], ["uninstall", "--user", "--unused", "--noninteractive", "-y"])
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["element"])
+
+    def test_purging_chiaki_ng_deletes_each_accounts_profile_and_leaves_its_own_settings(self):
+        self.install("chiaki")
+        self.launch("chiaki", "--steam-account", str(ALPHA))
+        self.launch("chiaki", "--steam-account", str(BETA))
+        config_dir = self.home / ".var/app/io.github.streetpea.Chiaki4deck/config/Chiaki"
+        (config_dir / "Chiaki.conf").write_text("[General]\nversion=2\n")
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn(f"data: {config_dir / f'Chiaki-steam-{ALPHA}.conf'} (", self.output)
+        self.assertEqual(self.run_cli("remove", "chiaki", "--purge", "--yes"), 0, self.errors)
+        self.assertIn("Deleted chiaki-ng's data for each Steam account (2 files)", self.errors)
+        self.assertEqual(sorted(path.name for path in config_dir.iterdir()), ["Chiaki.conf"])
 
     def test_purge_needs_a_clear_yes(self):
         self.install("youtube")
@@ -1731,6 +1803,21 @@ class ArtworkTests(CliTestCase):
         self.assertEqual(self.run_cli("doctor"), 0)
         self.assertIn(f"artwork: drawn around its own icon, {base}/lichii_icon.png; its project's own library artwork for the capsule, logo, wide",
                       self.output)
+
+    def test_chiaki_ng_gets_its_projects_own_library_artwork_for_the_version_installed(self):
+        self.flatpak_icon("io.github.streetpea.Chiaki4deck", self.PNG + b"chiaki")
+        base = "https://raw.githubusercontent.com/chiaki-ng/chiaki-ng/v1.0.0/gui/res"
+        art = {"capsule": self.PNG + b"portrait", "wide": self.PNG + b"landscape", "hero": self.PNG + b"hero", "logo": self.PNG + b"logo"}
+        files = {"capsule": "steam_portrait.png", "wide": "steam_landscape.png", "hero": "steam_hero.png", "logo": "steam_logo.png"}
+        self.downloads.update({f"{base}/{files[slot]}": data for slot, data in art.items()})
+        self.install("chiaki", "helium")
+        self.assertIn("Drew Steam artwork around each app's own icon: chiaki-ng", self.errors)
+        for slot, suffix in (("capsule", "p.png"), ("wide", ".png"), ("logo", "_logo.png")):
+            self.assertEqual(self.grid("chiaki", suffix).read_bytes(), self.drawn(slot, art[slot]), slot)
+        self.assertEqual(self.grid("chiaki", "_hero.jpg").read_bytes(), self.drawn("hero", art["hero"], "jpeg"))
+        self.assertEqual(self.grid("chiaki", "_icon.png").read_bytes(), self.drawn("icon", self.PNG + b"chiaki"))
+        self.assertEqual(self.run_cli("doctor"), 0)
+        self.assertIn("its project's own library artwork for the capsule, hero, logo, wide", self.output)
 
     def test_artwork_the_user_chose_stays_and_a_removed_app_forgets_what_was_drawn(self):
         self.flatpak_icon("rocks.shy.VacuumTube", self.PNG + b"one")

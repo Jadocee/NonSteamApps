@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 import _paths  # noqa: F401
-from nonsteamapps import apps
+from nonsteamapps import apps, artwork
 
 HOME = Path("/home/deck")
 
@@ -16,8 +16,8 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(
             apps.ids(),
             ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "lichii",
-             "kytyps5", "protonup", "protontricks", "winetricks", "bottles", "files", "helium", "primevideo", "hbomax", "netflix", "disneyplus",
-             "protondb", "steamdb", "nexusmods", "protonmail", "protoncalendar"],
+             "kytyps5", "chiaki", "protonup", "protontricks", "winetricks", "bottles", "files", "helium", "primevideo", "hbomax", "netflix",
+             "disneyplus", "protondb", "steamdb", "nexusmods", "protonmail", "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -805,6 +805,28 @@ class IniSettingsTests(unittest.TestCase):
         path.write_bytes(b"\xff\xfe")
         self.assertIsNone(apps.KYTY_GAMES.apply(self.folder))
 
+    def test_kytyps5_keeps_its_own_resolution_on_a_steam_deck(self):
+        path = self.folder / "Kyty.ini"
+        path.write_text("[GlobalConfiguration]\nhost_input_mapping=@Invalid()\nscreen_resolution=1280x720\n")
+        with _paths.on_device("steam-deck"):
+            self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
+            self.assertIn("screen_resolution=1280x720\n", path.read_text())
+            self.assertIn('host_input_mapping="Pad:Cross=South"', path.read_text())
+            self.assertFalse(apps.KYTY_GAMES.apply(self.folder))
+        self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
+        self.assertIn("screen_resolution=1920x1080\n", path.read_text())
+
+    def test_hdr_values_go_only_into_a_new_file_on_a_device_that_shows_hdr(self):
+        settings = apps.IniSettings("app.ini", (("settings", "ask", "false"),), hdr=(("settings", "codec", "hdr"),))
+        for name, hdr in (("steam-machine", True), ("steam-deck-oled", True), ("steam-deck", False)):
+            with self.subTest(name), _paths.on_device(name):
+                folder = self.folder / name
+                self.assertTrue(settings.apply(folder))
+                self.assertEqual((folder / "app.ini").read_text(), "[settings]\nask=false\n" + ("codec=hdr\n" if hdr else ""))
+        (self.folder / "steam-machine" / "app.ini").write_text("[settings]\nask=true\ncodec=sdr\n")
+        self.assertTrue(settings.apply(self.folder / "steam-machine"))
+        self.assertEqual((self.folder / "steam-machine" / "app.ini").read_text(), "[settings]\nask=false\ncodec=sdr\n")
+
     def test_values_go_into_their_groups_and_everything_else_stays(self):
         settings = apps.IniSettings("app.ini", (("General", "Theme", "dark"), ("Window", "Bar", "off"), ("General", "Scale", "2")))
         path = self.folder / "app.ini"
@@ -820,6 +842,74 @@ class IniSettingsTests(unittest.TestCase):
         (self.folder / "sub/app.ini").write_bytes(b"\xff\xfe[General]")
         self.assertIsNone(settings.apply(self.folder))
         self.assertEqual((self.folder / "sub/app.ini").read_bytes(), b"\xff\xfe[General]")
+
+
+class ChiakiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.app = apps.by_id("chiaki")
+        self.app_home = self.app.home(self.home)
+        self.config = self.app_home / "config" / "Chiaki"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_each_steam_account_gets_a_chiaki_ng_profile_of_its_own(self):
+        self.assertEqual(self.app.flatpak, "io.github.streetpea.Chiaki4deck")
+        self.assertEqual(self.app.arguments(HOME, 111), ["--profile=steam-111"])
+        self.assertEqual(self.app.arguments(HOME, None), [])
+        self.assertEqual(self.app.run_options(HOME, 111), [])
+        self.assertEqual(self.app.controller, "Remote Play (NonSteamApps)")
+        self.assertTrue(self.app.stays_open_in_sleep)
+        self.assertFalse(self.app.plays_media)
+
+    def test_a_new_profile_starts_without_chiaki_ngs_own_steam_shortcut_and_with_hdr_where_it_shows(self):
+        self.assertTrue(self.app.profile.prepare(self.app_home, 111, lambda options: 0))
+        self.assertEqual((self.config / "Chiaki-steam-111.conf").read_text(),
+                         "[settings]\nadd_steam_shortcut_ask=false\ncodec_local_ps5=h265_hdr\ncodec_remote_ps5=h265_hdr\n")
+        with _paths.on_device("steam-deck"):
+            self.app.profile.prepare(self.app_home, 222, lambda options: 0)
+        self.assertEqual((self.config / "Chiaki-steam-222.conf").read_text(), "[settings]\nadd_steam_shortcut_ask=false\n")
+        self.assertIsNone(self.app.profile.data_folder(self.app_home, 111))
+
+    def test_a_profile_chiaki_ng_already_wrote_keeps_its_consoles_and_choices(self):
+        conf = self.config / "Chiaki-steam-111.conf"
+        conf.parent.mkdir(parents=True)
+        kept = "[General]\nversion=2\n\n[settings]\ncodec_local_ps5=h265\nadd_steam_shortcut_ask=true\n\n[registered_hosts]\nsize=1\n"
+        conf.write_text(kept)
+        self.app.profile.prepare(self.app_home, 111, lambda options: 0)
+        self.assertEqual(conf.read_text(), kept)
+        self.assertEqual(self.app.profile.reset(self.app_home), [conf])
+        self.assertEqual(conf.read_text(), kept.replace("add_steam_shortcut_ask=true", "add_steam_shortcut_ask=false"))
+        self.assertEqual(self.app.profile.reset(self.app_home), [])
+
+    def test_profiles_are_found_by_their_files_and_the_shared_one_is_reset_only_while_accounts_share_it(self):
+        self.app.profile.prepare(self.app_home, 111, lambda options: 0)
+        self.app.profile.prepare(self.app_home, 222, lambda options: 0)
+        for name in ("Chiaki-steam-x.conf", "Chiaki-other.conf", "pl_render_params.conf"):
+            (self.config / name).write_text("[settings]\n")
+        self.assertEqual([path.name for path in self.app.profile.existing(self.app_home)], ["Chiaki-steam-111.conf", "Chiaki-steam-222.conf"])
+        self.app.profile.prepare_shared(self.app_home)
+        shared = self.config / "Chiaki.conf"
+        shared.write_text("[settings]\nadd_steam_shortcut_ask=true\n")
+        self.assertEqual(self.app.profile.reset(self.app_home), [])
+        self.assertEqual(self.app.profile.reset(self.app_home, shared=True), [shared])
+        self.assertEqual(apps.SettingsProfile("x/{account}.conf", "x/shared.conf", apps.CHIAKI_SETTINGS).existing(self.home), [])
+
+    def test_chiaki_ngs_own_library_artwork_is_read_at_the_version_installed(self):
+        urls = self.app.library.urls("1.10.1")
+        base = "https://raw.githubusercontent.com/chiaki-ng/chiaki-ng/v1.10.1/gui/res/"
+        self.assertEqual(urls, {"capsule": base + "steam_portrait.png", "wide": base + "steam_landscape.png",
+                                "hero": base + "steam_hero.png", "logo": base + "steam_logo.png"})
+        self.assertEqual(self.app.library.urls(""), {})
+        self.assertTrue(set(urls) <= {slot for slot, _, _, _ in artwork.SLOTS})
+
+
+class DeviceNeedsTests(unittest.TestCase):
+    def test_only_eden_nx2_needs_more_than_a_steam_deck_has(self):
+        self.assertEqual([app.id for app in apps.APPS if app.needs], ["edennx2"])
+        self.assertIn("8 GB", apps.by_id("edennx2").needs)
 
 
 class SystemAppTests(unittest.TestCase):

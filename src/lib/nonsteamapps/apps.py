@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-from . import nx2
+from . import device, nx2
 from .display import TV_HEIGHT
 from .fsutil import atomic_write_bytes, atomic_write_json
-from .layouts import BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, SIGNAL, TOOLS, VLC, YOUTUBE
+from .layouts import BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, REMOTE_PLAY, SIGNAL, TOOLS, VLC, YOUTUBE
 from .steam import STEAM_ID64_BASE
 
 RunApp = Callable[[Sequence[str]], int]
@@ -115,12 +115,14 @@ class IniSettings:
     """Values for one of an app's INI settings files, as Qt's QSettings and KDE's KConfig write them, at ``file`` in a folder.
 
     ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``new``
-    are further values a file NonSteamApps creates starts with.
+    are further values a file NonSteamApps creates starts with, and ``hdr`` further ones it starts with on a device
+    that can show HDR (see :attr:`device.Device.hdr`).
     """
 
     file: str
     values: Tuple[Tuple[str, str, str], ...]
     new: Tuple[Tuple[str, str, str], ...] = ()
+    hdr: Tuple[Tuple[str, str, str], ...] = ()
 
     def target(self, folder: Path) -> Path:
         return Path(folder) / self.file
@@ -138,7 +140,7 @@ class IniSettings:
             lines, fresh = [], True
         except (OSError, UnicodeDecodeError):
             return None
-        wanted = [*self.values, *(self.new if fresh else ())]
+        wanted = [*self.values, *(self.new if fresh else ()), *(self.hdr if fresh and device.current().hdr else ())]
         if not any([set_ini(lines, group, key, value) for group, key, value in wanted]):
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
@@ -384,11 +386,13 @@ class KytyGlobal:
 
     ``values`` are ``(key, value, defaults)``, where ``defaults`` are how the launcher writes the key's default; an
     empty value counts as one too. The launcher reads its ``[GlobalConfiguration]`` group whole once it holds a key,
-    and a key missing there becomes zero, so the defaults that are not zero go in with them.
+    and a key missing there becomes zero, so the defaults that are not zero go in with them. The keys in ``tv_only``
+    keep their defaults on a Steam Deck (see :mod:`device`).
     """
 
     values: Tuple[Tuple[str, str, Tuple[str, ...]], ...]
     file: str = "Kyty.ini"
+    tv_only: Tuple[str, ...] = ()
 
     def target(self, folder: Path) -> Path:
         return Path(folder) / self.file
@@ -396,7 +400,9 @@ class KytyGlobal:
     def apply(self, folder: Path) -> Optional[bool]:
         """Write the values the user has not changed; return whether the file changed, or ``None`` if it cannot be read."""
         entries = dict(ini_entries(self.target(folder), KYTY_GLOBAL, ""))
-        wanted = [(KYTY_GLOBAL, key, value) for key, value, defaults in self.values if entries.get(key, "").strip() in ("", *defaults)]
+        handheld = device.current().steam_deck
+        wanted = [(KYTY_GLOBAL, key, value) for key, value, defaults in self.values
+                  if entries.get(key, "").strip() in ("", *defaults) and not (handheld and key in self.tv_only)]
         if not wanted:
             return False
         values = [(KYTY_GLOBAL, key, value) for key, value in KYTY_GLOBAL_DEFAULTS if key not in entries]
@@ -406,7 +412,7 @@ class KytyGlobal:
 KYTY_GAMES = KytyGlobal((
     ("host_input_mapping", ", ".join(f'"{entry}"' for entry in KYTY_PAD), ("@Invalid()",)),
     ("screen_resolution", "1920x1080", ("1280x720",)),
-))
+), tv_only=("screen_resolution",))
 Settings = Union[JsonSettings, IniSettings, KytyGlobal]
 VACUUMTUBE_TV = JsonSettings(
     "config.json",
@@ -757,7 +763,69 @@ class JellyfinProfile:
         return folders
 
 
-Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile]
+@dataclass(frozen=True)
+class SettingsProfile:
+    """Per-account settings in a file of their own, which the app picks by the name of a profile, as chiaki-ng's ``--profile`` does.
+
+    Qt's QSettings keeps profile ``steam-<account>``'s settings at ``file``, with ``{account}`` in it, in the app's
+    folder, and the settings of a start without a profile at ``shared``. ``settings`` are what NonSteamApps writes
+    into them: into a file that does not exist yet, and back into every one by :meth:`reset`, which every install
+    runs. The app keeps everything else of an account there too, such as the consoles it has paired.
+    """
+
+    file: str
+    shared: str
+    settings: IniSettings
+    argument: str = "--profile=steam-{account}"
+
+    def path(self, app_home: Path, account: int) -> Path:
+        return Path(app_home) / self.file.format(account=account)
+
+    def _settings(self, path: Path) -> IniSettings:
+        return IniSettings(path.name, self.settings.values, self.settings.new, self.settings.hdr)
+
+    def _seed(self, path: Path) -> None:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._settings(path).apply(path.parent)
+
+    def arguments(self, app_home: Path, account: int) -> List[str]:
+        return [self.argument.format(account=account)]
+
+    def data_folder(self, app_home: Path, account: Optional[int]) -> Optional[Path]:
+        return None
+
+    def wrap(self, app_home: Path, account: int, args: Sequence[str]) -> List[str]:
+        return [*args, *self.arguments(app_home, account)]
+
+    def run_options(self, app_home: Path, account: int) -> List[str]:
+        return []
+
+    def prepare(self, app_home: Path, account: int, run_app: RunApp) -> bool:
+        self._seed(self.path(app_home, account))
+        return True
+
+    def prepare_shared(self, app_home: Path) -> None:
+        self._seed(Path(app_home) / self.shared)
+
+    def reset(self, app_home: Path, shared: bool = False) -> List[Path]:
+        """Put the ``settings`` back in each account's file, and in the shared one while accounts share it; return the files changed."""
+        files = self.existing(app_home)
+        common = Path(app_home) / self.shared
+        if shared and common.is_file():
+            files.append(common)
+        return [path for path in files if self._settings(path).apply(path.parent)]
+
+    def existing(self, app_home: Path) -> List[Path]:
+        """Each account's settings file."""
+        pattern = re.compile(re.escape(Path(self.file).name).replace(r"\{account\}", r"\d+") + r"\Z")
+        parent = self.path(app_home, 0).parent
+        if not parent.is_dir():
+            return []
+        return sorted(path for path in parent.iterdir() if path.is_file() and pattern.match(path.name))
+
+
+Profile = Union[FolderProfile, ScriptProfile, EnvProfile, PortableProfile, JellyfinProfile, SettingsProfile]
 
 
 @dataclass(frozen=True)
@@ -903,6 +971,26 @@ class DesktopEntry:
 
 
 @dataclass(frozen=True)
+class Library:
+    """The artwork for Steam's library that a Flathub app's project keeps in its repository on GitHub, ``repo``.
+
+    ``files`` pair a slot of :data:`artwork.SLOTS` with a file's path there, read at the tag ``tag`` names for the
+    version of the app installed, so that the artwork is the one released with it.
+    """
+
+    repo: str
+    files: Tuple[Tuple[str, str], ...]
+    tag: str = "v{version}"
+
+    def urls(self, version: str) -> Dict[str, str]:
+        """Where each file is for ``version``, by slot; nothing without a version."""
+        if not version:
+            return {}
+        tag = self.tag.format(version=version)
+        return {slot: f"https://raw.githubusercontent.com/{self.repo}/{tag}/{file}" for slot, file in self.files}
+
+
+@dataclass(frozen=True)
 class App:
     """An app NonSteamApps adds to Steam: from Flathub (``flatpak``), in its own Helium (``browser``), one SteamOS includes
     (``system``), one it downloads from its project's releases (``release``), a Flatpak it builds on this machine
@@ -954,7 +1042,9 @@ class App:
     emulator's or a game's progress, a Wine install part way through or a copy of files; any other is closed
     first, unless ``CLOSE_BEFORE_SLEEP`` says otherwise (see :mod:`sleepwatch`). An app that ``plays_media``, video or
     music, is paused when the TV switches away from the device or turns off, unless ``PAUSE_WHEN_TV_SWITCHES`` says
-    otherwise (see :mod:`cecwatch`).
+    otherwise (see :mod:`cecwatch`). ``needs`` says what an app needs beyond what a Steam Deck has; there, its install
+    question says so and has no as its answer (see :mod:`device`). A Flathub app's ``library`` is the artwork for
+    Steam's library its project publishes, which its Steam artwork then shows (see :mod:`artwork`).
     """
 
     id: str
@@ -998,6 +1088,8 @@ class App:
     playback: Tuple[Tuple[str, str, bool], ...] = ()
     stays_open_in_sleep: bool = False
     plays_media: bool = False
+    needs: str = ""
+    library: Optional[Library] = None
 
     @property
     def profiles_name(self) -> str:
@@ -1051,6 +1143,19 @@ LICHII_PROFILE = PortableProfile(
     shared_links=EDEN_SHARED_LINKS,
     carried=EDEN_CARRIED,
 )
+
+CHIAKI_SETTINGS = IniSettings(
+    "Chiaki.conf",
+    (("settings", "add_steam_shortcut_ask", "false"),),
+    hdr=(("settings", "codec_local_ps5", "h265_hdr"), ("settings", "codec_remote_ps5", "h265_hdr")),
+)
+CHIAKI_PROFILE = SettingsProfile("config/Chiaki/Chiaki-steam-{account}.conf", "config/Chiaki/Chiaki.conf", CHIAKI_SETTINGS)
+CHIAKI_LIBRARY = Library("chiaki-ng/chiaki-ng", (
+    ("capsule", "gui/res/steam_portrait.png"),
+    ("wide", "gui/res/steam_landscape.png"),
+    ("hero", "gui/res/steam_hero.png"),
+    ("logo", "gui/res/steam_logo.png"),
+))
 
 APPS: Tuple[App, ...] = (
     App(
@@ -1262,6 +1367,8 @@ APPS: Tuple[App, ...] = (
         console_mode=True,
         graphics=NX2_GRAPHICS,
         keys_from="eden",
+        needs="its author asks for a graphics chip with 8 GB of its own memory and 16 GB of RAM, where a Steam Deck has 16 GB in all, "
+              "and it is built here, which takes longer on a Steam Deck's low-power processor",
         notice="Eden-NX2 is early work, and few Switch 2 games start: copy each one you own, dumped as a folder holding its exefs and romfs, "
                "into ~/Games/Switch2. It is built here, so nonsteamapps update builds its newest source, which can take an hour",
     ),
@@ -1302,6 +1409,19 @@ APPS: Tuple[App, ...] = (
         game_mode_env=(("QT_QPA_PLATFORM", "xcb"), ("SDL_VIDEO_DRIVER", "x11")),
         fullscreen_class="nonsteamapps-kytyps5",
         notice="KytyPS5 plays only games you own, copied from your own console; it updates with `nonsteamapps update`, not every week",
+    ),
+    App(
+        id="chiaki",
+        stays_open_in_sleep=True,
+        name="chiaki-ng",
+        client="chiaki-ng",
+        flatpak="io.github.streetpea.Chiaki4deck",
+        summary="Remote Play for your PS5 or PS4, at home or over the internet, with a profile for each Steam account, set up for a TV, a Steam Deck and a controller",
+        profile=CHIAKI_PROFILE,
+        controller=REMOTE_PLAY.title,
+        library=CHIAKI_LIBRARY,
+        notice="chiaki-ng finds a PS5 or PS4 on your network: pair it once, signing in to PSN when chiaki-ng offers or with the PIN the console shows "
+               "under Settings ▸ System ▸ Remote Play ▸ Link Device. Hold Menu to end a stream",
     ),
     App(
         id="protonup",

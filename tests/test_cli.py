@@ -243,14 +243,16 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer(["YouTube", "chiaki-ng"])
         with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        self.assertEqual(len(asked), len(apps.APPS) - 3)
+        self.assertEqual(len(asked), len(apps.APPS) - 4)
         self.assertEqual(asked[0], ("Install YouTube (VacuumTube), YouTube's TV interface with ad blocking, SponsorBlock, DeArrow and dislike counts?", True))
         self.assertIn(("Install Eden-NX2, " + apps.by_id("edennx2").summary + "? It is built here from its source, which can take an hour.", True), asked)
         self.assertIn(("Install the streaming apps: Prime Video, HBO Max, Netflix and Disney+? Each runs full screen in Helium, "
                        "with a sign-in of its own for each Steam account.", True), asked)
-        self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+")) for question, _ in asked))
+        self.assertEqual(asked[-1], ("Install the Proton apps: Proton Mail and Proton Calendar? Both run full screen in Helium and share one "
+                                     "sign-in for each Steam account.", True))
+        self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+", "Install Proton Calendar")) for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
-        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 3} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
+        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 4} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
         self.assertIn("for this Steam Machine\n", self.errors)
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "chiaki"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube", "chiaki-ng"])
@@ -305,7 +307,7 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer([])
         with _paths.on_device("steam-deck"), answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
-        self.assertEqual(len(asked), len(apps.APPS) - 4)
+        self.assertEqual(len(asked), len(apps.APPS) - 5)
         self.assertFalse(any("Eden-NX2" in question for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
         with _paths.on_device("steam-deck"):

@@ -66,7 +66,7 @@ In Desktop Mode, open Konsole and run:
 curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash
 ```
 
-The installer asks about each app in the table above in turn, and about the four streaming apps, Prime Video, HBO Max, Netflix and Disney+, in one question. **Enter** answers yes. On a Steam Deck it does not offer Eden-NX2. An app already installed stays installed whatever the answer: yes sets it up afresh, and no leaves it as it is. `--yes` answers yes to every question. To install some apps without the questions, name them:
+The installer asks about each app in the table above in turn, about the four streaming apps, Prime Video, HBO Max, Netflix and Disney+, in one question, and about Proton Mail and Proton Calendar, which share a sign-in, in another. **Enter** answers yes. On a Steam Deck it does not offer Eden-NX2. An app already installed stays installed whatever the answer: yes sets it up afresh, and no leaves it as it is. `--yes` answers yes to every question. To install some apps without the questions, name them:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash -s -- youtube jellyfin

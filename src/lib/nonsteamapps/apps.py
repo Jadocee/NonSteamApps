@@ -1636,6 +1636,7 @@ class Group:
 GROUPS: Tuple[Group, ...] = (
     Group("the streaming apps", "Each runs full screen in Helium, with a sign-in of its own for each Steam account.",
           ("primevideo", "hbomax", "netflix", "disneyplus")),
+    Group("the Proton apps", "Both run full screen in Helium and share one sign-in for each Steam account.", ("protonmail", "protoncalendar")),
 )
 
 

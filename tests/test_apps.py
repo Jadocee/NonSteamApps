@@ -24,6 +24,16 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             apps.by_id("kodi")
 
+    def test_the_streaming_apps_are_asked_about_together_where_the_first_of_them_is(self):
+        together = apps.asked_together(apps.APPS)
+        self.assertEqual(len(together), len(apps.APPS) - 3)
+        self.assertEqual([(group.name, [app.id for app in members]) for group, members in together if group],
+                         [("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"])])
+        self.assertTrue(all(apps.by_id(app_id) for group in apps.GROUPS for app_id in group.ids))
+        some = [apps.by_id(name) for name in ("netflix", "youtube", "primevideo")]
+        self.assertEqual([(group.name if group else None, [app.id for app in members]) for group, members in apps.asked_together(some)],
+                         [("the streaming apps", ["netflix", "primevideo"]), (None, ["youtube"])])
+
     def test_every_app_ships_its_artwork(self):
         artwork = Path(_paths.ROOT) / "assets" / "artwork"
         for app in apps.APPS:

@@ -1042,8 +1042,8 @@ class App:
     emulator's or a game's progress, a Wine install part way through or a copy of files; any other is closed
     first, unless ``CLOSE_BEFORE_SLEEP`` says otherwise (see :mod:`sleepwatch`). An app that ``plays_media``, video or
     music, is paused when the TV switches away from the device or turns off, unless ``PAUSE_WHEN_TV_SWITCHES`` says
-    otherwise (see :mod:`cecwatch`). ``needs`` says what an app needs beyond what a Steam Deck has; there, its install
-    question says so and has no as its answer (see :mod:`device`). A Flathub app's ``library`` is the artwork for
+    otherwise (see :mod:`cecwatch`). ``needs`` says what an app needs beyond what a Steam Deck has; there, the installer does
+    not offer it, and installing it by name says why (see :mod:`device`). A Flathub app's ``library`` is the artwork for
     Steam's library its project publishes, which its Steam artwork then shows (see :mod:`artwork`).
     """
 
@@ -1622,6 +1622,33 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
     ),
 )
+
+
+@dataclass(frozen=True)
+class Group:
+    """Apps the installer asks about in one question, as ``name``, which ``summary`` describes."""
+
+    name: str
+    summary: str
+    ids: Tuple[str, ...]
+
+
+GROUPS: Tuple[Group, ...] = (
+    Group("the streaming apps", "Each runs full screen in Helium, with a sign-in of its own for each Steam account.",
+          ("primevideo", "hbomax", "netflix", "disneyplus")),
+)
+
+
+def asked_together(chosen: Sequence[App]) -> List[Tuple[Optional[Group], List[App]]]:
+    """``chosen`` as the installer asks about them: each app alone, or with the others of its group, where the first of them is."""
+    found: List[Tuple[Optional[Group], List[App]]] = []
+    for app in chosen:
+        group = next((group for group in GROUPS if app.id in group.ids), None)
+        if group is None:
+            found.append((None, [app]))
+        elif not any(asked is group for asked, _ in found):
+            found.append((group, [other for other in chosen if other.id in group.ids]))
+    return found
 
 
 def sharing_profiles(app: App) -> Tuple[App, ...]:

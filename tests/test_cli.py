@@ -243,11 +243,14 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer(["YouTube", "chiaki-ng"])
         with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        self.assertEqual(len(asked), len(apps.APPS))
+        self.assertEqual(len(asked), len(apps.APPS) - 3)
         self.assertEqual(asked[0], ("Install YouTube (VacuumTube), YouTube's TV interface with ad blocking, SponsorBlock, DeArrow and dislike counts?", True))
         self.assertIn(("Install Eden-NX2, " + apps.by_id("edennx2").summary + "? It is built here from its source, which can take an hour.", True), asked)
+        self.assertIn(("Install the streaming apps: Prime Video, HBO Max, Netflix and Disney+? Each runs full screen in Helium, "
+                       "with a sign-in of its own for each Steam account.", True), asked)
+        self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+")) for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
-        self.assertIn(f"NonSteamApps asks about each of its {len(apps.APPS)} apps for this Steam Machine", self.errors)
+        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 3} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
         self.assertIn("for this Steam Machine\n", self.errors)
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "chiaki"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube", "chiaki-ng"])
@@ -278,16 +281,41 @@ class InstallTests(CliTestCase):
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "localsend"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["LocalSend", "YouTube"])
 
-    def test_on_a_steam_deck_an_app_that_needs_more_than_it_has_is_offered_with_no_as_the_answer(self):
-        asked, answers = self.answer(["Files"])
-        with _paths.on_device("steam-deck"), answers:
+    def test_the_streaming_apps_are_asked_about_together(self):
+        self.install("netflix")
+        asked, answers = self.answer(["the streaming apps"])
+        with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        nx2_question = next((question, default) for question, default in asked if question.startswith("Install Eden-NX2"))
-        self.assertEqual(nx2_question, (f"Install Eden-NX2, {apps.by_id('edennx2').summary}? On a Steam Deck it is best left out: "
-                                        f"{apps.by_id('edennx2').needs}.", False))
-        self.assertEqual([question for question, default in asked if not default], [nx2_question[0]])
+        self.assertIn(("Install the streaming apps: Prime Video, HBO Max, Netflix and Disney+? Each runs full screen in Helium, "
+                       "with a sign-in of its own for each Steam account. Netflix, already installed, is set up again.", True), asked)
+        self.assertEqual(sorted(config.Record.load(self.paths.record).managed()), ["disneyplus", "hbomax", "netflix", "primevideo"])
+        asked, answers = self.answer([])
+        with answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
+        self.assertIn(("Set up the streaming apps again: Prime Video, HBO Max, Netflix and Disney+? They stay installed either way, "
+                       "with their sign-ins and data.", True), asked)
+        self.assertEqual(sorted(self.entries(ALPHA)), ["Disney+", "HBO Max", "Netflix", "Prime Video"])
+
+    def test_on_a_steam_deck_eden_nx2_is_not_offered_and_naming_it_says_why(self):
+        with _paths.on_device("steam-deck"):
+            self.install()
         self.assertIn("for this Steam Deck", self.errors)
-        self.assertEqual(config.Record.load(self.paths.record).managed(), ["files"])
+        self.assertEqual(config.Record.load(self.paths.record).managed(), [app.id for app in apps.APPS if app.id != "edennx2"])
+        self.assertEqual(self.fake.calls("build-init"), [])
+        asked, answers = self.answer([])
+        with _paths.on_device("steam-deck"), answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
+        self.assertEqual(len(asked), len(apps.APPS) - 4)
+        self.assertFalse(any("Eden-NX2" in question for question, _ in asked))
+        self.assertTrue(all(default for _, default in asked))
+        with _paths.on_device("steam-deck"):
+            self.install("edennx2")
+        self.assertIn(f"warning: Eden-NX2 needs more than a Steam Deck has, so the installer does not offer it here: {apps.by_id('edennx2').needs}",
+                      self.errors)
+        asked, answers = self.answer([])
+        with _paths.on_device("steam-deck"), answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
+        self.assertIn(("Set up Eden-NX2 again? It stays installed either way, with its sign-ins and data.", True), asked)
 
     def test_unknown_app_is_rejected(self):
         self.assertEqual(self.run_cli("install", "kodi", "--yes"), 1)

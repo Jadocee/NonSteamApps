@@ -598,6 +598,9 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     chosen = _choose(args.apps) or _ask_each(record, here)
     if not chosen:
         raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install APP..., or update the apps you have with: {paths.launcher} update")
+    for app in chosen:
+        if here.steam_deck and app.needs and app.id not in record.apps:
+            ui.warn(f"{app.name} needs more than a Steam Deck has, so the installer does not offer it here: {app.needs}")
     if any(app.flatpak for app in chosen) and not flatpak.available():
         raise ui.Abort(f"flatpak is not installed; NonSteamApps installs {_listing([a for a in chosen if a.flatpak])} from Flathub")
 
@@ -670,28 +673,38 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     return 0
 
 
+def _question(record: Record, group: Optional[apps.Group], members: Sequence[App]) -> str:
+    """The install question about ``members``: one app, or the apps of ``group``."""
+    installed = [app for app in members if app.id in record.apps]
+    if group is None:
+        app = members[0]
+        if installed:
+            return f"Set up {_listing([app])} again? It stays installed either way, with its sign-ins and data."
+        built = " It is built here from its source, which can take an hour." if app.from_source else ""
+        return f"Install {_listing([app])}, {app.summary}?{built}"
+    if len(installed) == len(members):
+        return f"Set up {group.name} again: {_names(members)}? They stay installed either way, with their sign-ins and data."
+    question = f"Install {group.name}: {_names(members)}? {group.summary}"
+    if installed:
+        question += f" {_names(installed)}, already installed, {'is' if len(installed) == 1 else 'are'} set up again."
+    return question
+
+
 def _ask_each(record: Record, here: device.Device) -> List[App]:
-    """Ask about each app in turn; return those to install, or to set up again.
+    """Ask about each app in turn, and about the apps of a group together (see :data:`apps.GROUPS`); return those to
+    install, or to set up again.
 
     An app already installed stays installed either way: yes puts NonSteamApps' set-up back, keeping its sign-ins
-    and data, and no leaves it as it is. Enter answers yes, except for an app that needs more than a Steam Deck
-    has, on one (see :attr:`App.needs`).
+    and data, and no leaves it as it is. Enter answers yes. On a Steam Deck, an app that needs more than it has is
+    not offered unless it is installed (see :attr:`App.needs`).
     """
-    ui.info(f"NonSteamApps asks about each of its {len(apps.APPS)} apps for this {here.name}; Enter takes the answer in capitals")
+    offered = [app for app in apps.APPS if app.id in record.apps or not (here.steam_deck and app.needs)]
+    questions = apps.asked_together(offered)
+    ui.info(f"NonSteamApps asks {len(questions)} questions about its apps for this {here.name}; Enter answers yes")
     chosen: List[App] = []
-    for app in apps.APPS:
-        label = _listing([app])
-        default = True
-        if app.id in record.apps:
-            question = f"Set up {label} again? It stays installed either way, with its sign-ins and data."
-        elif here.steam_deck and app.needs:
-            question, default = f"Install {label}, {app.summary}? On a Steam Deck it is best left out: {app.needs}.", False
-        else:
-            question = f"Install {label}, {app.summary}?"
-            if app.from_source:
-                question += " It is built here from its source, which can take an hour."
-        if ui.confirm(question, default=default):
-            chosen.append(app)
+    for group, members in questions:
+        if ui.confirm(_question(record, group, members), default=True):
+            chosen.extend(members)
     return chosen
 
 

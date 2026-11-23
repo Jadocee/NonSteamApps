@@ -7,7 +7,7 @@ Machine. On a Steam Deck:
 
 - the apps stay open while it sleeps, as a handheld's apps usually do, unless ``CLOSE_BEFORE_SLEEP`` names them
   (see :mod:`sleepwatch`);
-- an app that needs more than a Steam Deck has, as Eden-NX2 does, is offered with no as the answer (see
+- an app that needs more than a Steam Deck has, as Eden-NX2 does, is not offered by the installer (see
   :attr:`apps.App.needs`);
 - KytyPS5 keeps its own 1280×720, which runs faster there than the 1080p it gets on a TV (see :class:`apps.KytyGlobal`).
 

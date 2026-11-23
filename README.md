@@ -66,7 +66,7 @@ In Desktop Mode, open Konsole and run:
 curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash
 ```
 
-The installer asks about each app in the table above in turn. **Enter** answers yes, except for Eden-NX2 on a Steam Deck. An app already installed stays installed whatever the answer: yes sets it up afresh, and no leaves it as it is. `--yes` answers yes to every question. To install some apps without the questions, name them:
+The installer asks about each app in the table above in turn, and about the four streaming apps, Prime Video, HBO Max, Netflix and Disney+, in one question. **Enter** answers yes. On a Steam Deck it does not offer Eden-NX2. An app already installed stays installed whatever the answer: yes sets it up afresh, and no leaves it as it is. `--yes` answers yes to every question. To install some apps without the questions, name them:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jadocee/NonSteamApps/main/install.sh | bash -s -- youtube jellyfin
@@ -120,7 +120,7 @@ Without app names, the installer asks first. Steam is closed only while its libr
 NonSteamApps tells the device it runs on by what its firmware calls it, as SteamOS Manager does: a Steam Machine (board `Fremont`), a Steam Deck (`Jupiter`, the LCD model) or a Steam Deck OLED (`Galileo`). Any other PC is set up as a Steam Machine is. The installer names the device it sets the apps up for. On a Steam Deck:
 
 - **Sleep:** the apps stay open while it sleeps, as a handheld's apps do, and carry on where they were when it wakes; `CLOSE_BEFORE_SLEEP` can still name apps to close.
-- **Eden-NX2:** its install question has no as its answer. Its author asks for a graphics chip with 8 GB of memory of its own and 16 GB of RAM, more than a Steam Deck has, and it is built on the device, which takes longer on the Deck's low-power processor.
+- **Eden-NX2:** the installer does not offer it. Its author asks for a graphics chip with 8 GB of memory of its own and 16 GB of RAM, more than a Steam Deck has, and it is built on the device, which takes longer on the Deck's low-power processor. `nonsteamapps install edennx2` still installs it, saying why it is not offered.
 - **KytyPS5:** games keep its own 1280×720, which runs faster there than the 1080p it gets on a TV.
 - **chiaki-ng:** a new profile streams in HDR on a Steam Deck OLED, whose screen shows it, and in SDR on the LCD model. It reads the Deck's gyro, and can play haptics on its trackpads.
 

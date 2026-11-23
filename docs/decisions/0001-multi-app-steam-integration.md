@@ -989,6 +989,10 @@ The owner answered the open questions. Where these answers differ from the text 
       - every Flatpak still on Flathub, `io.github.streetpea.Chiaki4deck` included;
       - a real install of LocalSend from Flathub, and its removal.
 
+103. **One question for the streaming apps, and none for Eden-NX2 on a Steam Deck (owner decision); version 2.46.0.** Having seen item 102's questions, the owner asked for Netflix, HBO Max, Prime Video and the like to be one install question, and for the installer not to ask about Eden-NX2 on a Steam Deck.
+    - **The streaming apps:** Prime Video, HBO Max, Netflix and Disney+, the four services in Helium, are asked about in one question, where Prime Video's was. Yes installs the four, and sets up again those already installed, which the question names; no leaves all four as they are. With all four installed, it asks whether to set them up again. Helium itself, ProtonDB, SteamDB, Nexus Mods, Proton Mail and Proton Calendar keep questions of their own, and an app named in the install command is still installed on its own. The installer asks 26 questions, rather than 29.
+    - **Eden-NX2 on a Steam Deck:** not offered, rather than offered with no as the answer (item 102), so `install --yes` does not build it there either. Once installed, it is asked about as any installed app is. Named in the install command, it is installed, with a warning saying why the installer does not offer it.
+
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 
 ## Sources

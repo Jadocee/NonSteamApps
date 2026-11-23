@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c2dc4f"/><stop offset="1" stop-color="#1d5a69"/></linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+</defs>
+<rect x="32" y="32" width="448" height="448" rx="104" fill="url(#tile)"/>
+<path d="M32 136 C32 78.6 78.6 32 136 32 H376 C433.4 32 480 78.6 480 136 V196 C380 160 132 160 32 214 Z" fill="url(#gloss)"/>
+<path d="M212.2 190.2 A62 62 0 0 1 299.8 190.2" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round"/>
+<path d="M175.4 153.4 A114 114 0 0 1 336.6 153.4" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round"/>
+<circle cx="256" cy="234" r="17" fill="#fff"/>
+<path d="M170 272 C 134 272 114 316 108 362 C 102 406 134 424 160 400 L196 366 H316 L352 400 C 378 424 410 406 404 362 C 398 316 378 272 342 272 Z" fill="#143049"/>
+<circle cx="198" cy="324" r="25" fill="#c2dc4f"/>
+<circle cx="314" cy="324" r="25" fill="#c2dc4f"/>
+</svg>

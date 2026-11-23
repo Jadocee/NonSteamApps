@@ -63,6 +63,7 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "edennx2": ("#e3889a", "#e0313f"),
     "lichii": ("#ff3d6e", "#8fd15a"),
     "kytyps5": ("#3d7fe6", "#1c47b0"),
+    "chiaki": ("#b8d549", "#1d5a69"),
     "protonup": ("#7e4de0", "#2fb5ff"),
     "protontricks": ("#a3243b", "#e2a03a"),
     "winetricks": ("#c1121f", "#9aa3ad"),

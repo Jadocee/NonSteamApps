@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, display, kyty, layouts, lichii,
-    links, nx2, presence, remote, selfupdate, sleepwatch, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, display, kyty, layouts,
+    lichii, links, nx2, presence, remote, selfupdate, sleepwatch, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -253,20 +253,25 @@ def _icon_source(paths: Paths, app: App) -> Optional[artwork.Source]:
     return artwork.Source("file", str(found)) if found and found.is_file() else None
 
 
-def _official_art(paths: Paths, app: App) -> Dict[str, str]:
-    """The artwork for Steam's library that the app's project publishes itself, by slot, at the release installed."""
+def _official_art(paths: Paths, app: App, installed: Dict[str, Installed]) -> Dict[str, str]:
+    """The artwork for Steam's library that the app's project publishes itself, by slot, at the release installed, which
+    for a Flathub app is the version in ``installed``."""
     if app.release:
         return _kyty(paths).library_urls()
-    return _lichii(paths).library_urls() if app.appimage else {}
+    if app.appimage:
+        return _lichii(paths).library_urls()
+    found = installed.get(app.flatpak) if app.library else None
+    return app.library.urls(found.version) if app.library and found else {}
 
 
-def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool) -> None:
+def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool, flatpak: Optional[Flatpak] = None) -> None:
     """Draw each app's Steam artwork around its own icon, with NonSteamApps' Helium; an app without one keeps NonSteamApps' artwork."""
     if not chosen or not _own_icons(paths):
         return
     if not _runtime(paths).current():
         ui.info("The apps keep NonSteamApps' artwork: Helium, which draws artwork around each app's own icon, is not installed")
         return
+    installed = flatpak.installed() if flatpak and any(app.library for app in chosen) else {}
     made: List[App] = []
     without: List[str] = []
     with _studio(paths) as studio:
@@ -276,7 +281,7 @@ def _draw_artwork(paths: Paths, chosen: Sequence[App], refresh: bool) -> None:
                 without.append(app.name)
                 continue
             try:
-                if studio.make(app.id, app.name, source, refresh=refresh, official=_official_art(paths, app)) == "made":
+                if studio.make(app.id, app.name, source, refresh=refresh, official=_official_art(paths, app, installed)) == "made":
                     made.append(app)
             except artwork.BrowserError as exc:
                 ui.warn(f"Helium could not draw artwork around the apps' own icons, so the rest keep what they had: {exc}")
@@ -310,8 +315,10 @@ def _library_changes(root: Path, accounts: Sequence[int], work: Sequence[Work], 
     return bool(compat.forced(root, appids))
 
 
-def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True, overwrite: bool = True) -> None:
-    """Add the apps to the Steam library of each account ``user`` selects.
+def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: bool = True, overwrite: bool = True,
+              flatpak: Optional[Flatpak] = None) -> None:
+    """Add the apps to the Steam library of each account ``user`` selects, with ``flatpak`` telling which version of each
+    Flathub app is installed, for the artwork its project publishes with it.
 
     With ``overwrite``, as install and ``steam add`` do, each shortcut, its artwork and its controller layout
     become NonSteamApps' again and the apps join the collection. Without it, as update does, only shortcuts
@@ -327,7 +334,7 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
         ui.warn(f"no Steam account was found; sign in to Steam once, then run: {paths.launcher} steam add")
         return
     names = steam.account_names(root)
-    _draw_artwork(paths, chosen, refresh=overwrite)
+    _draw_artwork(paths, chosen, refresh=overwrite, flatpak=flatpak)
     record = steam.ArtworkRecord(paths.artwork_record)
     for layout in layouts.used_by(app.controller for app in chosen):
         layouts.install(root, layout)
@@ -541,10 +548,14 @@ def _purge(paths: Paths, app: App, remaining: Sequence[App] = ()) -> None:
         folders = app.profile.existing(app.home(paths.home)) if app.profile else []
         if app.callbacks and (paths.profiles / app.id).is_dir():
             folders.append(paths.profiles / app.id)
+    kind = "file" if folders and all(folder.is_file() for folder in folders) else "folder"
     for folder in folders:
-        shutil.rmtree(folder)
+        if folder.is_dir() and not folder.is_symlink():
+            shutil.rmtree(folder)
+        else:
+            folder.unlink()
     if folders:
-        ui.ok(f"Deleted {app.name}'s data for each Steam account ({len(folders)} folder{'s' if len(folders) > 1 else ''})")
+        ui.ok(f"Deleted {app.name}'s data for each Steam account ({len(folders)} {kind}{'s' if len(folders) > 1 else ''})")
 
 
 def _uninstall_flatpaks(flatpak: Flatpak, record: Record, chosen: Sequence[App]) -> None:
@@ -583,20 +594,17 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
     if not _is_steamos():
         ui.warn("this does not look like SteamOS; continuing anyway")
     record = Record.load(paths.record)
-    chosen = _choose(args.apps)
+    here = device.current()
+    chosen = _choose(args.apps) or _ask_each(record, here)
     if not chosen:
-        chosen = list(apps.APPS)
-        question = f"Install {_listing(chosen)}?"
-        if not any(app.from_source and app.id in record.apps for app in chosen):
-            question += " Eden-NX2 is built here from its source, which can take an hour."
-        if record.managed():
-            question += " The apps already installed get NonSteamApps' set-up back; their sign-ins and data are kept."
-        if not ui.confirm(question, default=True):
-            raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install APP..., or update the apps you have with: {paths.launcher} update")
+        raise ui.Abort(f"nothing installed; pick apps with: {paths.launcher} install APP..., or update the apps you have with: {paths.launcher} update")
+    for app in chosen:
+        if here.steam_deck and app.needs and app.id not in record.apps:
+            ui.warn(f"{app.name} needs more than a Steam Deck has, so the installer does not offer it here: {app.needs}")
     if any(app.flatpak for app in chosen) and not flatpak.available():
         raise ui.Abort(f"flatpak is not installed; NonSteamApps installs {_listing([a for a in chosen if a.flatpak])} from Flathub")
 
-    ui.log(f"Installing NonSteamApps {__version__} into {paths.program}")
+    ui.log(f"Installing NonSteamApps {__version__} into {paths.program}, for this {here.name}")
     paths.state.mkdir(parents=True, exist_ok=True)
     selfupdate.remember(paths, os.environ)
     message = config.install_defaults(paths.program / "share" / "config" / config.SETTINGS_FILE, paths.settings)
@@ -660,9 +668,44 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
         managed = _managed(record)
         if args.steam:
             ui.step("Steam library")
-            steam_add(paths, chosen, args.steam_user, args.restart_steam)
+            steam_add(paths, chosen, args.steam_user, args.restart_steam, flatpak=flatpak)
     _summary(paths, managed, separate)
     return 0
+
+
+def _question(record: Record, group: Optional[apps.Group], members: Sequence[App]) -> str:
+    """The install question about ``members``: one app, or the apps of ``group``."""
+    installed = [app for app in members if app.id in record.apps]
+    if group is None:
+        app = members[0]
+        if installed:
+            return f"Set up {_listing([app])} again? It stays installed either way, with its sign-ins and data."
+        built = " It is built here from its source, which can take an hour." if app.from_source else ""
+        return f"Install {_listing([app])}, {app.summary}?{built}"
+    if len(installed) == len(members):
+        return f"Set up {group.name} again: {_names(members)}? They stay installed either way, with their sign-ins and data."
+    question = f"Install {group.name}: {_names(members)}? {group.summary}"
+    if installed:
+        question += f" {_names(installed)}, already installed, {'is' if len(installed) == 1 else 'are'} set up again."
+    return question
+
+
+def _ask_each(record: Record, here: device.Device) -> List[App]:
+    """Ask about each app in turn, and about the apps of a group together (see :data:`apps.GROUPS`); return those to
+    install, or to set up again.
+
+    An app already installed stays installed either way: yes puts NonSteamApps' set-up back, keeping its sign-ins
+    and data, and no leaves it as it is. Enter answers yes. On a Steam Deck, an app that needs more than it has is
+    not offered unless it is installed (see :attr:`App.needs`).
+    """
+    offered = [app for app in apps.APPS if app.id in record.apps or not (here.steam_deck and app.needs)]
+    questions = apps.asked_together(offered)
+    ui.info(f"NonSteamApps asks {len(questions)} questions about its apps for this {here.name}; Enter answers yes")
+    chosen: List[App] = []
+    for group, members in questions:
+        if ui.confirm(_question(record, group, members), default=True):
+            chosen.extend(members)
+    return chosen
 
 
 def _left_out(chosen: List[App], gone: Sequence[App]) -> List[App]:
@@ -1353,7 +1396,7 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
                 _refresh_desktop(paths, app)
         ui.step("Steam library")
         try:
-            steam_add(paths, managed, "all", args.restart_steam, overwrite=False)
+            steam_add(paths, managed, "all", args.restart_steam, overwrite=False, flatpak=flatpak)
         except ui.Abort as exc:
             ui.warn(f"left the Steam library as it was: {exc}")
     return 0
@@ -1397,7 +1440,7 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
     if not chosen:
         raise ui.Abort(f"no apps are installed; install some with: {paths.launcher} install")
     if args.action == "add":
-        steam_add(paths, chosen, args.user or "all", args.restart_steam)
+        steam_add(paths, chosen, args.user or "all", args.restart_steam, flatpak=flatpak)
     elif args.action == "remove":
         steam_remove(paths, chosen, args.user or "all", args.restart_steam)
     else:
@@ -1454,7 +1497,8 @@ def cmd_list(args, paths: Paths, flatpak: Flatpak) -> int:
 
 def _size(path: Path) -> str:
     """The size of what is only in ``path``: links, hard ones included, are not counted."""
-    total = sum(entry.stat().st_size for entry in path.rglob("*") if entry.is_file() and not entry.is_symlink() and entry.stat().st_nlink == 1)
+    entries = [path] if path.is_file() else path.rglob("*")
+    total = sum(entry.stat().st_size for entry in entries if entry.is_file() and not entry.is_symlink() and entry.stat().st_nlink == 1)
     for unit in ("B", "KB", "MB", "GB"):
         if total < 1024 or unit == "GB":
             return f"{total:.0f} {unit}" if unit == "B" else f"{total:.1f} {unit}"
@@ -1637,7 +1681,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--no-restart-steam", dest="restart_steam", action="store_false",
                          help="leave Steam closed after changing its library")
 
-    sub = commands.add_parser("install", help="install apps, or set them up again, and add them to Steam (default: every app)")
+    sub = commands.add_parser("install", help="install apps, or set them up again, and add them to Steam (default: ask about each app)")
     sub.add_argument("apps", nargs="*", metavar="APP")
     sub.add_argument("--steam-user", default="all", help="Steam accounts that get shortcuts: all (default), auto or an account ID")
     sub.add_argument("--no-steam", dest="steam", action="store_false", help="do not change the Steam library")

@@ -17,7 +17,7 @@ failed=0
 trap 'rm -rf "$WORK"' EXIT
 
 run() {
-    env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 \
+    env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-machine" \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
         FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_LICHII_LOG="$WORK/lichii.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" \
@@ -151,10 +151,11 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
     cat "$WORK/install.log"
     exit 1
 }
-everything="Bitwarden Bottles Discord Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 Lichii LocalSend Netflix Nexus Mods Prime Video Prism Launcher Proton Calendar Proton Mail ProtonDB ProtonUp-Qt Protontricks Signal SteamDB VLC Winetricks YouTube"
-check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 28
+everything="Bitwarden Bottles Discord Disney+ Eden Eden-NX2 Element Files HBO Max Helium Jellyfin KytyPS5 Lichii LocalSend Netflix Nexus Mods Prime Video Prism Launcher Proton Calendar Proton Mail ProtonDB ProtonUp-Qt Protontricks Signal SteamDB VLC Winetricks YouTube chiaki-ng"
+check "the install named the device it set the apps up for" grep -qF "for this Steam Machine" "$WORK/install.log"
+check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 29
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
-check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 28
+check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 29
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
 check "KytyPS5 was unpacked and made current" test -x "$PROGRAM/kytyps5/current/kyty_launcher"
 check "Lichii's AppImage was installed and made current" test -x "$PROGRAM/lichii/current/lichii.AppImage"
@@ -165,7 +166,7 @@ check "Eden-NX2 was built from its source in the SDK" grep -qF "\"git\", \"-C\",
 check "Eden-NX2 was installed from NonSteamApps' own repository" grep -qF "[\"install\", \"--user\", \"--noninteractive\", \"-y\", \"nonsteamapps\", \"$NX2_ID\"]" "$WORK/flatpak.log"
 check "Winetricks came with Flathub's Wine, from its stable branch" grep -qF '["install", "--user", "--noninteractive", "-y", "flathub", "org.winehq.Wine//stable"]' "$WORK/flatpak.log"
 check "Eden-NX2's build files and staging folder were cleared, its caches kept" test ! -e "$PROGRAM/eden-nx2/build" -a ! -e "$PROGRAM/eden-nx2/app" -a -d "$PROGRAM/eden-nx2/cpm"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "28 28"
+check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "29 29"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2
@@ -178,6 +179,8 @@ if [ "$PLASMA_HERE" = 0 ]; then
 fi
 check "ProtonUp-Qt, Protontricks and Winetricks got the Tools layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_tools.vdf' | wc -l)" -eq 2
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
+check "chiaki-ng got the Remote Play layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_remoteplay.vdf' | wc -l)" -eq 2
+check "the Remote Play layout presses the PS button with the left trackpad" grep -qF 'key_press ESCAPE, PS button' "$TEMPLATES/controller_neptune_nonsteamapps_remoteplay.vdf"
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 
@@ -242,6 +245,13 @@ run "$PROGRAM/apps/protontricks" --steam-account 222
 check "Protontricks opened its game picker with the SD card's library" grep -qF "\"--filesystem=$WORK/sdcard\", \"com.github.Matoking.protontricks\", \"--no-term\", \"--gui\"]" "$WORK/flatpak.log"
 run "$PROGRAM/apps/winetricks" --steam-account 222
 check "Winetricks opened its menu in Flathub's Wine" grep -qF '["run", "--command=winetricks", "org.winehq.Wine"]' "$WORK/flatpak.log"
+CHIAKI_CONFIG="$HOME_DIR/.var/app/io.github.streetpea.Chiaki4deck/config/Chiaki"
+run "$PROGRAM/apps/chiaki" --steam-account 222
+check "chiaki-ng started with the account's own profile" grep -qF '["run", "io.github.streetpea.Chiaki4deck", "--profile=steam-222"]' "$WORK/flatpak.log"
+check "chiaki-ng's new profile offers no Steam shortcut of its own and streams in HDR on a Steam Machine" \
+    test "$(grep -cxE 'add_steam_shortcut_ask=false|codec_local_ps5=h265_hdr|codec_remote_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 3
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/chiaki" --steam-account 111
+check "on a Steam Deck with an LCD, chiaki-ng's new profile keeps its own codec" test "$(grep -c codec "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 0
 
 KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
 run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
@@ -251,6 +261,9 @@ check "KytyPS5 started with a games folder, so it asks for none" grep -qxF "game
 check "KytyPS5's launcher starts dark, with its games in a grid" test "$(grep -cxE 'theme=1|grid_view=true' "$KYTY_HOME/Kyty.ini")" -eq 2
 check "KytyPS5 maps View to the touchpad for Steam's gamepad" grep -qF '"Pad:TouchPad=Touchpad", "Pad:TouchPadRight=Back"' "$KYTY_HOME/Kyty.ini"
 check "KytyPS5's games render at 1080p" grep -qxF "screen_resolution=1920x1080" "$KYTY_HOME/Kyty.ini"
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 111
+check "on a Steam Deck, KytyPS5 keeps its own resolution and still maps Steam's gamepad" \
+    test "$(grep -c '^screen_resolution=' "$PROGRAM/profiles/kytyps5/111/Kyty.ini")|$(grep -c 'Pad:Cross=South' "$PROGRAM/profiles/kytyps5/111/Kyty.ini")" == "0|1"
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
 check "the game's save stayed in the account's folder" test -d "$KYTY_HOME/_SaveData/PPSA00000"
 check "the game's downloaded content went to the folder every account shares" test -d "$PROGRAM/profiles/kytyps5/games/_DownloadData/PPSA00000" -a -L "$KYTY_HOME/_DownloadData"
@@ -278,7 +291,7 @@ run env HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 "$PROGRAM/
     exit 1
 }
 check "update copied NonSteamApps from the clone it was installed from, then handed over" grep -qE "NonSteamApps [0-9.]+ is up to date" "$WORK/update.log"
-check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 28
+check "update added no app" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 29
 check "update kept the Eden-NX2 build it could not compare with its branch" grep -qF "could not update Eden-NX2, so the build installed stays" "$WORK/update.log"
 check "update kept the renamed shortcut" shortcut_named 222 "My Tube"
 check "update kept VacuumTube's tabs as the user set them" test "$(json_value "$VACUUMTUBE" disabled_tabs)" == "[]"

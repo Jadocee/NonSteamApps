@@ -14,7 +14,8 @@ from pathlib import Path
 from unittest import mock
 
 import _fakes
-from nonsteamapps import appmenu, apps, sleepwatch
+import _paths
+from nonsteamapps import appmenu, apps, device, sleepwatch
 
 LAUNCHER = ["python3", "-B", "-E", "-s", "/home/deck/.local/share/nonsteamapps/lib/nonsteamapps-cli", "launch", "youtube"]
 
@@ -68,9 +69,20 @@ class AppliesTests(unittest.TestCase):
         self.assertFalse(sleepwatch.applies("", youtube))
         self.assertEqual([sleepwatch.applies("youtube, prism", app) for app in (youtube, prism, netflix)], [True, True, False])
 
+    def test_on_a_steam_deck_apps_stay_open_unless_the_setting_names_them(self):
+        youtube, prism = apps.by_id("youtube"), apps.by_id("prism")
+        with _paths.on_device("steam-deck") as deck:
+            self.assertEqual([sleepwatch.applies(value, youtube) for value in (None, "default", "all", "youtube", "off")],
+                             [False, False, True, True, False])
+            self.assertFalse(sleepwatch.applies(None, prism))
+        self.assertTrue(sleepwatch.applies(None, youtube))
+        self.assertFalse(sleepwatch.applies(None, youtube, deck))
+        self.assertTrue(sleepwatch.applies(None, youtube, device.Device("Fremont")))
+        self.assertTrue(sleepwatch.applies(None, youtube, device.Device()))
+
     def test_the_apps_that_stay_open_are_those_where_closing_could_lose_work(self):
         self.assertEqual(sorted(app.id for app in apps.APPS if app.stays_open_in_sleep),
-                         ["bottles", "eden", "edennx2", "files", "kytyps5", "lichii", "prism", "protontricks", "protonup", "winetricks"])
+                         ["bottles", "chiaki", "eden", "edennx2", "files", "kytyps5", "lichii", "prism", "protontricks", "protonup", "winetricks"])
 
 
 class TargetTests(unittest.TestCase):
@@ -305,6 +317,16 @@ class BusTests(Processes, unittest.TestCase):
         thread.join(15)
         self.assertEqual(result, {"closed": True})
         self.assertEqual(self.lines[0], "  closing VacuumTube: the Steam Machine shuts down")
+
+    def test_the_log_names_the_device(self):
+        logind = self.logind()
+        tree = self.flatpak_tree()
+        with _paths.on_device("steam-deck-oled"):
+            thread, result = self.follow(tree.pid)
+            self.assertTrue(wait_for(lambda: logind.inhibits))
+            logind.announce("PrepareForSleep", True)
+            thread.join(15)
+        self.assertEqual(self.lines[0], "  closing VacuumTube: the Steam Deck sleeps")
 
     def test_an_app_that_ends_by_itself_lets_the_lock_go(self):
         logind = self.logind()

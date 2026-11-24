@@ -122,6 +122,66 @@ class PreferencesTests(unittest.TestCase):
             "https://vault.bitwarden.com": {"bitwarden": True},
         })
 
+    def test_a_sign_in_page_names_the_addresses_it_returns_to(self):
+        login = "https://auth.example.com/2.0/oauth/authorize?response_type=code&redirect_uri=https://app.example.com/redirect&scope=a b&"
+        self.assertEqual(browser.return_addresses(login), ["https://app.example.com/redirect"])
+        self.assertEqual(browser.return_addresses("https://vault.example.com/#/sso?redirectUri=bitwarden%3A%2F%2Fsso"), ["bitwarden://sso"])
+        self.assertEqual(browser.return_addresses("http://auth.example.com/?redirect_uri=https://app.example.com/"), [])
+
+    def test_a_web_store_extension_is_offered_pinned_once_and_withdrawn_leaving_other_files(self):
+        extension, other = "nngceckbapebfimnlniiiahkandclblb", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        browser.write_preferences(self.profile, services=True, kiosk=False)
+        folder = self.profile / "External Extensions"
+        folder.mkdir()
+        (folder / f"{other}.json").write_text("{}")
+        self.assertEqual(browser.offer_extensions(self.profile, [extension], [extension]), ([extension], []))
+        self.assertEqual(json.loads((folder / f"{extension}.json").read_text()), {"external_update_url": "https://clients2.google.com/service/update2/crx"})
+        self.assertEqual(self.read()["extensions"]["pinned_extensions"], [extension])
+        data = self.read()
+        data["extensions"]["pinned_extensions"] = [other]
+        self.preferences.write_text(json.dumps(data))
+        self.assertEqual(browser.offer_extensions(self.profile, [extension], [extension]), ([], []))
+        self.assertEqual(self.read()["extensions"]["pinned_extensions"], [other])
+        self.assertEqual(browser.offer_extensions(self.profile, [], [extension]), ([], [extension]))
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), [f"{other}.json"])
+        self.assertEqual(browser.offer_extensions(self.profile, [], [extension]), ([], []))
+        self.preferences.write_text("{")
+        self.assertEqual(browser.offer_extensions(self.profile, [extension], [extension]), ([extension], []))
+        self.assertEqual(self.preferences.read_text(), "{")
+
+    def test_a_native_messaging_host_is_offered_rewritten_when_it_differs_and_withdrawn(self):
+        manifest = browser.native_host("com.8bit.bitwarden", "Bitwarden's desktop app", Path("/p/share/bitwarden/desktop-proxy"),
+                                       "nngceckbapebfimnlniiiahkandclblb")
+        self.assertEqual(manifest, {"name": "com.8bit.bitwarden", "description": "Bitwarden's desktop app", "path": "/p/share/bitwarden/desktop-proxy",
+                                    "type": "stdio", "allowed_origins": ["chrome-extension://nngceckbapebfimnlniiiahkandclblb/"]})
+        folder = self.profile / "NativeMessagingHosts"
+        folder.mkdir(parents=True)
+        (folder / "org.keepassxc.keepassxc_browser.json").write_text("{}")
+        hosts, wanted = {"com.8bit.bitwarden": manifest}, ["com.8bit.bitwarden"]
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, wanted), (["com.8bit.bitwarden"], []))
+        self.assertEqual(json.loads((folder / "com.8bit.bitwarden.json").read_text()), manifest)
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, wanted), ([], []))
+        moved = {"com.8bit.bitwarden": {**manifest, "description": "Bitwarden"}}
+        self.assertEqual(browser.offer_native_hosts(self.profile, moved, wanted), (["com.8bit.bitwarden"], []))
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, []), ([], ["com.8bit.bitwarden"]))
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, []), ([], []))
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["org.keepassxc.keepassxc_browser.json"])
+
+    def test_a_host_that_runs_another_program_is_replaced_while_wanted_and_otherwise_left_alone(self):
+        ours = browser.native_host("com.8bit.bitwarden", "Bitwarden's desktop app", Path("/p/share/bitwarden/desktop-proxy"),
+                                   "nngceckbapebfimnlniiiahkandclblb")
+        theirs = {**ours, "description": "Bitwarden desktop <-> browser bridge", "path": "/home/deck/Applications/Bitwarden/desktop_proxy"}
+        path = self.profile / "NativeMessagingHosts" / "com.8bit.bitwarden.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(theirs))
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, []), ([], []))
+        self.assertEqual(json.loads(path.read_text()), theirs)
+        path.write_text("{broken")
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, []), ([], []))
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, ["com.8bit.bitwarden"]),
+                         (["com.8bit.bitwarden"], []))
+        self.assertEqual(json.loads(path.read_text()), ours)
+
     def test_a_corrupt_file_is_kept_aside(self):
         self.preferences.parent.mkdir(parents=True)
         self.preferences.write_text("{broken")
@@ -175,6 +235,18 @@ class ProfileTests(unittest.TestCase):
         state.write_text(json.dumps({"helium": {"crash_reporting": {}}, "browser": {"enabled_labs_experiments": []}}))
         browser.write_local_state(self.profile)
         self.assertEqual(json.loads(state.read_text())["helium"]["crash_reporting"], {})
+
+    def test_on_a_steam_deck_profiles_start_spacious_and_an_install_puts_it_back(self):
+        state = browser.write_local_state(self.profile, handheld=True)
+        self.assertEqual(json.loads(state.read_text()), {"helium": {"crash_reporting": {"mode": -1}, "browser": {"ui_density": 1}}})
+        state.write_text(json.dumps({"helium": {"crash_reporting": {"mode": -1}, "browser": {"ui_density": 0, "x": 1}}}))
+        self.assertFalse(browser.reset(self.profile, kiosk=False))
+        self.assertTrue(browser.reset(self.profile, kiosk=False, handheld=True))
+        self.assertEqual(json.loads(state.read_text())["helium"]["browser"], {"ui_density": 1, "x": 1})
+        self.assertFalse(browser.reset(self.profile, kiosk=False, handheld=True))
+        other = self.dir / "machine"
+        other.mkdir()
+        self.assertEqual(json.loads(browser.write_local_state(other).read_text()), {"helium": {"crash_reporting": {"mode": -1}}})
 
     def test_every_profile_shares_one_widevine_folder(self):
         shared = self.dir / "helium" / "WidevineCdm"
@@ -230,6 +302,17 @@ class FlagTests(unittest.TestCase):
         css = (folder / "focus.css").read_text()
         self.assertTrue(css.startswith(":focus-visible:not(video):not(:has(video)) {"))
         self.assertIn("outline: 3px solid", css)
+
+    def test_on_a_steam_deck_pages_get_overlay_scrollbars(self):
+        arguments = browser.flags(Path("/p"), "", False, True, 1.25, "nonsteamapps-helium", (1024, 640), handheld=True)
+        self.assertIn(f"--enable-features={browser.FEATURES},OverlayScrollbar:mode/overlay", arguments)
+        self.assertEqual(arguments[-2:], ["--window-position=0,0", "--window-size=1024,640"])
+        self.assertIn("--force-device-scale-factor=1.25", arguments)
+        self.assertNotIn("--disable-pinch", arguments)
+        kiosk = browser.flags(Path("/p"), "https://www.netflix.com/", True, True, 1.25, "nonsteamapps-netflix", handheld=True)
+        self.assertIn(f"--enable-features={browser.FEATURES},OverlayScrollbar:mode/overlay", kiosk)
+        self.assertIn("--disable-pinch", kiosk)
+        self.assertIn(f"--enable-features={browser.FEATURES}", browser.flags(Path("/p"), "", False, True, None, "nonsteamapps-helium"))
 
     def test_the_browser_opens_maximised_with_its_own_interface(self):
         arguments = browser.flags(Path("/p"), "", False, False, None, "nonsteamapps-helium")

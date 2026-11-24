@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import base64
 import codecs
-import fcntl
 import hashlib
 import http.client
 import json
@@ -33,7 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from . import net
+from . import devtools, net
 from .fsutil import atomic_write_bytes, atomic_write_json
 
 VERSION = 1
@@ -221,11 +220,6 @@ def desktop_icon(command: str, folders: Sequence[Path], themes: Sequence[Path]) 
     return None
 
 
-def _high_fd(fd: int) -> int:
-    """A copy of ``fd`` numbered 10 or more, clear of 3 and 4, which the browser's pipe takes."""
-    return fcntl.fcntl(fd, fcntl.F_DUPFD, 10)
-
-
 class Browser:
     """A headless Chromium, such as NonSteamApps' Helium, driven through the DevTools protocol on the pipe ``--remote-debugging-pipe`` opens.
 
@@ -249,33 +243,19 @@ class Browser:
 
     def start(self) -> None:
         self.profile = tempfile.mkdtemp(prefix="nonsteamapps-artwork.")
-        to_browser, from_browser = os.pipe(), os.pipe()
-        self._writer, self._reader = to_browser[1], from_browser[0]
-        try:
-            read_end, write_end = _high_fd(to_browser[0]), _high_fd(from_browser[1])
-        finally:
-            os.close(to_browser[0])
-            os.close(from_browser[1])
         arguments = [
-            "--headless", "--remote-debugging-pipe", f"--user-data-dir={self.profile}", "--no-first-run", "--no-default-browser-check",
+            "--headless", devtools.SWITCH, f"--user-data-dir={self.profile}", "--no-first-run", "--no-default-browser-check",
             *([f"--load-extension={','.join(self.extensions)}", "--disable-features=DisableLoadExtensionCommandLineSwitch"]
               if self.extensions else ["--disable-extensions"]), "--disable-sync", "--disable-background-networking", "--hide-scrollbars", "--mute-audio",
             "--force-device-scale-factor=1", "--allow-file-access-from-files", *(["--no-sandbox"] if os.geteuid() == 0 else []), "about:blank",
         ]
-        script = f'exec "$@" 3<&{read_end} 4>&{write_end} {read_end}<&- {write_end}>&-'
         self._log = Path(self.profile) / "browser.log"
         try:
             with open(self._log, "wb") as log:
-                self.process = subprocess.Popen(
-                    [shutil.which("bash") or "/bin/bash", "-c", script, "bash", str(self.program), *arguments], pass_fds=(read_end, write_end),
-                    stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=self.environment, start_new_session=True,
-                )
+                self.process, self._reader, self._writer = devtools.spawn(self.program, arguments, self.environment, log)
         except OSError as exc:
             self.close()
             raise BrowserError(f"could not start {self.program.name}: {exc}") from exc
-        finally:
-            os.close(read_end)
-            os.close(write_end)
         try:
             self.call("Browser.getVersion")
         except BrowserError as exc:
@@ -346,11 +326,8 @@ class Browser:
         if self._writer < 0:
             raise BrowserError("the browser is not running")
         self._last += 1
-        message: dict = {"id": self._last, "method": method, "params": params or {}}
-        if session:
-            message["sessionId"] = session
         try:
-            os.write(self._writer, json.dumps(message).encode("utf-8") + b"\0")
+            os.write(self._writer, devtools.command(self._last, method, params, session))
         except OSError as exc:
             raise BrowserError(f"could not reach the browser: {exc}") from exc
         deadline = time.monotonic() + (timeout or self.timeout)

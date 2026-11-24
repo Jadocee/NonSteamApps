@@ -1,0 +1,7 @@
+#!/bin/sh
+# Stand-in for pkaction: --version reports polkit $FAKE_PKACTION_VERSION, 127 unless set, as SteamOS 3.9 has.
+if [ "${1-}" = --version ]; then
+    echo "pkaction version ${FAKE_PKACTION_VERSION:-127}"
+    exit 0
+fi
+exit 1

@@ -18,6 +18,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-machine" \
+        NONSTEAMAPPS_POLKIT_ROOT="$WORK/polkit" \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
         FAKE_KYTY_LOG="$WORK/kyty.log" FAKE_LICHII_LOG="$WORK/lichii.log" FAKE_STEAM_LOG="$WORK/steam.log" FAKE_SYSTEMCTL_LOG="$WORK/systemctl.log" \
@@ -117,6 +118,7 @@ ln -s "$ROOT/tests/fakes/flatpak" "$WORK/bin/flatpak"
 ln -s "$ROOT/tests/fakes/steam" "$WORK/bin/steam"
 ln -s "$ROOT/tests/fakes/firewall-cmd" "$WORK/bin/firewall-cmd"
 ln -s "$ROOT/tests/fakes/sudo" "$WORK/bin/sudo"
+ln -s "$ROOT/tests/fakes/pkaction" "$WORK/bin/pkaction"
 ln -s "$ROOT/tests/fakes/dolphin" "$WORK/bin/dolphin"
 ln -s "$ROOT/tests/fakes/systemctl" "$WORK/bin/systemctl"
 echo '{"running": true, "default": "public", "active": ["public"], "runtime": {}, "permanent": {}}' >"$WORK/firewall.json"
@@ -183,6 +185,8 @@ check "chiaki-ng got the Remote Play layout for each controller" test "$(find "$
 check "the Remote Play layout presses the PS button with the left trackpad" grep -qF 'key_press ESCAPE, PS button' "$TEMPLATES/controller_neptune_nonsteamapps_remoteplay.vdf"
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
+check "Bitwarden's polkit action was added, through sudo, for unlocking with the account's password" \
+    cmp -s "$WORK/polkit/etc/polkit-1/actions/com.bitwarden.Bitwarden.policy" "$PROGRAM/share/bitwarden/com.bitwarden.Bitwarden.policy"
 
 echo "==> launch through the link Steam runs"
 : >"$WORK/flatpak.log"
@@ -248,10 +252,23 @@ check "Winetricks opened its menu in Flathub's Wine" grep -qF '["run", "--comman
 CHIAKI_CONFIG="$HOME_DIR/.var/app/io.github.streetpea.Chiaki4deck/config/Chiaki"
 run "$PROGRAM/apps/chiaki" --steam-account 222
 check "chiaki-ng started with the account's own profile" grep -qF '["run", "io.github.streetpea.Chiaki4deck", "--profile=steam-222"]' "$WORK/flatpak.log"
-check "chiaki-ng's new profile offers no Steam shortcut of its own and streams in HDR on a Steam Machine" \
-    test "$(grep -cxE 'add_steam_shortcut_ask=false|codec_local_ps5=h265_hdr|codec_remote_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 3
+check "chiaki-ng's new profile offers no Steam shortcut of its own and has the guide's settings, in HDR on a Steam Machine" \
+    test "$(grep -cxE 'add_steam_shortcut_ask=false|suspend_action=sleep|bitrate_local_ps5=30000|codec_(local|remote)_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 5
 run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/chiaki" --steam-account 111
-check "on a Steam Deck with an LCD, chiaki-ng's new profile keeps its own codec" test "$(grep -c codec "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 0
+check "on a Steam Deck with an LCD, chiaki-ng's new profile streams in SDR" \
+    test "$(grep -cxE 'codec_(local|remote)_ps5=h265|suspend_action=sleep' "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 3
+
+HELIUM_PROFILE="$PROGRAM/profiles/helium/111"
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/helium" --steam-account 111
+check "on a Steam Deck, the Helium browser's new profile starts with Spacious controls" \
+    test "$(json_value "$HELIUM_PROFILE/Local State" helium)" == '{"crash_reporting": {"mode": -1}, "browser": {"ui_density": 1}}'
+check "on a Steam Deck, Helium's pages get overlay scrollbars" test "$(tail -n 1 "$WORK/helium.log" | grep -cF "OverlayScrollbar:mode/overlay")" -eq 1
+check "with Bitwarden installed, the Helium browser gets Bitwarden's extension from the Chrome Web Store" \
+    test "$(json_value "$HELIUM_PROFILE/External Extensions/nngceckbapebfimnlniiiahkandclblb.json" external_update_url)" == '"https://clients2.google.com/service/update2/crx"'
+check "Bitwarden's extension in that profile reaches Bitwarden's desktop app through NonSteamApps' host" \
+    test "$(json_value "$HELIUM_PROFILE/NativeMessagingHosts/com.8bit.bitwarden.json" path)" == "\"$PROGRAM/share/bitwarden/desktop-proxy\""
+check "so does it in Helium's own folder, which Desktop Mode's menu starts" \
+    test "$(json_value "$HOME_DIR/.config/net.imput.helium/NativeMessagingHosts/com.8bit.bitwarden.json" path)" == "\"$PROGRAM/share/bitwarden/desktop-proxy\""
 
 KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
 run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
@@ -322,6 +339,9 @@ if [ "$PLASMA_HERE" = 0 ]; then
 fi
 check "the collection was removed" test "$(collection_size 111) $(collection_size 222)" == "0 0"
 check "LocalSend's port was closed again" grep -qF '"permanent": {"public": []}' "$WORK/firewall.json"
+check "Bitwarden's polkit action was removed again" test ! -e "$WORK/polkit/etc/polkit-1/actions/com.bitwarden.Bitwarden.policy"
+check "the Helium profile and Helium's own folder kept no host for Bitwarden's extension" \
+    test ! -e "$HELIUM_PROFILE/NativeMessagingHosts/com.8bit.bitwarden.json" -a ! -e "$HOME_DIR/.config/net.imput.helium/NativeMessagingHosts/com.8bit.bitwarden.json"
 check "NonSteamApps' controller layouts were removed" test -z "$(find "$TEMPLATES" -name '*_nonsteamapps_*')"
 
 if ((failed)); then

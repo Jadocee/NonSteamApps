@@ -1,3 +1,4 @@
+import configparser
 import json
 import os
 import re
@@ -24,12 +25,14 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             apps.by_id("kodi")
 
-    def test_the_streaming_apps_and_the_proton_apps_are_asked_about_together_where_the_first_of_each_is(self):
+    def test_the_apps_of_each_group_are_asked_about_together_where_the_first_of_them_is(self):
         together = apps.asked_together(apps.APPS)
-        self.assertEqual(len(together), len(apps.APPS) - 4)
+        self.assertEqual(len(together), len(apps.APPS) - 6)
         self.assertEqual([(group.name, [app.id for app in members]) for group, members in together if group],
-                         [("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"]),
+                         [("the Proton and Wine tools", ["protonup", "protontricks", "winetricks"]),
+                          ("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"]),
                           ("the Proton apps", ["protonmail", "protoncalendar"])])
+        self.assertEqual(len({app_id for group in apps.GROUPS for app_id in group.ids}), sum(len(group.ids) for group in apps.GROUPS))
         self.assertTrue(all(apps.by_id(app_id) for group in apps.GROUPS for app_id in group.ids))
         some = [apps.by_id(name) for name in ("netflix", "youtube", "primevideo")]
         self.assertEqual([(group.name if group else None, [app.id for app in members]) for group, members in apps.asked_together(some)],
@@ -827,16 +830,21 @@ class IniSettingsTests(unittest.TestCase):
         self.assertTrue(apps.KYTY_GAMES.apply(self.folder))
         self.assertIn("screen_resolution=1920x1080\n", path.read_text())
 
-    def test_hdr_values_go_only_into_a_new_file_on_a_device_that_shows_hdr(self):
-        settings = apps.IniSettings("app.ini", (("settings", "ask", "false"),), hdr=(("settings", "codec", "hdr"),))
-        for name, hdr in (("steam-machine", True), ("steam-deck-oled", True), ("steam-deck", False)):
+    def test_hdr_and_sdr_values_follow_the_device_in_new_and_existing_files_and_new_values_only_new_ones(self):
+        settings = apps.IniSettings("app.ini", (("settings", "ask", "false"),), new=(("settings", "first", "yes"),),
+                                    hdr=(("settings", "codec", "hdr"),), sdr=(("settings", "codec", "sdr"),))
+        for name, codec in (("steam-machine", "hdr"), ("steam-deck-oled", "hdr"), ("steam-deck", "sdr")):
             with self.subTest(name), _paths.on_device(name):
                 folder = self.folder / name
                 self.assertTrue(settings.apply(folder))
-                self.assertEqual((folder / "app.ini").read_text(), "[settings]\nask=false\n" + ("codec=hdr\n" if hdr else ""))
-        (self.folder / "steam-machine" / "app.ini").write_text("[settings]\nask=true\ncodec=sdr\n")
+                self.assertEqual((folder / "app.ini").read_text(), f"[settings]\nask=false\ncodec={codec}\nfirst=yes\n")
+        path = self.folder / "steam-machine" / "app.ini"
+        path.write_text("[settings]\nask=true\ncodec=sdr\n")
         self.assertTrue(settings.apply(self.folder / "steam-machine"))
-        self.assertEqual((self.folder / "steam-machine" / "app.ini").read_text(), "[settings]\nask=false\ncodec=sdr\n")
+        self.assertEqual(path.read_text(), "[settings]\nask=false\ncodec=hdr\n")
+        with _paths.on_device("steam-deck"):
+            self.assertTrue(settings.apply(self.folder / "steam-machine"))
+        self.assertEqual(path.read_text(), "[settings]\nask=false\ncodec=sdr\n")
 
     def test_values_go_into_their_groups_and_everything_else_stays(self):
         settings = apps.IniSettings("app.ini", (("General", "Theme", "dark"), ("Window", "Bar", "off"), ("General", "Scale", "2")))
@@ -875,25 +883,53 @@ class ChiakiTests(unittest.TestCase):
         self.assertTrue(self.app.stays_open_in_sleep)
         self.assertFalse(self.app.plays_media)
 
-    def test_a_new_profile_starts_without_chiaki_ngs_own_steam_shortcut_and_with_hdr_where_it_shows(self):
-        self.assertTrue(self.app.profile.prepare(self.app_home, 111, lambda options: 0))
-        self.assertEqual((self.config / "Chiaki-steam-111.conf").read_text(),
-                         "[settings]\nadd_steam_shortcut_ask=false\ncodec_local_ps5=h265_hdr\ncodec_remote_ps5=h265_hdr\n")
-        with _paths.on_device("steam-deck"):
-            self.app.profile.prepare(self.app_home, 222, lambda options: 0)
-        self.assertEqual((self.config / "Chiaki-steam-222.conf").read_text(), "[settings]\nadd_steam_shortcut_ask=false\n")
+    @staticmethod
+    def read(path):
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str
+        parser.read_string(path.read_text())
+        return {group: dict(parser[group]) for group in parser.sections()}
+
+    RECOMMENDED = {
+        "add_steam_shortcut_ask": "false", "disconnect_action": "ask", "suspend_action": "sleep", "rumble_haptics_intensity": "Normal",
+        "steamdeck_haptics": "false", "gyro_inverted": "false", "log_verbose": "false", "hw_decoder": "auto", "window_type": "Fullscreen",
+        "fullscreen_doubleclick": "false", "placebo_preset": "high_quality", "resolution_local_ps5": "1080p", "fps_local_ps5": "60",
+        "bitrate_local_ps5": "30000", "resolution_remote_ps5": "720p", "fps_remote_ps5": "60", "bitrate_remote_ps5": "0",
+        "resolution_local_ps4": "720p", "fps_local_ps4": "60", "bitrate_local_ps4": "0", "resolution_remote_ps4": "720p",
+        "fps_remote_ps4": "60", "bitrate_remote_ps4": "0", "codec_ps4": "h264", "audio_out_device": "", "audio_in_device": "",
+        "audio_buffer_size": "0", "start_mic_unmuted": "false", "enable_speech_processing": "false", "wifi_dropped_notif_percent": "3",
+        "packet_loss_reported_max": "0.05",
+    }
+
+    def test_a_new_profile_starts_with_chiaki_ngs_recommended_settings_and_hdr_where_the_device_shows_it(self):
+        for name, codec in (("steam-machine", "h265_hdr"), ("steam-deck-oled", "h265_hdr"), ("steam-deck", "h265")):
+            with self.subTest(name), _paths.on_device(name):
+                account = {"steam-machine": 111, "steam-deck-oled": 222, "steam-deck": 333}[name]
+                self.assertTrue(self.app.profile.prepare(self.app_home, account, lambda options: 0))
+                self.assertEqual(self.read(self.config / f"Chiaki-steam-{account}.conf"),
+                                 {"settings": {**self.RECOMMENDED, "codec_local_ps5": codec, "codec_remote_ps5": codec}})
         self.assertIsNone(self.app.profile.data_folder(self.app_home, 111))
 
-    def test_a_profile_chiaki_ng_already_wrote_keeps_its_consoles_and_choices(self):
+    def test_an_install_puts_the_recommended_settings_back_and_keeps_the_consoles_and_other_choices(self):
         conf = self.config / "Chiaki-steam-111.conf"
         conf.parent.mkdir(parents=True)
-        kept = "[General]\nversion=2\n\n[settings]\ncodec_local_ps5=h265\nadd_steam_shortcut_ask=true\n\n[registered_hosts]\nsize=1\n"
+        kept = ("[General]\nversion=2\n\n[settings]\ncodec_local_ps5=h265\nadd_steam_shortcut_ask=true\nresolution_local_ps5=720p\n"
+                "suspend_action=nothing\nshow_stream_stats=true\nrender_backend=opengl\n\n[registered_hosts]\nsize=1\n")
         conf.write_text(kept)
         self.app.profile.prepare(self.app_home, 111, lambda options: 0)
         self.assertEqual(conf.read_text(), kept)
         self.assertEqual(self.app.profile.reset(self.app_home), [conf])
-        self.assertEqual(conf.read_text(), kept.replace("add_steam_shortcut_ask=true", "add_steam_shortcut_ask=false"))
+        self.assertEqual(self.read(conf), {
+            "General": {"version": "2"},
+            "settings": {**self.RECOMMENDED, "codec_local_ps5": "h265_hdr", "codec_remote_ps5": "h265_hdr", "show_stream_stats": "true",
+                         "render_backend": "opengl"},
+            "registered_hosts": {"size": "1"},
+        })
         self.assertEqual(self.app.profile.reset(self.app_home), [])
+        with _paths.on_device("steam-deck"):
+            self.assertEqual(self.app.profile.reset(self.app_home), [conf])
+        self.assertEqual({key: value for key, value in self.read(conf)["settings"].items() if key.startswith("codec_")},
+                         {"codec_local_ps5": "h265", "codec_remote_ps5": "h265", "codec_ps4": "h264"})
 
     def test_profiles_are_found_by_their_files_and_the_shared_one_is_reset_only_while_accounts_share_it(self):
         self.app.profile.prepare(self.app_home, 111, lambda options: 0)

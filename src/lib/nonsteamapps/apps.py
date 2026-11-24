@@ -6,7 +6,7 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -114,15 +114,16 @@ def set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
 class IniSettings:
     """Values for one of an app's INI settings files, as Qt's QSettings and KDE's KConfig write them, at ``file`` in a folder.
 
-    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``new``
-    are further values a file NonSteamApps creates starts with, and ``hdr`` further ones it starts with on a device
-    that can show HDR (see :attr:`device.Device.hdr`).
+    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``hdr``
+    are further values for a device that can show HDR, and ``sdr`` for one that cannot (see
+    :attr:`device.Device.hdr`). ``new`` are further values that only a file NonSteamApps creates starts with.
     """
 
     file: str
     values: Tuple[Tuple[str, str, str], ...]
     new: Tuple[Tuple[str, str, str], ...] = ()
     hdr: Tuple[Tuple[str, str, str], ...] = ()
+    sdr: Tuple[Tuple[str, str, str], ...] = ()
 
     def target(self, folder: Path) -> Path:
         return Path(folder) / self.file
@@ -140,7 +141,7 @@ class IniSettings:
             lines, fresh = [], True
         except (OSError, UnicodeDecodeError):
             return None
-        wanted = [*self.values, *(self.new if fresh else ()), *(self.hdr if fresh and device.current().hdr else ())]
+        wanted = [*self.values, *(self.hdr if device.current().hdr else self.sdr), *(self.new if fresh else ())]
         if not any([set_ini(lines, group, key, value) for group, key, value in wanted]):
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
@@ -782,7 +783,7 @@ class SettingsProfile:
         return Path(app_home) / self.file.format(account=account)
 
     def _settings(self, path: Path) -> IniSettings:
-        return IniSettings(path.name, self.settings.values, self.settings.new, self.settings.hdr)
+        return replace(self.settings, file=path.name)
 
     def _seed(self, path: Path) -> None:
         if not path.exists():
@@ -921,7 +922,9 @@ class TvScale:
     A ``whole`` scale is rounded down, and dropped below 2, for toolkits that only scale by whole numbers; a
     ``text`` variable then scales the text by what is left over, as ``GDK_DPI_SCALE`` does for GTK. ``layout``
     is the screen height the app's layout is made for, which the automatic scale fits a TV to. ``requires``
-    are settings the app needs while it is scaled, set before each scaled start.
+    are settings the app needs while it is scaled, set before each scaled start. A ``handheld`` app, one laid out
+    for a desktop's screen, also takes :data:`display.HANDHELD_SCALE` on a Steam Deck's own screen in Game Mode;
+    an app with a TV's layout, made to be read from across a room, already suits it.
     """
 
     argument: str = ""
@@ -930,6 +933,7 @@ class TvScale:
     text: str = ""
     layout: int = TV_HEIGHT
     requires: Optional[JsonSettings] = None
+    handheld: bool = True
 
     def _text(self, factor: float) -> Optional[str]:
         value = float(int(factor)) if self.whole else factor
@@ -952,6 +956,17 @@ class TvScale:
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
+
+
+@dataclass(frozen=True)
+class NativeHost:
+    """How an app's extension in the Helium browser reaches the app itself: through the native messaging host ``name``,
+    for which the browser runs ``script``, in NonSteamApps' ``share``. ``policy``, also in ``share``, is a polkit action
+    the app needs for it, which SteamOS does not ship (see :mod:`polkit`)."""
+
+    name: str
+    script: str
+    policy: str = ""
 NEXUS_MODS_ICON = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
 
 
@@ -1016,6 +1031,14 @@ class App:
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
+    ``sign_in_ends`` is the web page a sign-in in the browser ends on, whose address, with the sign-in's code,
+    the app asks to have pasted, as chiaki-ng's PSN sign-in does; in Game Mode its links also open in Helium,
+    which closes once the sign-in reaches that page and leaves the address on the clipboard (see :mod:`signin`).
+    A ``portal_links`` app opens links through the desktop portal, as Qt does in a Flatpak, which in Game Mode
+    gives them to Steam's browser; it then runs without the session bus while NonSteamApps opens its links, so
+    that it uses ``xdg-open`` instead. ``helium_extension`` is the Chrome Web Store ID of the app's extension for
+    browsers, which the Helium app installs while this app is installed (see :func:`browser.offer_extensions`), and
+    ``native_host`` how that extension reaches the app (see :func:`browser.offer_native_hosts`).
     A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
@@ -1069,6 +1092,10 @@ class App:
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
+    sign_in_ends: str = ""
+    portal_links: bool = False
+    helium_extension: str = ""
+    native_host: Optional[NativeHost] = None
     qt_window: bool = False
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
@@ -1144,10 +1171,45 @@ LICHII_PROFILE = PortableProfile(
     carried=EDEN_CARRIED,
 )
 
+PSN_SIGN_IN_ENDS = "https://remoteplay.dl.playstation.net/remoteplay/redirect"
+BITWARDEN_EXTENSION = "nngceckbapebfimnlniiiahkandclblb"
 CHIAKI_SETTINGS = IniSettings(
     "Chiaki.conf",
-    (("settings", "add_steam_shortcut_ask", "false"),),
+    tuple(("settings", key, value) for key, value in (
+        ("add_steam_shortcut_ask", "false"),
+        ("disconnect_action", "ask"),
+        ("suspend_action", "sleep"),
+        ("rumble_haptics_intensity", "Normal"),
+        ("steamdeck_haptics", "false"),
+        ("gyro_inverted", "false"),
+        ("log_verbose", "false"),
+        ("hw_decoder", "auto"),
+        ("window_type", "Fullscreen"),
+        ("fullscreen_doubleclick", "false"),
+        ("placebo_preset", "high_quality"),
+        ("resolution_local_ps5", "1080p"),
+        ("fps_local_ps5", "60"),
+        ("bitrate_local_ps5", "30000"),
+        ("resolution_remote_ps5", "720p"),
+        ("fps_remote_ps5", "60"),
+        ("bitrate_remote_ps5", "0"),
+        ("resolution_local_ps4", "720p"),
+        ("fps_local_ps4", "60"),
+        ("bitrate_local_ps4", "0"),
+        ("resolution_remote_ps4", "720p"),
+        ("fps_remote_ps4", "60"),
+        ("bitrate_remote_ps4", "0"),
+        ("codec_ps4", "h264"),
+        ("audio_out_device", ""),
+        ("audio_in_device", ""),
+        ("audio_buffer_size", "0"),
+        ("start_mic_unmuted", "false"),
+        ("enable_speech_processing", "false"),
+        ("wifi_dropped_notif_percent", "3"),
+        ("packet_loss_reported_max", "0.05"),
+    )),
     hdr=(("settings", "codec_local_ps5", "h265_hdr"), ("settings", "codec_remote_ps5", "h265_hdr")),
+    sdr=(("settings", "codec_local_ps5", "h265"), ("settings", "codec_remote_ps5", "h265")),
 )
 CHIAKI_PROFILE = SettingsProfile("config/Chiaki/Chiaki-steam-{account}.conf", "config/Chiaki/Chiaki.conf", CHIAKI_SETTINGS)
 CHIAKI_LIBRARY = Library("chiaki-ng/chiaki-ng", (
@@ -1180,6 +1242,7 @@ APPS: Tuple[App, ...] = (
             argument="--force-device-scale-factor={factor}",
             layout=1080,
             requires=JsonSettings("config.json", (("unlock_resolution", True),)),
+            handheld=False,
         ),
         sandbox_off_when=("SteamGamepadUI",),
     ),
@@ -1263,6 +1326,8 @@ APPS: Tuple[App, ...] = (
         env=(("ACCESS_TOKEN_LOCATION", "DISK"),),
         game_mode_env=(("DISPLAY_MODE", "X11"),),
         callbacks=("bitwarden",),
+        helium_extension=BITWARDEN_EXTENSION,
+        native_host=NativeHost("com.8bit.bitwarden", "bitwarden/desktop-proxy", "bitwarden/com.bitwarden.Bitwarden.policy"),
         fullscreen_class="bitwarden",
         hide_menu_bar=True,
         notice="Bitwarden keeps its login tokens unencrypted on disk, so that it works without a keyring; see the README",
@@ -1278,7 +1343,7 @@ APPS: Tuple[App, ...] = (
         profile=JellyfinProfile(),
         controller=JELLYFIN.title,
         logo_position="BottomLeft:44:56",
-        tv_scale=TvScale(argument="--scale-factor={factor}"),
+        tv_scale=TvScale(argument="--scale-factor={factor}", handheld=False),
     ),
     App(
         id="vlc",
@@ -1420,8 +1485,11 @@ APPS: Tuple[App, ...] = (
         profile=CHIAKI_PROFILE,
         controller=REMOTE_PLAY.title,
         library=CHIAKI_LIBRARY,
+        sign_in_ends=PSN_SIGN_IN_ENDS,
+        portal_links=True,
         notice="chiaki-ng finds a PS5 or PS4 on your network: pair it once, signing in to PSN when chiaki-ng offers or with the PIN the console shows "
-               "under Settings ▸ System ▸ Remote Play ▸ Link Device. Hold Menu to end a stream",
+               "under Settings ▸ System ▸ Remote Play ▸ Link Device. In Game Mode, PSN's sign-in opens in Helium and closes once you have "
+               "signed in: choose Click to Paste URL, then Setup. Hold Menu to end a stream",
     ),
     App(
         id="protonup",
@@ -1637,6 +1705,8 @@ GROUPS: Tuple[Group, ...] = (
     Group("the streaming apps", "Each runs full screen in Helium, with a sign-in of its own for each Steam account.",
           ("primevideo", "hbomax", "netflix", "disneyplus")),
     Group("the Proton apps", "Both run full screen in Helium and share one sign-in for each Steam account.", ("protonmail", "protoncalendar")),
+    Group("the Proton and Wine tools", "ProtonUp-Qt installs GE-Proton and other compatibility tools for Steam, and Protontricks and "
+          "Winetricks install Windows components into Proton's and Wine's prefixes.", ("protonup", "protontricks", "winetricks")),
 )
 
 

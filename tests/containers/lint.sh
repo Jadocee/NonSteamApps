@@ -5,7 +5,7 @@ set -Eeuo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
 shellcheck -x -P SCRIPTDIR install.sh uninstall.sh src/bin/nonsteamapps tests/sandbox.sh tests/fakes/sudo tests/fakes/dolphin \
-    src/share/sandbox/xdg-open src/share/kytyps5/terminal tests/containers/*.sh tests/containers/steamos/*.sh
+    tests/fakes/pkaction src/share/sandbox/xdg-open src/share/kytyps5/terminal src/share/bitwarden/desktop-proxy tests/containers/*.sh tests/containers/steamos/*.sh
 echo "ShellCheck: no findings"
 
 report=$(python3 -m pyflakes src/lib/nonsteamapps tests tools 2>&1 | grep -v "'_paths' imported but unused" || true)

@@ -6,6 +6,8 @@ app's parent and puts NonSteamApps' ``xdg-open`` first on the app's ``PATH``. Th
 callbacks through a pipe in the app's runtime folder, which Flatpak shares with the sandbox at the same path.
 The launcher opens a web link in a Helium window of its own, which Game Mode shows over the app because Steam
 started both, and hands a callback to the running app by starting the app again with it, as a desktop would.
+An app whose sign-in ends on a web page, whose address it asks to have pasted, gets that address on the
+clipboard instead (see :mod:`signin`).
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 MAX_URL = 8192
 WEB_SCHEMES = ("http", "https")
@@ -76,15 +78,38 @@ def browser_environment(environ: Mapping[str, str], scripts: Path, pipe: Path, s
     return environment
 
 
-def serve(child: subprocess.Popen, fd: int, schemes: Sequence[str], open_web: Callable[[str], None], deliver: Callable[[str], None]) -> int:
-    """Pass each link from the pipe on until the app exits; return the app's exit status."""
+class Source(Protocol):
+    """Something else the launcher follows while it passes links on, such as a sign-in's Helium window or the clipboard."""
+
+    def fileno(self) -> int:
+        """What to wait on."""
+
+    def handle(self) -> bool:
+        """Read what is waiting; return whether to keep following it."""
+
+    def close(self) -> None:
+        """Let it go."""
+
+
+def serve(child: subprocess.Popen, fd: int, schemes: Sequence[str], open_web: Callable[[str], None], deliver: Callable[[str], None],
+          sources: Optional[List[Source]] = None) -> int:
+    """Pass each link from the pipe on until the app exits; return the app's exit status.
+
+    Meanwhile, each of ``sources`` that has something waiting is handled, and closed once it ends; ``open_web`` may
+    add to them.
+    """
+    sources = [] if sources is None else sources
     pending = b""
     while child.poll() is None:
         try:
-            ready, _, _ = select.select([fd], [], [], 0.25)
-            chunk = os.read(fd, 65536) if ready else b""
+            ready, _, _ = select.select([fd, *sources], [], [], 0.25)
+            chunk = os.read(fd, 65536) if fd in ready else b""
         except (InterruptedError, BlockingIOError):
             continue
+        for source in ready:
+            if not isinstance(source, int) and not source.handle():
+                sources.remove(source)
+                source.close()
         *lines, pending = (pending + chunk).split(b"\n")
         pending = pending[-MAX_URL:]
         for line in lines:

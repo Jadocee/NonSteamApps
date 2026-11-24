@@ -366,17 +366,23 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual(bindings(switch, layouts.MENU, "Long_Press"), ["key_press LEFT_CONTROL, End the stream", "key_press Q"])
         self.assertEqual(bindings(switch, layouts.VIEW), ["xinput_button select"])
         self.assertEqual(bindings(switch, layouts.VIEW, "Long_Press"), ["key_press ESCAPE, PS button"])
-        self.assertEqual(bindings(switch, "button_back_left"), ["key_press LEFT_CONTROL, Stream menu", "key_press O"])
-        self.assertEqual(bindings(switch, "button_back_right"), ["key_press LEFT_CONTROL, Microphone", "key_press M"])
+        self.assertEqual({button: bindings(switch, button) for button in ("button_back_left_upper", "button_back_left", "button_back_right_upper",
+                                                                           "button_back_right")},
+                         {"button_back_left_upper": ["key_press LEFT_CONTROL, Microphone", "key_press M"],
+                          "button_back_left": ["key_press LEFT_CONTROL, End the stream", "key_press Q"],
+                          "button_back_right_upper": ["key_press LEFT_CONTROL, Zoom", "key_press Z"],
+                          "button_back_right": ["key_press LEFT_CONTROL, Stretch", "key_press S"]})
+        self.assertEqual(bindings(switch, "always_on_action", "full_press"), ["controller_action ts_n"])
         self.assertEqual(find(deck["left_trackpad"], "mode"), "single_button")
         self.assertEqual([name for name, _ in find(deck["left_trackpad"], "inputs")], ["click"])
         self.assertEqual(bindings(deck["left_trackpad"], "click"), ["key_press ESCAPE, PS button"])
         self.assertEqual(find(deck["right_trackpad"], "mode"), "absolute_mouse")
-        self.assertEqual(bindings(deck["right_trackpad"], "click", "Soft_Press"), ["mouse_button RIGHT, Touchpad"])
+        self.assertEqual(bindings(deck["right_trackpad"], "click", "Soft_Press"), ["key_press T, Touchpad press"])
+        self.assertEqual(bindings(deck["right_trackpad"], "touch"), ["mouse_button LEFT, Touchpad"])
         self.assertEqual([bindings(deck["button_diamond"], button) for button in ("button_a", "button_y")], [["xinput_button A"], ["xinput_button Y"]])
         xbox = groups(layouts.build(layouts.REMOTE_PLAY, base, self.read("controller_xboxone_gamepad_joystick.vdf")))
         self.assertNotIn("left_trackpad", xbox)
-        self.assertNotIn("button_back_left", [name for name, _ in find(xbox["switch"], "inputs")])
+        self.assertEqual([name for name, _ in find(xbox["switch"], "inputs") if name.startswith(("button_back", "always_on"))], [])
         self.assertEqual(bindings(xbox["switch"], layouts.VIEW, "Long_Press"), ["key_press ESCAPE, PS button"])
         self.assertEqual(layouts.used_by([apps.by_id("chiaki").controller]), [layouts.REMOTE_PLAY])
         self.assertEqual(sorted(layouts.install(self.root, layouts.REMOTE_PLAY)),

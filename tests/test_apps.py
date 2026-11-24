@@ -898,7 +898,8 @@ class ChiakiTests(unittest.TestCase):
         "resolution_local_ps4": "720p", "fps_local_ps4": "60", "bitrate_local_ps4": "0", "resolution_remote_ps4": "720p",
         "fps_remote_ps4": "60", "bitrate_remote_ps4": "0", "codec_ps4": "h264", "audio_out_device": "", "audio_in_device": "",
         "audio_buffer_size": "0", "start_mic_unmuted": "false", "enable_speech_processing": "false", "wifi_dropped_notif_percent": "3",
-        "packet_loss_reported_max": "0.05",
+        "packet_loss_reported_max": "0.05", "keyboard_enabled": "true", "mouse_touch_enabled": "true", "dpad_touch_enabled": "true",
+        "stream_menu_enabled": "true",
     }
 
     def test_a_new_profile_starts_with_chiaki_ngs_recommended_settings_and_hdr_where_the_device_shows_it(self):

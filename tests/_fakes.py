@@ -325,7 +325,8 @@ def controller_layout(kind, title, groups, settings=(("left_trackpad_mode", "0")
 
 
 XBOX_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "button_capture")
-DECK_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "button_back_left", "button_back_right")
+DECK_SWITCH = ("button_escape", "button_menu", "left_bumper", "right_bumper", "button_back_left", "button_back_right", "button_back_left_upper",
+               "button_back_right_upper")
 
 
 def add_controller_templates(root: Path) -> Path:

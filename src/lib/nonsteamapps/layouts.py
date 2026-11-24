@@ -66,14 +66,17 @@ layouts give the first Escape and the second Tab. :data:`MENU` and :data:`VIEW` 
   (Escape) and, held, home (H), Y searches (Ctrl+F), the bumpers rewind and fast forward (Page Up and Page
   Down), Menu plays or pauses (Space), held, quits (Ctrl+Q), and View goes home. B's short press waits for
   its release, as Jellyfin quits when Escape is held for half a second; Valve's View, Ctrl+W, would quit at once.
-- **Remote Play**, for chiaki-ng, starts from Gamepad with Mouse Trackpad: chiaki-ng reads the gamepad as the
-  console's controller, Menu (Start) as Options and View (Select) as Create. Steam keeps the controller's own
-  Steam or PS button, so the PS button is Escape, chiaki-ng's key for it, on a press of the left trackpad and on
-  a long press of View, for a controller without trackpads. A press of the right trackpad is the right mouse
-  button, which chiaki-ng takes as a press of the console controller's touchpad. Holding Menu sends Ctrl+Q,
-  which ends a stream, asking whether the console should sleep, and quits from the list of consoles. L4 opens
-  chiaki-ng's stream menu (Ctrl+O) and R4 turns the microphone on or off (Ctrl+M), on the controllers that
-  have them.
+- **Remote Play**, for chiaki-ng, starts from Gamepad with Mouse Trackpad and follows chiaki-ng's own layout for
+  the Deck, as its guide describes it: chiaki-ng reads the gamepad as the console's controller, Menu (Start) as
+  Options and View (Select) as Create. Steam keeps the controller's own Steam or PS button, so the PS button is
+  Escape, chiaki-ng's key for it, on a press of the left trackpad and on a long press of View, for a controller
+  without trackpads. The right trackpad is the console controller's touchpad: touching it holds the left mouse
+  button, so a swipe is a swipe on the touchpad, and pressing it is T, the touchpad's press. On the Deck,
+  Touchscreen Native Support is always on, so the touchscreen is the touchpad too. The back buttons are the
+  guide's: L4 turns the microphone on or off (Ctrl+M), L5 ends the stream (Ctrl+Q), R4 zooms (Ctrl+Z) and R5
+  stretches the picture (Ctrl+S); Steam names L4 and R4 ``button_back_left_upper`` and
+  ``button_back_right_upper``, and L5 and R5 ``button_back_left`` and ``button_back_right``. Holding Menu sends
+  Ctrl+Q too, which ends a stream, asking whether the console should sleep, and quits from the list of consoles.
 - **YouTube** is Gamepad, which VacuumTube reads as a controller, with View held to reload YouTube: Ctrl+R,
   the Reload of the menu Electron gives an app that sets none, which VacuumTube keeps hidden. Reloading the
   home screen brings fresh recommendations. A short press is still Select, VacuumTube's volume down. The
@@ -98,6 +101,7 @@ VIEW = "button_menu"
 _ALWAYS_ON = "always_on_action"
 _QUIT_HELIUM = ["key_press LEFT_CONTROL, Quit", "key_press LEFT_SHIFT", "key_press W", "key_press Q"]
 _PS_BUTTON = "key_press ESCAPE, PS button"
+_NATIVE_TOUCH = "controller_action ts_n"
 
 Change = Callable[[str, vdf.Pairs, Dict[str, vdf.Pairs]], vdf.Pairs]
 
@@ -121,6 +125,25 @@ def _bind(group: vdf.Pairs, button: str, bindings: List[str]) -> None:
             pairs = _find(_press(value), "bindings")
             if isinstance(pairs, list):
                 pairs[:] = [("binding", binding) for binding in bindings]
+
+
+def _always_on(group: vdf.Pairs, binding: str) -> None:
+    """Make ``binding`` the switches' always-on command, as Valve's Web Browser layout for the Deck makes Touchscreen
+    Native Support (``controller_action ts_n``)."""
+    inputs = _find(group, "inputs")
+    if not isinstance(inputs, list):
+        return
+    command = [("activators", [("full_press", [("bindings", [("binding", binding)])])]), ("disabled_activators", [])]
+    inputs[:] = [(name, value) for name, value in inputs if name != _ALWAYS_ON] + [(_ALWAYS_ON, command)]
+
+
+def _while_touched(group: vdf.Pairs, binding: str) -> None:
+    """Hold ``binding`` for as long as a trackpad is touched, as Steam's Touch command does."""
+    inputs = _find(group, "inputs")
+    if not isinstance(inputs, list):
+        return
+    touch = [("activators", [("Full_Press", [("bindings", [("binding", binding)])])])]
+    inputs[:] = [(name, value) for name, value in inputs if name != "touch"] + [("touch", touch)]
 
 
 def _set(pairs: vdf.Pairs, key: str, value: str) -> None:
@@ -270,12 +293,16 @@ def _remote_play(source: str, group: vdf.Pairs, base: Dict[str, vdf.Pairs]) -> v
     if source == "switch":
         _hold(group, MENU, ["key_press LEFT_CONTROL, End the stream", "key_press Q"])
         _hold(group, VIEW, [_PS_BUTTON])
-        _bind(group, "button_back_left", ["key_press LEFT_CONTROL, Stream menu", "key_press O"])
-        _bind(group, "button_back_right", ["key_press LEFT_CONTROL, Microphone", "key_press M"])
+        _bind(group, "button_back_left_upper", ["key_press LEFT_CONTROL, Microphone", "key_press M"])
+        _bind(group, "button_back_left", ["key_press LEFT_CONTROL, End the stream", "key_press Q"])
+        _bind(group, "button_back_right_upper", ["key_press LEFT_CONTROL, Zoom", "key_press Z"])
+        _bind(group, "button_back_right", ["key_press LEFT_CONTROL, Stretch", "key_press S"])
+        _always_on(group, _NATIVE_TOUCH)
     elif source == "left_trackpad":
         group = _press_only(group, _PS_BUTTON)
     elif source == "right_trackpad":
-        _bind(group, "click", ["mouse_button RIGHT, Touchpad"])
+        _bind(group, "click", ["key_press T, Touchpad press"])
+        _while_touched(group, "mouse_button LEFT, Touchpad")
     return group
 
 
@@ -511,9 +538,10 @@ YOUTUBE = Layout(
 REMOTE_PLAY = Layout(
     slug="remoteplay",
     title="Remote Play (NonSteamApps)",
-    description="Steam's Gamepad layout for a PlayStation's games: Menu is Options and View is Create; press the left trackpad or hold View for the PS button, press the right trackpad for the touchpad, hold Menu to end the stream and then to quit, L4 for chiaki-ng's stream menu and R4 to turn the microphone on or off",
+    description="Steam's Gamepad layout for a PlayStation's games, as chiaki-ng's guide sets it up: Menu is Options and View is Create; press the left trackpad or hold View for the PS button; touch, swipe and press the right trackpad or the touchscreen as the touchpad; L4 turns the microphone on or off, L5 ends the stream, R4 zooms and R5 stretches the picture; hold Menu to end the stream and then to quit",
     base="controller_neptune_gamepad+mouse.vdf",
     change=_remote_play,
+    revision="2",
 )
 LAYOUTS = (BITWARDEN, BOTTLES, BROWSER, DISCORD, ELEMENT, EMULATOR, FILES, JELLYFIN, LOCALSEND, MINECRAFT, REMOTE_PLAY, SIGNAL, TOOLS, VLC, YOUTUBE)
 
@@ -591,12 +619,11 @@ def build(layout: Layout, base: vdf.Pairs, target: vdf.Pairs, shift: Optional[vd
     for source, target_group in _active_groups(target_mappings).items():
         if source not in base_groups:
             continue
-        group = copy.deepcopy(base_groups[source])
+        group = layout.change(source, copy.deepcopy(base_groups[source]), base_groups)
         if source == "switch":
             keep = set(_inputs(target_group)) | ({_ALWAYS_ON} if same_controller else set())
             inputs = _find(group, "inputs") or []
             inputs[:] = [(name, value) for name, value in inputs if name in keep]
-        group = layout.change(source, group, base_groups)
         group_id = str(len(sources))
         body.append(("group", [("id", group_id), *[(name, value) for name, value in group if name != "id"]]))
         sources.append((group_id, f"{source} active"))

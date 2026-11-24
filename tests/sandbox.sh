@@ -252,10 +252,11 @@ check "Winetricks opened its menu in Flathub's Wine" grep -qF '["run", "--comman
 CHIAKI_CONFIG="$HOME_DIR/.var/app/io.github.streetpea.Chiaki4deck/config/Chiaki"
 run "$PROGRAM/apps/chiaki" --steam-account 222
 check "chiaki-ng started with the account's own profile" grep -qF '["run", "io.github.streetpea.Chiaki4deck", "--profile=steam-222"]' "$WORK/flatpak.log"
-check "chiaki-ng's new profile offers no Steam shortcut of its own and streams in HDR on a Steam Machine" \
-    test "$(grep -cxE 'add_steam_shortcut_ask=false|codec_local_ps5=h265_hdr|codec_remote_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 3
+check "chiaki-ng's new profile offers no Steam shortcut of its own and has the guide's settings, in HDR on a Steam Machine" \
+    test "$(grep -cxE 'add_steam_shortcut_ask=false|suspend_action=sleep|bitrate_local_ps5=30000|codec_(local|remote)_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 5
 run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/chiaki" --steam-account 111
-check "on a Steam Deck with an LCD, chiaki-ng's new profile keeps its own codec" test "$(grep -c codec "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 0
+check "on a Steam Deck with an LCD, chiaki-ng's new profile streams in SDR" \
+    test "$(grep -cxE 'codec_(local|remote)_ps5=h265|suspend_action=sleep' "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 3
 
 HELIUM_PROFILE="$PROGRAM/profiles/helium/111"
 run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/helium" --steam-account 111

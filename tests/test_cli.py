@@ -423,7 +423,11 @@ class LaunchTests(CliTestCase):
         argv, _ = self.launch("chiaki", "--steam-account", str(BETA))
         self.assertEqual(argv, [self.fake.command, "run", "io.github.streetpea.Chiaki4deck", f"--profile=steam-{BETA}"])
         conf = self.home / f".var/app/io.github.streetpea.Chiaki4deck/config/Chiaki/Chiaki-steam-{BETA}.conf"
-        self.assertEqual(conf.read_text(), "[settings]\nadd_steam_shortcut_ask=false\ncodec_local_ps5=h265_hdr\ncodec_remote_ps5=h265_hdr\n")
+        lines = conf.read_text().splitlines()
+        self.assertEqual(lines[0], "[settings]")
+        for line in ("add_steam_shortcut_ask=false", "suspend_action=sleep", "bitrate_local_ps5=30000", "codec_local_ps5=h265_hdr",
+                     "codec_remote_ps5=h265_hdr"):
+            self.assertIn(line, lines)
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True):
             self.launch("chiaki", "--steam-account", str(BETA))
         cli.sleepwatch.watch.assert_not_called()
@@ -431,6 +435,19 @@ class LaunchTests(CliTestCase):
         argv, _ = self.launch("chiaki", "--steam-account", str(BETA))
         self.assertEqual(argv, [self.fake.command, "run", "io.github.streetpea.Chiaki4deck"])
         self.assertEqual((conf.parent / "Chiaki.conf").read_text(), conf.read_text())
+
+    def test_a_change_made_in_chiaki_ng_stays_until_an_install_puts_the_recommended_settings_back_with_the_consoles_kept(self):
+        self.install("chiaki")
+        self.launch("chiaki", "--steam-account", str(BETA))
+        conf = self.home / f".var/app/io.github.streetpea.Chiaki4deck/config/Chiaki/Chiaki-steam-{BETA}.conf"
+        conf.write_text(conf.read_text().replace("resolution_local_ps5=1080p", "resolution_local_ps5=720p") + "\n[registered_hosts]\nsize=1\n")
+        self.launch("chiaki", "--steam-account", str(BETA))
+        self.assertEqual(self.run_cli("update", "--apps-only", "--yes"), 0, self.errors)
+        self.assertIn("resolution_local_ps5=720p", conf.read_text().splitlines())
+        self.install("chiaki")
+        self.assertIn("Put back chiaki-ng's TV settings (1 data folder); sign-ins are kept", self.errors)
+        self.assertEqual([line for line in conf.read_text().splitlines() if line.startswith(("resolution_local_ps5=", "size="))],
+                         ["resolution_local_ps5=1080p", "size=1"])
 
     def test_vacuumtube_gets_the_steamos_theme_and_keeps_the_styles_turned_off(self):
         self.install("youtube")

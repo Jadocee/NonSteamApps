@@ -6,7 +6,7 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -114,15 +114,16 @@ def set_ini(lines: List[str], group: str, key: str, value: str) -> bool:
 class IniSettings:
     """Values for one of an app's INI settings files, as Qt's QSettings and KDE's KConfig write them, at ``file`` in a folder.
 
-    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``new``
-    are further values a file NonSteamApps creates starts with, and ``hdr`` further ones it starts with on a device
-    that can show HDR (see :attr:`device.Device.hdr`).
+    ``values`` are ``(group, key, value)``; the file's other groups, keys and comments stay as they are. ``hdr``
+    are further values for a device that can show HDR, and ``sdr`` for one that cannot (see
+    :attr:`device.Device.hdr`). ``new`` are further values that only a file NonSteamApps creates starts with.
     """
 
     file: str
     values: Tuple[Tuple[str, str, str], ...]
     new: Tuple[Tuple[str, str, str], ...] = ()
     hdr: Tuple[Tuple[str, str, str], ...] = ()
+    sdr: Tuple[Tuple[str, str, str], ...] = ()
 
     def target(self, folder: Path) -> Path:
         return Path(folder) / self.file
@@ -140,7 +141,7 @@ class IniSettings:
             lines, fresh = [], True
         except (OSError, UnicodeDecodeError):
             return None
-        wanted = [*self.values, *(self.new if fresh else ()), *(self.hdr if fresh and device.current().hdr else ())]
+        wanted = [*self.values, *(self.hdr if device.current().hdr else self.sdr), *(self.new if fresh else ())]
         if not any([set_ini(lines, group, key, value) for group, key, value in wanted]):
             return False
         atomic_write_bytes(path, ("\n".join(lines) + "\n").encode("utf-8"))
@@ -782,7 +783,7 @@ class SettingsProfile:
         return Path(app_home) / self.file.format(account=account)
 
     def _settings(self, path: Path) -> IniSettings:
-        return IniSettings(path.name, self.settings.values, self.settings.new, self.settings.hdr)
+        return replace(self.settings, file=path.name)
 
     def _seed(self, path: Path) -> None:
         if not path.exists():
@@ -1174,8 +1175,41 @@ PSN_SIGN_IN_ENDS = "https://remoteplay.dl.playstation.net/remoteplay/redirect"
 BITWARDEN_EXTENSION = "nngceckbapebfimnlniiiahkandclblb"
 CHIAKI_SETTINGS = IniSettings(
     "Chiaki.conf",
-    (("settings", "add_steam_shortcut_ask", "false"),),
+    tuple(("settings", key, value) for key, value in (
+        ("add_steam_shortcut_ask", "false"),
+        ("disconnect_action", "ask"),
+        ("suspend_action", "sleep"),
+        ("rumble_haptics_intensity", "Normal"),
+        ("steamdeck_haptics", "false"),
+        ("gyro_inverted", "false"),
+        ("log_verbose", "false"),
+        ("hw_decoder", "auto"),
+        ("window_type", "Fullscreen"),
+        ("fullscreen_doubleclick", "false"),
+        ("placebo_preset", "high_quality"),
+        ("resolution_local_ps5", "1080p"),
+        ("fps_local_ps5", "60"),
+        ("bitrate_local_ps5", "30000"),
+        ("resolution_remote_ps5", "720p"),
+        ("fps_remote_ps5", "60"),
+        ("bitrate_remote_ps5", "0"),
+        ("resolution_local_ps4", "720p"),
+        ("fps_local_ps4", "60"),
+        ("bitrate_local_ps4", "0"),
+        ("resolution_remote_ps4", "720p"),
+        ("fps_remote_ps4", "60"),
+        ("bitrate_remote_ps4", "0"),
+        ("codec_ps4", "h264"),
+        ("audio_out_device", ""),
+        ("audio_in_device", ""),
+        ("audio_buffer_size", "0"),
+        ("start_mic_unmuted", "false"),
+        ("enable_speech_processing", "false"),
+        ("wifi_dropped_notif_percent", "3"),
+        ("packet_loss_reported_max", "0.05"),
+    )),
     hdr=(("settings", "codec_local_ps5", "h265_hdr"), ("settings", "codec_remote_ps5", "h265_hdr")),
+    sdr=(("settings", "codec_local_ps5", "h265"), ("settings", "codec_remote_ps5", "h265")),
 )
 CHIAKI_PROFILE = SettingsProfile("config/Chiaki/Chiaki-steam-{account}.conf", "config/Chiaki/Chiaki.conf", CHIAKI_SETTINGS)
 CHIAKI_LIBRARY = Library("chiaki-ng/chiaki-ng", (

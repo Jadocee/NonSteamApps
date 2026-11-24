@@ -149,6 +149,39 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(browser.offer_extensions(self.profile, [extension], [extension]), ([extension], []))
         self.assertEqual(self.preferences.read_text(), "{")
 
+    def test_a_native_messaging_host_is_offered_rewritten_when_it_differs_and_withdrawn(self):
+        manifest = browser.native_host("com.8bit.bitwarden", "Bitwarden's desktop app", Path("/p/share/bitwarden/desktop-proxy"),
+                                       "nngceckbapebfimnlniiiahkandclblb")
+        self.assertEqual(manifest, {"name": "com.8bit.bitwarden", "description": "Bitwarden's desktop app", "path": "/p/share/bitwarden/desktop-proxy",
+                                    "type": "stdio", "allowed_origins": ["chrome-extension://nngceckbapebfimnlniiiahkandclblb/"]})
+        folder = self.profile / "NativeMessagingHosts"
+        folder.mkdir(parents=True)
+        (folder / "org.keepassxc.keepassxc_browser.json").write_text("{}")
+        hosts, wanted = {"com.8bit.bitwarden": manifest}, ["com.8bit.bitwarden"]
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, wanted), (["com.8bit.bitwarden"], []))
+        self.assertEqual(json.loads((folder / "com.8bit.bitwarden.json").read_text()), manifest)
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, wanted), ([], []))
+        moved = {"com.8bit.bitwarden": {**manifest, "description": "Bitwarden"}}
+        self.assertEqual(browser.offer_native_hosts(self.profile, moved, wanted), (["com.8bit.bitwarden"], []))
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, []), ([], ["com.8bit.bitwarden"]))
+        self.assertEqual(browser.offer_native_hosts(self.profile, hosts, []), ([], []))
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["org.keepassxc.keepassxc_browser.json"])
+
+    def test_a_host_that_runs_another_program_is_replaced_while_wanted_and_otherwise_left_alone(self):
+        ours = browser.native_host("com.8bit.bitwarden", "Bitwarden's desktop app", Path("/p/share/bitwarden/desktop-proxy"),
+                                   "nngceckbapebfimnlniiiahkandclblb")
+        theirs = {**ours, "description": "Bitwarden desktop <-> browser bridge", "path": "/home/deck/Applications/Bitwarden/desktop_proxy"}
+        path = self.profile / "NativeMessagingHosts" / "com.8bit.bitwarden.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(theirs))
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, []), ([], []))
+        self.assertEqual(json.loads(path.read_text()), theirs)
+        path.write_text("{broken")
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, []), ([], []))
+        self.assertEqual(browser.offer_native_hosts(self.profile, {"com.8bit.bitwarden": ours}, ["com.8bit.bitwarden"]),
+                         (["com.8bit.bitwarden"], []))
+        self.assertEqual(json.loads(path.read_text()), ours)
+
     def test_a_corrupt_file_is_kept_aside(self):
         self.preferences.parent.mkdir(parents=True)
         self.preferences.write_text("{broken")

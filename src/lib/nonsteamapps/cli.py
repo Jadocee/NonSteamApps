@@ -16,13 +16,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
     __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display, kyty,
-    layouts, lichii, links, nx2, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
+    layouts, lichii, links, nx2, polkit, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
 from .flatpak import Flatpak, FlatpakError, Installed, x11_options
 from .helium import HeliumError, Runtime
+from .polkit import PolkitError
 
 EXIT_ERROR = 1
 EXIT_INTERRUPTED = 130
@@ -151,6 +152,66 @@ def _close_ports(record: Record, chosen: Sequence[App]) -> None:
         else:
             ui.ok(f"Closed port {ports}, which NonSteamApps opened for {app.client}")
         record.set_opened_ports(app.id, {})
+
+
+def _polkit(policy: Path) -> polkit.Polkit:
+    return polkit.Polkit(policy)
+
+
+def _unlocking(paths: Paths, chosen: Sequence[App]) -> List[Tuple[App, polkit.Polkit]]:
+    """The apps among ``chosen`` that need a polkit action to unlock, with it (see :attr:`apps.NativeHost.policy`)."""
+    return [(app, _polkit(paths.program / "share" / app.native_host.policy)) for app in chosen if app.native_host and app.native_host.policy]
+
+
+def _add_polkit_actions(paths: Paths, record: Record, chosen: Sequence[App]) -> None:
+    """Add the polkit action an app needs to unlock with the account's password, as Bitwarden's "Unlock with system
+    authentication" does, and its extension in Helium through it, where the system lacks it (see :mod:`polkit`)."""
+    for app, action in _unlocking(paths, chosen):
+        if action.present():
+            continue
+        if action.reads_local() is False:
+            ui.info(f"This system's polkit reads no actions from {action.folder}, so {app.client} unlocks with its master password or PIN")
+            continue
+        if not ui.confirm(f"Add {app.client}'s polkit action, so that {app.client} and its extension in Helium can unlock with your password "
+                          f"in Desktop Mode? sudo asks for your password", default=True):
+            ui.info(f"{app.client} unlocks with its master password or PIN; to add the action, run the installer again")
+            continue
+        try:
+            with ui.paused():
+                action.install()
+        except PolkitError as error:
+            ui.warn(f"Could not add {app.client}'s polkit action ({error}). If your account has no password, set one with passwd and run the "
+                    f"installer again, or run:")
+            for command in error.commands:
+                ui.info(f"  {command}")
+            continue
+        record.set_polkit_action(app.id, str(action.path))
+        ui.ok(f"Added {app.client}'s polkit action, so that {app.client} can unlock with your password in Desktop Mode")
+
+
+def _remove_polkit_actions(paths: Paths, record: Record, chosen: Sequence[App]) -> None:
+    """Remove the polkit actions NonSteamApps added for these apps."""
+    for app, action in _unlocking(paths, chosen):
+        added = record.polkit_action(app.id)
+        if not added:
+            continue
+        try:
+            action.remove(Path(added))
+        except PolkitError as error:
+            ui.warn(f"Could not remove {app.client}'s polkit action, which NonSteamApps added ({error}); to remove it, run:")
+            for command in error.commands:
+                ui.info(f"  {command}")
+        else:
+            ui.ok(f"Removed {app.client}'s polkit action, which NonSteamApps added")
+        record.set_polkit_action(app.id, "")
+
+
+def _polkit_status(paths: Paths, record: Record) -> str:
+    found = []
+    for app, action in _unlocking(paths, [app for app in apps.APPS if app.id in record.apps]):
+        state = "present" if action.present() else "missing; run the installer again to add it"
+        found.append(f"{app.client}'s {polkit.action_id(action.policy)} {state}")
+    return "; ".join(found) or "none needed"
 
 
 def _firewall_status(record: Record) -> str:
@@ -659,7 +720,10 @@ def cmd_install(args, paths: Paths, flatpak: Flatpak) -> int:
                 _add_to_desktop(paths, app)
         ui.step("Firewall, TV remote and updates")
         _open_ports(record, chosen)
+        _add_polkit_actions(paths, record, chosen)
         record.save()
+        for line in _link_hosts(paths, record):
+            ui.ok(line)
         _remote_only(paths, force=True)
         _pin_konsole(paths)
 
@@ -734,10 +798,13 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
             _purge(paths, app, remaining)
     if not args.keep_app:
         _close_ports(record, chosen)
+        _remove_polkit_actions(paths, record, chosen)
         _uninstall_flatpaks(flatpak, record, chosen)
     for app in chosen:
         record.discard(app.id)
     record.save()
+    for line in _link_hosts(paths, record):
+        ui.ok(line)
     if not args.keep_app and not any(app.browser for app in _managed(record)) and paths.helium.exists():
         _runtime(paths).remove()
         ui.ok("Removed Helium, which no other app uses")
@@ -895,6 +962,15 @@ def _scale_setting(settings: Dict[str, str]) -> str:
     return settings.get(TV_SCALE) or settings.get(HELIUM_SCALE) or "auto"
 
 
+def _app_scale(settings: Dict[str, str], game_mode: bool, app: App) -> Optional[float]:
+    """An app's interface scale: in Game Mode a TV's, and on a Steam Deck's own screen the handheld one, for an app laid out for a
+    desktop's screen (see :attr:`apps.TvScale.handheld` and :func:`display.scale`)."""
+    if not app.tv_scale:
+        return None
+    handheld = app.tv_scale.handheld and device.current().steam_deck
+    return display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout, handheld=handheld)
+
+
 def _helium_scale(settings: Dict[str, str], game_mode: bool) -> Optional[float]:
     """Helium's interface scale: in Game Mode a TV's, as for every app, and on a Steam Deck's own screen the handheld one (see :func:`display.scale`)."""
     return display.scale(_scale_setting(settings), game_mode, handheld=device.current().steam_deck)
@@ -941,7 +1017,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     games = _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
     _console_mode(paths, app, account, settings, game_mode)
-    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    factor = _app_scale(settings, game_mode, app)
     scale, scale_options = app.tv_scale.apply(factor) if app.tv_scale and factor else ([], [])
     required = app.tv_scale.requires if app.tv_scale and factor else None
     folder = app.profile.data_folder(app.home(paths.home), account) if required and app.profile else None
@@ -1218,6 +1294,8 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     browser.prepare(profile, services, app.browser.kiosk, runtime.widevine, handheld)
     if not app.browser.kiosk:
         _offer_extensions(paths, profile, services)
+        for line in _link_hosts(paths, Record.load(paths.record), [profile]):
+            print(f"  {line}", flush=True)
     factor = _helium_scale(settings, game_mode)
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
@@ -1247,6 +1325,36 @@ def _offer_extensions(paths: Paths, profile: Path, services: bool) -> None:
     if wanted and not services:
         print(f"  Helium cannot download {_names([owners[extension] for extension in wanted])}'s extension while its services are off "
               f"({HELIUM_SERVICES}=0)", flush=True)
+
+
+def _helium_folders(paths: Paths) -> List[Path]:
+    """The user data folders of the Helium browser: each Steam account's profile, and Helium's own, which Desktop Mode's
+    applications menu starts (see :class:`apps.DesktopEntry`), whether or not it has started from there yet."""
+    accounts = sorted(folder for folder in (paths.profiles / "helium").glob("*") if folder.is_dir())
+    return [*accounts, paths.config.parent / "net.imput.helium"]
+
+
+def _link_hosts(paths: Paths, record: Record, folders: Optional[Sequence[Path]] = None) -> List[str]:
+    """Let the extensions in the Helium browser reach the apps installed with an extension and a native messaging host,
+    as Bitwarden's reaches Bitwarden's desktop app, while the Helium browser is installed, and take NonSteamApps' hosts
+    away otherwise; ``folders`` are the browser's user data folders, all of them by default (see
+    :func:`browser.offer_native_hosts`). Return what changed, to say."""
+    owners = [app for app in apps.APPS if app.native_host and app.helium_extension]
+    hosts = {
+        app.native_host.name: browser.native_host(app.native_host.name, f"{app.client}'s desktop app, through NonSteamApps",
+                                                  paths.program / "share" / app.native_host.script, app.helium_extension)
+        for app in owners
+    }
+    wanted = [app.native_host.name for app in owners if app.id in record.apps and "helium" in record.apps]
+    changed: Dict[str, str] = {}
+    for folder in _helium_folders(paths) if folders is None else folders:
+        written, withdrawn = browser.offer_native_hosts(folder, hosts, wanted)
+        for app in owners:
+            if app.native_host.name in written:
+                changed[app.id] = f"{app.client}'s extension in Helium can reach {app.client}'s desktop app"
+            elif app.native_host.name in withdrawn:
+                changed.setdefault(app.id, f"{app.client}'s extension in Helium no longer reaches {app.client}'s desktop app")
+    return list(changed.values())
 
 
 def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence[str]) -> int:
@@ -1282,7 +1390,7 @@ def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence
         reason = "none of the game folders KytyPS5 lists exists" if listed else "KytyPS5 lists no game folder"
         print(f"  {reason}, so it has {games}: copy your games there, or add folders in its global settings")
     game_mode = steamclient.in_game_mode()
-    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    factor = _app_scale(settings, game_mode, app)
     variables = {"TERMINAL": str(paths.program / "share" / "kytyps5" / "terminal")}
     if factor:
         variables.update(app.tv_scale.variables(factor))
@@ -1319,7 +1427,7 @@ def _launch_lichii(paths: Paths, app: App, account: Optional[int], extra: Sequen
     _games_folder(paths, app, account)
     game_mode = steamclient.in_game_mode()
     _console_mode(paths, app, account, settings, game_mode)
-    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    factor = _app_scale(settings, game_mode, app)
     variables = dict(app.env)
     if factor:
         variables.update(app.tv_scale.variables(factor))
@@ -1346,7 +1454,7 @@ def _launch_system(paths: Paths, app: App, extra: Sequence[str]) -> int:
         desktop = paths.home / ".config"
     app.system.prepare(profile, desktop)
     variables = app.system.environment(profile, desktop, os.environ, game_mode)
-    factor = display.scale(_scale_setting(settings), game_mode, layout=app.tv_scale.layout) if app.tv_scale else None
+    factor = _app_scale(settings, game_mode, app)
     scale = app.tv_scale.apply(factor)[0] if factor else []
     if factor:
         variables.update(app.tv_scale.variables(factor))
@@ -1457,6 +1565,8 @@ def cmd_update(args, paths: Paths, flatpak: Flatpak) -> int:
             _link(paths, app)
             if app.desktop:
                 _refresh_desktop(paths, app)
+        for line in _link_hosts(paths, record):
+            ui.ok(line)
         ui.step("Steam library")
         try:
             steam_add(paths, managed, "all", args.restart_steam, overwrite=False, flatpak=flatpak)
@@ -1631,6 +1741,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         ("Lichii", _lichii_status(paths)),
         ("Eden-NX2", _nx2_status(paths, flatpak)),
         ("Firewall", _firewall_status(Record.load(paths.record))),
+        ("polkit", _polkit_status(paths, Record.load(paths.record))),
         ("TV scale", f"{_scale_setting(settings)} (Helium apps, {_names([app for app in apps.APPS if app.tv_scale])})"),
         ("Updates", timer.status(paths)),
     ]
@@ -1697,8 +1808,11 @@ def cmd_uninstall(args, paths: Paths, flatpak: Flatpak) -> int:
     if args.purge:
         for app in managed:
             _purge(paths, app)
+    for line in _link_hosts(paths, Record(paths.record)):
+        ui.ok(line)
     if not args.keep_apps:
         _close_ports(record, managed)
+        _remove_polkit_actions(paths, record, managed)
         _uninstall_flatpaks(flatpak, record, managed)
     if paths.nx2.exists():
         _nx2(paths, flatpak).remove()

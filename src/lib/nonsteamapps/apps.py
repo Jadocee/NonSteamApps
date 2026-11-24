@@ -921,7 +921,9 @@ class TvScale:
     A ``whole`` scale is rounded down, and dropped below 2, for toolkits that only scale by whole numbers; a
     ``text`` variable then scales the text by what is left over, as ``GDK_DPI_SCALE`` does for GTK. ``layout``
     is the screen height the app's layout is made for, which the automatic scale fits a TV to. ``requires``
-    are settings the app needs while it is scaled, set before each scaled start.
+    are settings the app needs while it is scaled, set before each scaled start. A ``handheld`` app, one laid out
+    for a desktop's screen, also takes :data:`display.HANDHELD_SCALE` on a Steam Deck's own screen in Game Mode;
+    an app with a TV's layout, made to be read from across a room, already suits it.
     """
 
     argument: str = ""
@@ -930,6 +932,7 @@ class TvScale:
     text: str = ""
     layout: int = TV_HEIGHT
     requires: Optional[JsonSettings] = None
+    handheld: bool = True
 
     def _text(self, factor: float) -> Optional[str]:
         value = float(int(factor)) if self.whole else factor
@@ -952,6 +955,17 @@ class TvScale:
 
 
 CHROMIUM_SCALE = TvScale(argument="--force-device-scale-factor={factor}")
+
+
+@dataclass(frozen=True)
+class NativeHost:
+    """How an app's extension in the Helium browser reaches the app itself: through the native messaging host ``name``,
+    for which the browser runs ``script``, in NonSteamApps' ``share``. ``policy``, also in ``share``, is a polkit action
+    the app needs for it, which SteamOS does not ship (see :mod:`polkit`)."""
+
+    name: str
+    script: str
+    policy: str = ""
 NEXUS_MODS_ICON = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
 
 
@@ -1022,7 +1036,8 @@ class App:
     A ``portal_links`` app opens links through the desktop portal, as Qt does in a Flatpak, which in Game Mode
     gives them to Steam's browser; it then runs without the session bus while NonSteamApps opens its links, so
     that it uses ``xdg-open`` instead. ``helium_extension`` is the Chrome Web Store ID of the app's extension for
-    browsers, which the Helium app installs while this app is installed (see :func:`browser.offer_extensions`).
+    browsers, which the Helium app installs while this app is installed (see :func:`browser.offer_extensions`), and
+    ``native_host`` how that extension reaches the app (see :func:`browser.offer_native_hosts`).
     A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
@@ -1079,6 +1094,7 @@ class App:
     sign_in_ends: str = ""
     portal_links: bool = False
     helium_extension: str = ""
+    native_host: Optional[NativeHost] = None
     qt_window: bool = False
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
@@ -1192,6 +1208,7 @@ APPS: Tuple[App, ...] = (
             argument="--force-device-scale-factor={factor}",
             layout=1080,
             requires=JsonSettings("config.json", (("unlock_resolution", True),)),
+            handheld=False,
         ),
         sandbox_off_when=("SteamGamepadUI",),
     ),
@@ -1276,6 +1293,7 @@ APPS: Tuple[App, ...] = (
         game_mode_env=(("DISPLAY_MODE", "X11"),),
         callbacks=("bitwarden",),
         helium_extension=BITWARDEN_EXTENSION,
+        native_host=NativeHost("com.8bit.bitwarden", "bitwarden/desktop-proxy", "bitwarden/com.bitwarden.Bitwarden.policy"),
         fullscreen_class="bitwarden",
         hide_menu_bar=True,
         notice="Bitwarden keeps its login tokens unencrypted on disk, so that it works without a keyring; see the README",
@@ -1291,7 +1309,7 @@ APPS: Tuple[App, ...] = (
         profile=JellyfinProfile(),
         controller=JELLYFIN.title,
         logo_position="BottomLeft:44:56",
-        tv_scale=TvScale(argument="--scale-factor={factor}"),
+        tv_scale=TvScale(argument="--scale-factor={factor}", handheld=False),
     ),
     App(
         id="vlc",

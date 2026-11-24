@@ -231,7 +231,7 @@ def set_setting(path: Path, key: str, value: str) -> None:
 
 
 class Record:
-    """Which apps NonSteamApps manages, whether it installed each app's Flatpak, and the ports it opened for each."""
+    """Which apps NonSteamApps manages, whether it installed each app's Flatpak, and the ports and polkit actions it added for each."""
 
     def __init__(self, path: Path, apps: Optional[Dict[str, dict]] = None) -> None:
         self.path = Path(path)
@@ -269,6 +269,18 @@ class Record:
             entry["opened_ports"] = ports
         else:
             entry.pop("opened_ports", None)
+
+    def polkit_action(self, app_id: str) -> str:
+        """Where NonSteamApps installed a polkit action for the app, or nothing (see :mod:`polkit`)."""
+        path = self.apps.get(app_id, {}).get("polkit_action")
+        return path if isinstance(path, str) else ""
+
+    def set_polkit_action(self, app_id: str, path: str) -> None:
+        entry = self.apps.setdefault(app_id, {})
+        if path:
+            entry["polkit_action"] = path
+        else:
+            entry.pop("polkit_action", None)
 
     def discard(self, app_id: str) -> None:
         self.apps.pop(app_id, None)

@@ -30,7 +30,7 @@ import json
 import os
 import urllib.parse
 from pathlib import Path
-from typing import List, MutableMapping, Optional, Sequence, Tuple
+from typing import Collection, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 from .fsutil import atomic_write_bytes, atomic_write_json
 
@@ -42,6 +42,7 @@ SPACIOUS = 1
 FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
 OVERLAY_SCROLLBARS = "OverlayScrollbar:mode/overlay"
 EXTERNAL_EXTENSIONS = "External Extensions"
+NATIVE_HOSTS = "NativeMessagingHosts"
 WEB_STORE_UPDATES = "https://clients2.google.com/service/update2/crx"
 RETURN_KEYS = ("redirect_uri", "redirecturi", "redirecturl")
 EXIT_COMMAND = "34031"
@@ -306,6 +307,36 @@ def offer_extensions(profile: Path, wanted: Sequence[str], managed: Sequence[str
         data["extensions"]["pinned_extensions"] = [*pinned, *(extension for extension in offered if extension not in pinned)]
         atomic_write_json(path, data, compact=True)
     return offered, withdrawn
+
+
+def native_host(name: str, description: str, program: Path, extension: str) -> dict:
+    """The manifest of the native messaging host ``name``, which runs ``program`` for the Chrome Web Store extension ``extension``."""
+    return {"name": name, "description": description, "path": str(program), "type": "stdio",
+            "allowed_origins": [f"chrome-extension://{extension}/"]}
+
+
+def offer_native_hosts(profile: Path, hosts: Mapping[str, dict], wanted: Collection[str]) -> Tuple[List[str], List[str]]:
+    """Let the extensions in ``profile`` reach those of the native messaging hosts ``hosts``, NonSteamApps' manifests by
+    name, that are ``wanted``, and take the others away; return the hosts newly written and those withdrawn.
+
+    Chromium on Linux finds a user data folder's own hosts in its ``NativeMessagingHosts`` folder, a manifest
+    ``<name>.json`` for each, whose program it starts when an extension the manifest allows connects. A manifest
+    that differs from the one wanted is written again. One that runs another program, as an app installed some
+    other way writes, is taken away only by being replaced, and manifests of other hosts are left alone.
+    """
+    folder = Path(profile) / NATIVE_HOSTS
+    written, withdrawn = [], []
+    for name, manifest in hosts.items():
+        path = folder / f"{name}.json"
+        found = _load(path)
+        if name in wanted:
+            if found != manifest:
+                atomic_write_json(path, manifest)
+                written.append(name)
+        elif found and found.get("path") == manifest["path"]:
+            path.unlink()
+            withdrawn.append(name)
+    return written, withdrawn
 
 
 def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None,

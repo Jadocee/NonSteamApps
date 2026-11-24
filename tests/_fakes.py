@@ -12,7 +12,7 @@ from typing import List, Optional
 from pathlib import Path
 
 import _paths
-from nonsteamapps import controllers, firewall, steam, vdf
+from nonsteamapps import controllers, firewall, polkit, steam, vdf
 from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -369,9 +369,14 @@ def make_paths(home: Path) -> Paths:
     return Paths.detect(make_program(home / ".local/share/nonsteamapps"), {"HOME": str(home)})
 
 
+def fake_polkit(policy: Path) -> polkit.Polkit:
+    """polkit's actions as seen through tests/fakes/pkaction and tests/fakes/sudo, under the folder ``environment`` names."""
+    return polkit.Polkit(policy, sudo=str(FAKES / "sudo"), pkaction=str(FAKES / "pkaction"))
+
+
 def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "FakeFirewall" = None) -> dict:
     env = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "DBUS_"))}
-    env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1")
+    env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1", **{polkit.VARIABLE: str(home / "polkit")})
     if wall:
         env.update(wall.env)
     if extra_path:

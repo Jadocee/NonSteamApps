@@ -52,6 +52,7 @@ class CliTestCase(unittest.TestCase):
             mock.patch("nonsteamapps.steamclient.command", return_value=self.steam_command.command),
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
+            mock.patch("nonsteamapps.cli._polkit", side_effect=_fakes.fake_polkit),
         ]
         if not self.self_update:
             patches.append(mock.patch("nonsteamapps.cli._update_program"))
@@ -928,6 +929,88 @@ class FirewallTests(CliTestCase):
         self.assertEqual(self.wall.ports(), ["53317/tcp", "53317/udp"])
 
 
+class BitwardenLinkTests(CliTestCase):
+    def policy(self):
+        return self.home / "polkit" / "etc" / "polkit-1" / "actions" / "com.bitwarden.Bitwarden.policy"
+
+    def host(self, folder):
+        path = folder / "NativeMessagingHosts" / "com.8bit.bitwarden.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def test_bitwarden_and_its_extension_in_helium_are_linked_and_unlinked_with_bitwarden(self):
+        own = self.home / ".config" / "net.imput.helium"
+        self.install("helium")
+        self.launch("helium", "--steam-account", str(ALPHA))
+        profile = self.paths.profile("helium", ALPHA)
+        self.assertIsNone(self.host(profile))
+        self.assertFalse(self.policy().exists())
+        self.install("bitwarden")
+        expected = {"name": "com.8bit.bitwarden", "description": "Bitwarden's desktop app, through NonSteamApps",
+                    "path": str(self.paths.program / "share" / "bitwarden" / "desktop-proxy"), "type": "stdio",
+                    "allowed_origins": ["chrome-extension://nngceckbapebfimnlniiiahkandclblb/"]}
+        self.assertEqual((self.host(profile), self.host(own)), (expected, expected))
+        self.assertIn("Bitwarden's extension in Helium can reach Bitwarden's desktop app", self.errors)
+        self.assertEqual(self.policy().read_text(), (_paths.ROOT / "src/share/bitwarden/com.bitwarden.Bitwarden.policy").read_text())
+        self.assertIn("Added Bitwarden's polkit action, so that Bitwarden can unlock with your password in Desktop Mode", self.errors)
+        self.assertEqual(config.Record.load(self.paths.record).polkit_action("bitwarden"), str(self.policy()))
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn("Bitwarden's com.bitwarden.Bitwarden.unlock present", self.output)
+        self.install("bitwarden")
+        self.assertNotIn("polkit action", self.errors)
+        self.launch("helium", "--steam-account", str(BETA))
+        self.assertEqual(self.host(self.paths.profile("helium", BETA)), expected)
+        self.assertEqual(self.run_cli("remove", "bitwarden", "--yes"), 0, self.errors)
+        self.assertEqual((self.host(profile), self.host(own)), (None, None))
+        self.assertIn("Bitwarden's extension in Helium no longer reaches Bitwarden's desktop app", self.errors)
+        self.assertFalse(self.policy().exists())
+        self.assertIn("Removed Bitwarden's polkit action, which NonSteamApps added", self.errors)
+
+    def test_without_the_helium_browser_bitwarden_gets_its_polkit_action_and_no_host(self):
+        self.install("bitwarden", "netflix")
+        self.assertTrue(self.policy().exists())
+        self.assertFalse((self.home / ".config" / "net.imput.helium").exists())
+
+    def test_a_host_that_a_bitwarden_installed_some_other_way_wrote_for_helium_is_left_alone(self):
+        own = self.home / ".config" / "net.imput.helium"
+        theirs = {"name": "com.8bit.bitwarden", "description": "Bitwarden desktop <-> browser bridge", "type": "stdio",
+                  "path": str(self.home / "Applications" / "Bitwarden" / "desktop_proxy"),
+                  "allowed_origins": ["chrome-extension://nngceckbapebfimnlniiiahkandclblb/"]}
+        (own / "NativeMessagingHosts").mkdir(parents=True)
+        (own / "NativeMessagingHosts" / "com.8bit.bitwarden.json").write_text(json.dumps(theirs))
+        self.install("helium")
+        self.assertEqual(self.host(own), theirs)
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertEqual(self.host(own), theirs)
+
+    def test_a_declined_question_an_old_polkit_or_a_missing_password_leave_the_action_out(self):
+        answers = mock.patch("nonsteamapps.ui.confirm", side_effect=lambda question, default=False, unattended=None: "polkit" not in question)
+        with answers:
+            self.install("bitwarden")
+        self.assertFalse(self.policy().exists())
+        self.assertIn("Bitwarden unlocks with its master password or PIN; to add the action, run the installer again", self.errors)
+        with mock.patch.dict(os.environ, {"FAKE_PKACTION_VERSION": "124"}):
+            self.install("bitwarden")
+        self.assertFalse(self.policy().exists())
+        self.assertIn(f"This system's polkit reads no actions from {self.policy().parent}, so Bitwarden unlocks with its master password or PIN",
+                      self.errors)
+        with mock.patch.dict(os.environ, {"FAKE_SUDO_FAIL": "1"}):
+            self.install("bitwarden")
+        self.assertIn("Could not add Bitwarden's polkit action (sudo: a password is required)", self.errors)
+        self.assertIn(f"sudo install -D -m 644 {self.paths.program / 'share' / 'bitwarden' / 'com.bitwarden.Bitwarden.policy'} {self.policy()}",
+                      self.errors)
+        self.assertEqual(config.Record.load(self.paths.record).polkit_action("bitwarden"), "")
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn("Bitwarden's com.bitwarden.Bitwarden.unlock missing; run the installer again to add it", self.output)
+
+    def test_an_uninstall_takes_the_host_and_the_action_away(self):
+        own = self.home / ".config" / "net.imput.helium"
+        self.install("bitwarden", "helium")
+        self.assertIsNotNone(self.host(own))
+        self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
+        self.assertIsNone(self.host(own))
+        self.assertFalse(self.policy().exists())
+
+
 class RemovalTests(CliTestCase):
     def test_remove_with_purge_deletes_only_per_account_data(self):
         self.install("youtube", "element")
@@ -1136,6 +1219,11 @@ class FilesTests(CliTestCase):
                 (environ["QT_SCALE_FACTOR"], environ["QT_QPA_PLATFORM"], environ["QT_QPA_PLATFORMTHEME"]), (factor, "xcb", "kde")
             )
             self.assertEqual(environ["XDG_CONFIG_HOME"], str(self.profile / "config"))
+        with _paths.on_device("steam-deck"):
+            _, environ = self.launch_files(game_mode=True, height=800)
+        self.assertEqual(environ["QT_SCALE_FACTOR"], "1.25")
+        _, environ = self.launch_files(game_mode=True, height=800)
+        self.assertNotIn("QT_SCALE_FACTOR", environ)
 
     def test_in_game_mode_files_opens_as_large_as_the_screen(self):
         self.install("files")
@@ -1513,6 +1601,27 @@ class HeliumAppTests(CliTestCase):
             self.install("helium")
         self.assertEqual(self.density("helium", BETA), 1)
         self.assertIn("Put back Helium's TV settings", self.errors)
+
+    def test_on_a_steam_decks_own_screen_apps_laid_out_for_a_desktop_are_larger_and_tv_layouts_stay(self):
+        self.install("element", "vlc", "youtube", "jellyfin", "protontricks", "localsend")
+
+        def started(name, size, app_id):
+            with _paths.on_device(name), mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                    mock.patch("nonsteamapps.display.screen_size", return_value=size):
+                argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
+            return argv
+
+        self.assertIn("--force-device-scale-factor=1.25", started("steam-deck", (1280, 800), "element"))
+        self.assertIn("--env=QT_SCALE_FACTOR=1.25", started("steam-deck-oled", (1280, 800), "vlc"))
+        tricks = started("steam-deck", (1280, 800), "protontricks")
+        self.assertIn("--env=GDK_DPI_SCALE=1.25", tricks)
+        self.assertFalse(any(argument.startswith("--env=GDK_SCALE=") for argument in tricks))
+        for app_id, flag in (("youtube", "--force-device-scale-factor"), ("jellyfin", "--scale-factor"), ("localsend", "--env=GDK_SCALE")):
+            with self.subTest(app_id):
+                self.assertFalse(any(argument.startswith(flag) for argument in started("steam-deck", (1280, 800), app_id)))
+        self.assertFalse(any(argument.startswith("--force-device-scale-factor") for argument in started("steam-machine", (1280, 800), "element")))
+        self.assertIn("--force-device-scale-factor=1.5", started("steam-deck", (1920, 1080), "element"))
+        self.assertIn("--force-device-scale-factor=2", started("steam-deck", (3840, 2160), "youtube"))
 
     def density(self, app_id, account):
         state = json.loads((self.paths.profile(app_id, account) / "Local State").read_text())

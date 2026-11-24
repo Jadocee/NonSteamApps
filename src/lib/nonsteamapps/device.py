@@ -11,7 +11,8 @@ Machine. On a Steam Deck:
   :attr:`apps.App.needs`);
 - KytyPS5 keeps its own 1280×720, which runs faster there than the 1080p it gets on a TV (see :class:`apps.KytyGlobal`);
 - Helium is scaled for its screen in Game Mode (see :func:`display.scale`), with Spacious controls and overlay
-  scrollbars for its touchscreen (see :mod:`browser`).
+  scrollbars for its touchscreen (see :mod:`browser`), and so are the other apps laid out for a desktop's
+  screen, such as Element, VLC, Files and the emulators' windows (see :attr:`apps.TvScale.handheld`).
 
 chiaki-ng streams in HDR on a device whose screen can show it (see :attr:`Device.hdr`).
 """

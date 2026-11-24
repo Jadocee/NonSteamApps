@@ -1,0 +1,6 @@
+#!/bin/sh
+# Native messaging host through which Bitwarden's extension in NonSteamApps'
+# Helium reaches Bitwarden's desktop app. It runs Bitwarden's own
+# desktop_proxy inside Bitwarden's Flatpak, where the proxy finds the running
+# app's socket in their shared cache folder.
+exec flatpak run --command=/app/Bitwarden/desktop_proxy com.bitwarden.desktop "$@"

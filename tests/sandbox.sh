@@ -183,6 +183,11 @@ check "ProtonUp-Qt, Protontricks and Winetricks got the Tools layout for each co
 check "The emulators got their own layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_emulator.vdf' | wc -l)" -eq 2
 check "chiaki-ng got the Remote Play layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_remoteplay.vdf' | wc -l)" -eq 2
 check "the Remote Play layout presses the PS button with the left trackpad" grep -qF 'key_press ESCAPE, PS button' "$TEMPLATES/controller_neptune_nonsteamapps_remoteplay.vdf"
+check "on a Steam Deck, the Remote Play layout makes the touchscreen and the right trackpad chiaki-ng's touchpad, as its guide does" \
+    test "$(grep -cE 'controller_action ts_n|mouse_button LEFT, Touchpad|key_press T, Touchpad press' "$TEMPLATES/controller_neptune_nonsteamapps_remoteplay.vdf")" -eq 3
+check "the Remote Play layout's back buttons are the guide's: microphone, end, zoom and stretch" \
+    test "$(grep -cE 'Microphone|End the stream|Zoom|Stretch' "$TEMPLATES/controller_neptune_nonsteamapps_remoteplay.vdf")" -eq 5
+check "an Xbox controller's Remote Play layout has no touchscreen command" test "$(grep -c 'controller_action ts_n' "$TEMPLATES/controller_xboxone_nonsteamapps_remoteplay.vdf")" -eq 0
 check "Holding View shifts the emulators' layout into launcher controls" grep -q "mode_shift right_joystick" "$TEMPLATES/controller_xboxone_nonsteamapps_emulator.vdf"
 check "LocalSend's port was opened in the firewall" grep -qF '"permanent": {"public": ["53317/tcp", "53317/udp"]}' "$WORK/firewall.json"
 check "Bitwarden's polkit action was added, through sudo, for unlocking with the account's password" \

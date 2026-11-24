@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, display, kyty, layouts,
-    lichii, links, nx2, presence, remote, selfupdate, sleepwatch, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display, kyty,
+    layouts, lichii, links, nx2, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
 )
 from .apps import App
 from .config import Paths, Record
@@ -523,7 +523,9 @@ def _reset(paths: Paths, app: App, separate: bool) -> int:
         if moved:
             ui.ok(f"{_names([app, *apps.sharing_profiles(app)])} now share one Helium profile for each Steam account, so one sign-in serves "
                   f"them; moved the one used last ({len(moved)} Steam account{'s' if len(moved) > 1 else ''})")
-        return sum(browser.reset(folder, app.browser.kiosk) for folder in sorted((paths.profiles / app.profiles_name).glob("*")) if folder.is_dir())
+        handheld = device.current().steam_deck
+        return sum(browser.reset(folder, app.browser.kiosk, handheld) for folder in sorted((paths.profiles / app.profiles_name).glob("*"))
+                   if folder.is_dir())
     if app.system:
         return int(app.system.reset(paths.profile(app.id, None)))
     if app.release:
@@ -893,6 +895,11 @@ def _scale_setting(settings: Dict[str, str]) -> str:
     return settings.get(TV_SCALE) or settings.get(HELIUM_SCALE) or "auto"
 
 
+def _helium_scale(settings: Dict[str, str], game_mode: bool) -> Optional[float]:
+    """Helium's interface scale: in Game Mode a TV's, as for every app, and on a Steam Deck's own screen the handheld one (see :func:`display.scale`)."""
+    return display.scale(_scale_setting(settings), game_mode, handheld=device.current().steam_deck)
+
+
 def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     app_id, hint, verbose, extra = _parse_launch(argv)
     app = _choose([app_id])[0]
@@ -944,6 +951,8 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     channel = _link_channel(paths, app, game_mode)
     if channel:
         options += links.sandbox_options(paths.program / "share" / "sandbox", channel[0], app.callbacks)
+        if app.portal_links:
+            options.append("--no-session-bus")
     command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *_qt_window(app, game_mode, factor), *extra], options)
     hidden = [variable for variable in app.sandbox_off_when if variable in os.environ]
     if hidden and config.enabled(settings.get(GAME_MODE_SANDBOX)):
@@ -1095,8 +1104,8 @@ def _qt_window(app: App, game_mode: bool, factor: Optional[float]) -> List[str]:
 
 
 def _link_channel(paths: Paths, app: App, game_mode: bool) -> Optional[Tuple[Path, int]]:
-    """In Game Mode, the pipe through which an app with sign-in callbacks passes its links to Helium."""
-    if not (app.callbacks and game_mode):
+    """In Game Mode, the pipe through which an app with sign-in callbacks, or a sign-in that ends on a web page, passes its links to Helium."""
+    if not ((app.callbacks or app.sign_in_ends) and game_mode):
         return None
     if not _runtime(paths).current():
         print(f"  Helium is not installed, so {app.client}'s links open in Steam's browser, from which a sign-in cannot return")
@@ -1108,26 +1117,58 @@ def _link_channel(paths: Paths, app: App, game_mode: bool) -> Optional[Tuple[Pat
         return None
 
 
+def _sign_in_profile(paths: Paths, app: App, account: Optional[int]) -> Path:
+    """The Helium profile for a sign-in that ends on a web page: the Helium app's, with the sign-ins and the password
+    manager's extension saved there, where that app is installed and its profile is not open; otherwise the app's own."""
+    if "helium" in Record.load(paths.record).apps:
+        shared = paths.profile("helium", account)
+        if not browser.in_use(shared):
+            return shared
+    return paths.profile(app.id, account)
+
+
 def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[str], settings: Dict[str, str], game_mode: bool,
                  channel: Tuple[Path, int]) -> int:
-    """Run the app as a child, open its links in Helium in front of it, and hand its sign-ins back to it (see :mod:`links`)."""
+    """Run the app as a child, open its links in Helium in front of it, and hand its sign-ins back to it (see :mod:`links`
+    and :mod:`signin`)."""
     pipe, fd = channel
     runtime = _runtime(paths)
-    profile = paths.profile(app.id, account)
     services = config.enabled(settings.get(HELIUM_SERVICES), default=True)
-    factor = display.scale(_scale_setting(settings), game_mode)
+    handheld = device.current().steam_deck
+    factor = _helium_scale(settings, game_mode)
     environment = links.browser_environment(os.environ, paths.program / "share" / "sandbox", pipe, app.callbacks)
     browser.single_keystrokes(environment)
     browsers: List[subprocess.Popen] = []
     relays: List[subprocess.Popen] = []
+    sources: List[links.Source] = []
+
+    def signed_in(address: str) -> bool:
+        try:
+            sources.append(x11.Selection(address))
+        except OSError as exc:
+            print(f"  the sign-in has ended, but its address could not go on the clipboard ({exc}): copy it from Helium's address bar", flush=True)
+            return False
+        print(f"  the sign-in has ended: its address is on the clipboard for {app.client} to paste", flush=True)
+        return True
 
     def open_web(url: str) -> None:
-        browser.prepare(profile, services, False, runtime.widevine)
-        signing_in = browser.allow_callbacks(profile, url, app.callbacks)
+        ends = signin.starts(url, app.sign_in_ends)
+        profile = _sign_in_profile(paths, app, account) if ends else paths.profile(app.id, account)
+        browser.prepare(profile, services, False, runtime.widevine, handheld)
+        signing_in = ends or bool(browser.allow_callbacks(profile, url, app.callbacks))
         print(f"  opening {'the sign-in page at ' if signing_in else ''}{urllib.parse.urlsplit(url).netloc} in Helium", flush=True)
         name = f"nonsteamapps-{app.id}"
-        argv = [str(runtime.executable), *browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), [paths.focus_extension])]
-        browsers.append(subprocess.Popen(argv, env=environment, start_new_session=True))
+        arguments = browser.flags(profile, url, False, game_mode, factor, name, display.window_size(factor), [paths.focus_extension], handheld)
+        if not ends:
+            browsers.append(subprocess.Popen([str(runtime.executable), *arguments], env=environment, start_new_session=True))
+        else:
+            try:
+                started, reader, writer = devtools.spawn(runtime.executable, [devtools.SWITCH, *arguments], environment)
+            except OSError as exc:
+                print(f"  could not start Helium: {exc}", flush=True)
+                return
+            browsers.append(started)
+            sources.append(signin.Watch(reader, writer, app.sign_in_ends, signed_in))
         x11.watch(name, browsers[-1].pid)
 
     def deliver(url: str) -> None:
@@ -1138,9 +1179,11 @@ def _serve_links(paths: Paths, app: App, account: Optional[int], command: List[s
     child = subprocess.Popen(command)
     previous = signal.signal(signal.SIGTERM, lambda *_: child.terminate())
     try:
-        return links.serve(child, fd, app.callbacks, open_web, deliver)
+        return links.serve(child, fd, app.callbacks, open_web, deliver, sources)
     finally:
         signal.signal(signal.SIGTERM, previous)
+        for source in sources:
+            source.close()
         links.stop(browsers)
         links.reap(relays)
         os.close(fd)
@@ -1170,13 +1213,17 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
     if _share_profiles(paths, app):
         print(f"  {_names([app, *apps.sharing_profiles(app)])} now share one Helium profile for each Steam account, for one sign-in", flush=True)
     profile = paths.profile(app.profiles_name, account)
-    browser.prepare(profile, config.enabled(settings.get(HELIUM_SERVICES), default=True), app.browser.kiosk, runtime.widevine)
-    factor = display.scale(_scale_setting(settings), game_mode)
+    services = config.enabled(settings.get(HELIUM_SERVICES), default=True)
+    handheld = device.current().steam_deck
+    browser.prepare(profile, services, app.browser.kiosk, runtime.widevine, handheld)
+    if not app.browser.kiosk:
+        _offer_extensions(paths, profile, services)
+    factor = _helium_scale(settings, game_mode)
     name = f"nonsteamapps-{app.id}"
     window = display.window_size(factor) if game_mode and not app.browser.kiosk else None
     url = app.browser.start_url(account)
     extensions = [paths.focus_extension, *(paths.extension(folder) for folder in app.browser.extensions)]
-    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, extensions), *extra]
+    command = [str(runtime.executable), *browser.flags(profile, url, app.browser.kiosk, game_mode, factor, name, window, extensions, handheld), *extra]
     print(f"  Helium {runtime.current()}: " + " ".join(command), flush=True)
     if browser.single_keystrokes(os.environ):
         print(f"  typing through GTK's simple input method, as {browser.STEAM_INPUT_METHOD}'s types each key twice in Helium", flush=True)
@@ -1184,6 +1231,22 @@ def _launch_helium(paths: Paths, app: App, account: Optional[int], extra: Sequen
         x11.watch(name, os.getpid())
     os.execv(command[0], command)
     return EXIT_ERROR
+
+
+def _offer_extensions(paths: Paths, profile: Path, services: bool) -> None:
+    """Give a Helium browser the extensions of the apps installed that have one, such as Bitwarden's, and take back those of apps
+    no longer installed (see :func:`browser.offer_extensions`)."""
+    owners = {app.helium_extension: app for app in apps.APPS if app.helium_extension}
+    installed = Record.load(paths.record).apps
+    wanted = [extension for extension, owner in owners.items() if owner.id in installed]
+    offered, withdrawn = browser.offer_extensions(profile, wanted, list(owners))
+    for extension in offered:
+        print(f"  Helium installs {owners[extension].name}'s extension from the Chrome Web Store, as {owners[extension].name} is installed", flush=True)
+    for extension in withdrawn:
+        print(f"  Helium removes {owners[extension].name}'s extension, as {owners[extension].name} is no longer installed", flush=True)
+    if wanted and not services:
+        print(f"  Helium cannot download {_names([owners[extension] for extension in wanted])}'s extension while its services are off "
+              f"({HELIUM_SERVICES}=0)", flush=True)
 
 
 def _launch_kyty(paths: Paths, app: App, account: Optional[int], extra: Sequence[str]) -> int:

@@ -14,7 +14,12 @@ from unittest import mock
 import _fakes
 import _paths
 from _fakes import ALPHA, BETA
-from nonsteamapps import __version__, apps, artwork, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf
+from nonsteamapps import (
+    __version__, apps, artwork, browser, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf,
+)
+
+PSN_LOGIN = ("https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize?service_entity=urn:service-entity:psn&response_type=code"
+             f"&client_id=c&redirect_uri={apps.PSN_SIGN_IN_ENDS}&scope=psn:clientapp referenceDataService:countryConfig.read&duid=d&")
 
 
 class Exec(Exception):
@@ -243,16 +248,20 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer(["YouTube", "chiaki-ng"])
         with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        self.assertEqual(len(asked), len(apps.APPS) - 4)
+        self.assertEqual(len(asked), len(apps.APPS) - 6)
         self.assertEqual(asked[0], ("Install YouTube (VacuumTube), YouTube's TV interface with ad blocking, SponsorBlock, DeArrow and dislike counts?", True))
         self.assertIn(("Install Eden-NX2, " + apps.by_id("edennx2").summary + "? It is built here from its source, which can take an hour.", True), asked)
         self.assertIn(("Install the streaming apps: Prime Video, HBO Max, Netflix and Disney+? Each runs full screen in Helium, "
                        "with a sign-in of its own for each Steam account.", True), asked)
+        self.assertIn(("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks and Winetricks? ProtonUp-Qt installs GE-Proton and "
+                       "other compatibility tools for Steam, and Protontricks and Winetricks install Windows components into Proton's and "
+                       "Wine's prefixes.", True), asked)
         self.assertEqual(asked[-1], ("Install the Proton apps: Proton Mail and Proton Calendar? Both run full screen in Helium and share one "
                                      "sign-in for each Steam account.", True))
-        self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+", "Install Proton Calendar")) for question, _ in asked))
+        self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+", "Install Proton Calendar", "Install Protontricks",
+                                                   "Install Winetricks")) for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
-        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 4} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
+        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 6} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
         self.assertIn("for this Steam Machine\n", self.errors)
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "chiaki"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube", "chiaki-ng"])
@@ -298,6 +307,16 @@ class InstallTests(CliTestCase):
                        "with their sign-ins and data.", True), asked)
         self.assertEqual(sorted(self.entries(ALPHA)), ["Disney+", "HBO Max", "Netflix", "Prime Video"])
 
+    def test_the_proton_and_wine_tools_are_asked_about_together(self):
+        self.install("winetricks")
+        asked, answers = self.answer(["the Proton and Wine tools"])
+        with answers:
+            self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
+        self.assertTrue(any(question.startswith("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks and Winetricks? ")
+                            and question.endswith(" Winetricks, already installed, is set up again.") for question, _ in asked))
+        self.assertEqual(sorted(config.Record.load(self.paths.record).managed()), ["protontricks", "protonup", "winetricks"])
+        self.assertEqual(sorted(self.entries(ALPHA)), ["ProtonUp-Qt", "Protontricks", "Winetricks"])
+
     def test_on_a_steam_deck_eden_nx2_is_not_offered_and_naming_it_says_why(self):
         with _paths.on_device("steam-deck"):
             self.install()
@@ -307,7 +326,7 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer([])
         with _paths.on_device("steam-deck"), answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
-        self.assertEqual(len(asked), len(apps.APPS) - 5)
+        self.assertEqual(len(asked), len(apps.APPS) - 7)
         self.assertFalse(any("Eden-NX2" in question for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
         with _paths.on_device("steam-deck"):
@@ -1468,6 +1487,65 @@ class HeliumAppTests(CliTestCase):
         argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
         self.assertIn("--start-maximized", argv)
 
+    def test_on_a_steam_decks_own_screen_helium_is_larger_with_spacious_controls_and_overlay_scrollbars(self):
+        overlay = f"--enable-features={browser.FEATURES},OverlayScrollbar:mode/overlay"
+        self.install("helium", "netflix")
+        self.launch("helium", "--steam-account", str(BETA))
+        with _paths.on_device("steam-deck"), mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
+                mock.patch("nonsteamapps.cli.x11.watch"):
+            with mock.patch("nonsteamapps.display.screen_size", return_value=(1280, 800)):
+                argv, _ = self.launch("helium", "--steam-account", str(ALPHA))
+                kiosk, _ = self.launch("netflix", "--steam-account", str(ALPHA))
+            with mock.patch("nonsteamapps.display.screen_size", return_value=(1920, 1080)):
+                docked, _ = self.launch("helium", "--steam-account", str(ALPHA))
+        for flag in ("--force-device-scale-factor=1.25", "--window-size=1024,640", overlay):
+            self.assertIn(flag, argv)
+        self.assertIn("--force-device-scale-factor=1.25", kiosk)
+        self.assertIn(overlay, kiosk)
+        self.assertIn("--force-device-scale-factor=1.5", docked)
+        self.assertIn("--window-size=1280,720", docked)
+        self.assertEqual(self.density("helium", ALPHA), 1)
+        self.assertIsNone(self.density("helium", BETA))
+        argv, _ = self.launch("helium", "--steam-account", str(BETA))
+        self.assertIn(f"--enable-features={browser.FEATURES}", argv)
+        self.assertFalse(any(flag.startswith("--force-device-scale-factor") for flag in argv))
+        with _paths.on_device("steam-deck-oled"):
+            self.install("helium")
+        self.assertEqual(self.density("helium", BETA), 1)
+        self.assertIn("Put back Helium's TV settings", self.errors)
+
+    def density(self, app_id, account):
+        state = json.loads((self.paths.profile(app_id, account) / "Local State").read_text())
+        return state["helium"].get("browser", {}).get("ui_density")
+
+    def test_the_helium_browser_gets_bitwardens_extension_while_bitwarden_is_installed(self):
+        extension = apps.by_id("bitwarden").helium_extension
+        self.install("helium", "protondb")
+        self.launch("helium", "--steam-account", str(ALPHA))
+        offered = self.paths.profile("helium", ALPHA) / "External Extensions" / f"{extension}.json"
+        self.assertFalse(offered.exists())
+        self.install("bitwarden")
+        with mock.patch("nonsteamapps.cli._redirect"), contextlib.redirect_stdout(io.StringIO()) as output, \
+                mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), self.assertRaises(Exec):
+            cli.main(["launch", "helium", "--steam-account", str(ALPHA)], self.paths, self.flatpak)
+        self.assertEqual(json.loads(offered.read_text()), {"external_update_url": "https://clients2.google.com/service/update2/crx"})
+        preferences = json.loads((self.paths.profile("helium", ALPHA) / "Default" / "Preferences").read_text())
+        self.assertEqual(preferences["extensions"]["pinned_extensions"], [extension])
+        self.assertIn("Helium installs Bitwarden's extension from the Chrome Web Store, as Bitwarden is installed", output.getvalue())
+        self.launch("protondb", "--steam-account", str(ALPHA))
+        self.assertFalse((self.paths.profile("protondb", ALPHA) / "External Extensions").exists())
+        self.assertEqual(self.run_cli("remove", "bitwarden", "--yes"), 0, self.errors)
+        self.launch("helium", "--steam-account", str(ALPHA))
+        self.assertFalse(offered.exists())
+
+    def test_helium_says_when_its_services_are_off_and_it_cannot_fetch_an_extension(self):
+        self.install("helium", "bitwarden")
+        self.paths.settings.write_text("HELIUM_SERVICES=0\n")
+        with mock.patch("nonsteamapps.cli._redirect"), contextlib.redirect_stdout(io.StringIO()) as output, \
+                mock.patch("nonsteamapps.cli.os.execv", side_effect=fake_exec), self.assertRaises(Exec):
+            cli.main(["launch", "helium", "--steam-account", str(ALPHA)], self.paths, self.flatpak)
+        self.assertIn("Helium cannot download Bitwarden's extension while its services are off (HELIUM_SERVICES=0)", output.getvalue())
+
     def test_game_mode_scales_the_pages_for_the_tv(self):
         self.install("hbomax")
         with mock.patch("nonsteamapps.steamclient.in_game_mode", return_value=True), \
@@ -2130,13 +2208,77 @@ class SignInTests(CliTestCase):
         self.assertEqual(relay, [*app, "bitwarden://sso-callback?code=c&state=s"])
         self.assertIn("opening the sign-in page at vault.bitwarden.com in Helium", output)
 
+    def psn(self, *installed):
+        """Sign chiaki-ng in to PSN in Game Mode, with the apps ``installed``; return the status, the output, Helium's arguments, the
+        DevTools commands it was sent and what went on the clipboard."""
+        self.install(*installed)
+        copied = []
+        done = Path(self.tmp.name) / "signed-in"
+
+        class Clipboard:
+            def __init__(self, text, name=None):
+                copied.append(text)
+                self.reader, self.writer = os.pipe()
+                done.touch()
+
+            def fileno(self):
+                return self.reader
+
+            def handle(self):
+                return True
+
+            def close(self):
+                os.close(self.reader)
+                os.close(self.writer)
+                copied.append("let go")
+
+        logs = {name: Path(self.tmp.name) / f"{name}.log" for name in ("argv", "commands")}
+        for path in (done, *logs.values()):
+            path.unlink(missing_ok=True)
+        variables = {"FAKE_DEVTOOLS_SIGNED_IN": f"{apps.PSN_SIGN_IN_ENDS}?code=v3.secret&cid=1", "FAKE_DEVTOOLS_ARGV_LOG": str(logs["argv"]),
+                     "FAKE_DEVTOOLS_LOG": str(logs["commands"])}
+        with mock.patch("nonsteamapps.x11.Selection", Clipboard), mock.patch.dict(os.environ, variables):
+            status, output, _ = self.sign_in("chiaki", PSN_LOGIN, "")
+        [arguments] = [json.loads(line) for line in logs["argv"].read_text().splitlines()]
+        commands = [json.loads(line)["method"] for line in logs["commands"].read_text().splitlines()]
+        return status, output, arguments, commands, copied
+
+    def test_in_game_mode_chiaki_signs_in_to_psn_in_heliums_own_profile_and_the_address_waits_on_the_clipboard(self):
+        status, output, arguments, commands, copied = self.psn("chiaki", "helium")
+        self.assertEqual(status, 0, output)
+        [app] = self.fake.calls("run")
+        self.assertIn("--no-session-bus", app)
+        self.assertIn(f"--env=PATH={self.paths.program / 'share' / 'sandbox'}:/app/bin:/usr/bin", app)
+        profile = self.paths.profile("helium", ALPHA)
+        self.assertEqual(arguments[:2], ["--remote-debugging-pipe", f"--user-data-dir={profile}"])
+        self.assertIn("--class=nonsteamapps-chiaki", arguments)
+        self.assertEqual(arguments[-1], PSN_LOGIN)
+        self.assertEqual(commands, ["Target.setDiscoverTargets", "Browser.close"])
+        self.assertEqual(copied, [f"{apps.PSN_SIGN_IN_ENDS}?code=v3.secret&cid=1", "let go"])
+        self.assertTrue((profile / "Default" / "Preferences").is_file())
+        self.assertIn("opening the sign-in page at auth.api.sonyentertainmentnetwork.com in Helium", output)
+        self.assertIn("the sign-in has ended: its address is on the clipboard for chiaki-ng to paste", output)
+        self.assertNotIn("v3.secret", output)
+
+    def test_without_the_helium_app_or_while_it_is_open_psns_sign_in_uses_chiakis_own_profile(self):
+        status, output, arguments, _, copied = self.psn("chiaki", "protondb")
+        self.assertEqual(status, 0, output)
+        self.assertEqual(arguments[1], f"--user-data-dir={self.paths.profile('chiaki', ALPHA)}")
+        self.assertEqual(len(copied), 2)
+        with mock.patch("nonsteamapps.cli.browser.in_use", return_value=True):
+            status, output, arguments, _, _ = self.psn("helium")
+        self.assertEqual(arguments[1], f"--user-data-dir={self.paths.profile('chiaki', ALPHA)}")
+
     def test_outside_game_mode_or_without_helium_element_starts_as_before(self):
-        self.install("element")
-        argv, _ = self.launch("element", "--steam-account", str(ALPHA))
-        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
-        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
-            argv, _ = self.launch("element", "--steam-account", str(ALPHA))
-        self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+        self.install("element", "chiaki")
+        for app_id in ("element", "chiaki"):
+            argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
+            self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+            self.assertNotIn("--no-session-bus", argv)
+            with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
+                argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
+            self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
+            self.assertNotIn("--no-session-bus", argv)
 
 
 if __name__ == "__main__":

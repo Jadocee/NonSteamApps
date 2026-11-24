@@ -65,6 +65,39 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(links.serve(child, self.fd, SCHEMES, opened.append, delivered.append), 3)
         self.assertEqual((opened, delivered), (["https://account.example.org/a"], ["io.element.desktop:/vector/webapp/#code=1"]))
 
+    def test_other_sources_are_handled_meanwhile_and_closed_once_they_end(self):
+        class Source:
+            def __init__(self, turns, waiting):
+                self.reader, self.writer = os.pipe()
+                os.write(self.writer, b"x" * waiting)
+                self.turns, self.handled, self.closed = turns, 0, False
+
+            def fileno(self):
+                return self.reader
+
+            def handle(self):
+                os.read(self.reader, 1)
+                self.handled += 1
+                return self.handled < self.turns
+
+            def close(self):
+                self.closed = True
+                os.close(self.reader)
+                os.close(self.writer)
+
+        ending, lasting = Source(2, 2), Source(2, 1)
+        sources = [ending]
+
+        def open_web(url):
+            sources.append(lasting)
+
+        child = subprocess.Popen(["sh", "-c", "sleep 0.3; printf 'https://example.org/\\n' >\"$1\"; sleep 0.3", "sh", str(self.pipe)])
+        self.assertEqual(links.serve(child, self.fd, SCHEMES, open_web, print, sources), 0)
+        self.assertEqual((ending.handled, ending.closed), (2, True))
+        self.assertEqual(sources, [lasting])
+        self.assertEqual((lasting.handled, lasting.closed), (1, False))
+        lasting.close()
+
     def test_an_app_ended_by_a_signal_reports_it_like_a_shell(self):
         child = subprocess.Popen(["sh", "-c", "kill -TERM $$"])
         self.assertEqual(links.serve(child, self.fd, SCHEMES, print, print), 128 + 15)

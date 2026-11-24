@@ -13,6 +13,14 @@ Helium already blocks ads (uBlock Origin), third-party cookies and WebRTC's
 local addresses, adds fingerprinting noise and keeps background mode, link
 auditing and preloading off; new profiles also send Global Privacy Control
 and do not keep crash reports to offer for upload.
+
+On a Steam Deck, whose 7-inch screen is also a touchscreen, profiles start with
+Helium's Spacious interface density, whose taller tabs, toolbar buttons and
+address bar are easier to touch, and pages get overlay scrollbars, which take
+no room from them and show while they scroll. Helium turns off Chromium's own
+touch interface, so Spacious is its nearest. Steam's layout for the Deck passes
+touches to Helium as touches (see :mod:`layouts`), so a finger taps, scrolls
+and, in the Helium browser, zooms a page.
 """
 
 from __future__ import annotations
@@ -30,7 +38,12 @@ BLOCK = 2
 SCHEMA_VERSION = 1
 CRASH_REPORTS_OFF = -1
 LOCAL_STATE = {"helium": {"crash_reporting": {"mode": CRASH_REPORTS_OFF}}}
+SPACIOUS = 1
 FEATURES = "AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"
+OVERLAY_SCROLLBARS = "OverlayScrollbar:mode/overlay"
+EXTERNAL_EXTENSIONS = "External Extensions"
+WEB_STORE_UPDATES = "https://clients2.google.com/service/update2/crx"
+RETURN_KEYS = ("redirect_uri", "redirecturi", "redirecturl")
 EXIT_COMMAND = "34031"
 EXIT_SHORTCUT = "Control+Shift+KeyQ"
 BROWSER_BINARIES = ("helium", "chrome", "chromium")
@@ -134,21 +147,31 @@ def write_preferences(profile: Path, services: bool, kiosk: bool) -> Path:
     return path
 
 
-def write_local_state(profile: Path) -> Path:
-    """Start a new profile with crash reports off, so no upload question follows a crash; later starts keep the user's choice."""
+def local_state(handheld: bool = False) -> dict:
+    """A new profile's ``Local State``: crash reports off, so no upload question follows a crash, and on a ``handheld``
+    Steam Deck Helium's Spacious interface density (``helium.browser.ui_density``), which Helium reads as it starts."""
+    state = copy.deepcopy(LOCAL_STATE)
+    if handheld:
+        deep_merge(state, {"helium": {"browser": {"ui_density": SPACIOUS}}})
+    return state
+
+
+def write_local_state(profile: Path, handheld: bool = False) -> Path:
+    """Start a new profile with :func:`local_state`; later starts keep the user's choices."""
     path = Path(profile) / "Local State"
     if not path.exists():
-        atomic_write_json(path, LOCAL_STATE, compact=True)
+        atomic_write_json(path, local_state(handheld), compact=True)
     return path
 
 
-def reset(profile: Path, kiosk: bool) -> bool:
+def reset(profile: Path, kiosk: bool, handheld: bool = False) -> bool:
     """Put a new profile's settings back into an existing one, as an install does; return whether it changed.
 
     A missing or damaged file is left for Helium, which writes a new one.
     """
     changed = False
-    for path, wanted in ((Path(profile) / "Default" / "Preferences", first_run_preferences(kiosk)), (Path(profile) / "Local State", LOCAL_STATE)):
+    for path, wanted in ((Path(profile) / "Default" / "Preferences", first_run_preferences(kiosk)),
+                         (Path(profile) / "Local State", local_state(handheld))):
         data = _load(path) if path.is_file() else None
         if not data:
             continue
@@ -159,6 +182,19 @@ def reset(profile: Path, kiosk: bool) -> bool:
     return changed
 
 
+def return_addresses(url: str) -> List[str]:
+    """The addresses a sign-in page at ``url`` names to return to, in its query or its fragment's, as OAuth's ``redirect_uri``."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.netloc:
+        return []
+    return [
+        value
+        for query in (parts.query, parts.fragment.partition("?")[2])
+        for key, value in urllib.parse.parse_qsl(query)
+        if key.lower() in RETURN_KEYS
+    ]
+
+
 def allow_callbacks(profile: Path, url: str, schemes: Sequence[str]) -> List[str]:
     """Let the sign-in page at ``url`` open the app's callback without asking, when it names one of ``schemes`` as its return address.
 
@@ -166,14 +202,7 @@ def allow_callbacks(profile: Path, url: str, schemes: Sequence[str]) -> List[str
     that kind of link, as ticking "Always allow" records. Returns the schemes allowed.
     """
     parts = urllib.parse.urlsplit(url)
-    if parts.scheme != "https" or not parts.netloc:
-        return []
-    returns = [
-        value
-        for query in (parts.query, parts.fragment.partition("?")[2])
-        for key, value in urllib.parse.parse_qsl(query)
-        if key.lower() in ("redirect_uri", "redirecturi", "redirecturl")
-    ]
+    returns = return_addresses(url)
     allowed = [scheme for scheme in schemes if any(value.lower().startswith(f"{scheme.lower()}:") for value in returns)]
     path = Path(profile) / "Default" / "Preferences"
     data = _load(path) if allowed else None
@@ -240,19 +269,50 @@ def last_used(profile: Path) -> float:
         return 0.0
 
 
-def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path) -> None:
+def prepare(profile: Path, services: bool, kiosk: bool, widevine: Path, handheld: bool = False) -> None:
     Path(profile).mkdir(parents=True, exist_ok=True)
     write_preferences(profile, services, kiosk)
-    write_local_state(profile)
+    write_local_state(profile, handheld)
     clear_stale_lock(profile)
     link_widevine(profile, widevine)
 
 
+def offer_extensions(profile: Path, wanted: Sequence[str], managed: Sequence[str]) -> Tuple[List[str], List[str]]:
+    """Have Helium install the Chrome Web Store extensions ``wanted`` into ``profile``, and remove those of ``managed`` that are
+    not; return the extensions newly offered and those withdrawn.
+
+    At every start, Chromium installs each extension that the profile's ``External Extensions`` folder names with a
+    file ``<ID>.json``, from the update address in it, here the Web Store's, which Helium fetches through its
+    services, and it uninstalls the extension once the file has gone. An extension offered for the first time is
+    pinned to the toolbar, where a controller reaches it; one the user then unpins stays unpinned. Files for other
+    extensions are left alone.
+    """
+    folder = Path(profile) / EXTERNAL_EXTENSIONS
+    offered, withdrawn = [], []
+    for extension in managed:
+        path = folder / f"{extension}.json"
+        if extension in wanted and not path.exists():
+            atomic_write_json(path, {"external_update_url": WEB_STORE_UPDATES})
+            offered.append(extension)
+        elif extension not in wanted and path.exists():
+            path.unlink()
+            withdrawn.append(extension)
+    path = Path(profile) / "Default" / "Preferences"
+    data = _load(path) if offered else None
+    if data is not None:
+        deep_merge(data, {"extensions": {}})
+        pinned = data["extensions"].get("pinned_extensions")
+        pinned = [extension for extension in pinned if isinstance(extension, str)] if isinstance(pinned, list) else []
+        data["extensions"]["pinned_extensions"] = [*pinned, *(extension for extension in offered if extension not in pinned)]
+        atomic_write_json(path, data, compact=True)
+    return offered, withdrawn
+
+
 def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optional[float], name: str, window: Optional[Tuple[int, int]] = None,
-          extensions: Sequence[Path] = ()) -> List[str]:
+          extensions: Sequence[Path] = (), handheld: bool = False) -> List[str]:
     """Helium's arguments. ``window`` is the size, in device-independent pixels, that a browser window takes instead of
     being maximised: gamescope ignores maximising. ``extensions`` are folders of NonSteamApps' extensions, such as the
-    focus outline, each loaded when present.
+    focus outline, each loaded when present. On a ``handheld`` Steam Deck, pages get overlay scrollbars.
     """
     arguments = [
         f"--user-data-dir={profile}",
@@ -265,7 +325,7 @@ def flags(profile: Path, url: str, kiosk: bool, game_mode: bool, factor: Optiona
         "--hide-fullscreen-exit-ui",
         "--enable-spatial-navigation",
         "--force-dark-mode",
-        f"--enable-features={FEATURES}",
+        f"--enable-features={FEATURES},{OVERLAY_SCROLLBARS}" if handheld else f"--enable-features={FEATURES}",
         "--ozone-platform=x11" if game_mode else "--ozone-platform-hint=auto",
     ]
     if factor:

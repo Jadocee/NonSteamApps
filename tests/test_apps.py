@@ -24,12 +24,14 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             apps.by_id("kodi")
 
-    def test_the_streaming_apps_and_the_proton_apps_are_asked_about_together_where_the_first_of_each_is(self):
+    def test_the_apps_of_each_group_are_asked_about_together_where_the_first_of_them_is(self):
         together = apps.asked_together(apps.APPS)
-        self.assertEqual(len(together), len(apps.APPS) - 4)
+        self.assertEqual(len(together), len(apps.APPS) - 6)
         self.assertEqual([(group.name, [app.id for app in members]) for group, members in together if group],
-                         [("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"]),
+                         [("the Proton and Wine tools", ["protonup", "protontricks", "winetricks"]),
+                          ("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"]),
                           ("the Proton apps", ["protonmail", "protoncalendar"])])
+        self.assertEqual(len({app_id for group in apps.GROUPS for app_id in group.ids}), sum(len(group.ids) for group in apps.GROUPS))
         self.assertTrue(all(apps.by_id(app_id) for group in apps.GROUPS for app_id in group.ids))
         some = [apps.by_id(name) for name in ("netflix", "youtube", "primevideo")]
         self.assertEqual([(group.name if group else None, [app.id for app in members]) for group, members in apps.asked_together(some)],

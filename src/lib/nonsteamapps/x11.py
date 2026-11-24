@@ -11,6 +11,9 @@ A window that leaves full screen, as VLC's does when its video leaves it, is ask
 records the state in the window's ``_NET_WM_STATE``, as gamescope's development version does: it also gives such a
 window back the size it asked for. gamescope 3.17 neither records the state nor changes the size, so there each
 window is asked once, and one that leaves full screen keeps the screen's size.
+
+:class:`Selection` holds text on the clipboard, X11's ``CLIPBOARD`` selection, for another program to paste, as
+the program that copied it would (see :mod:`signin`).
 """
 
 from __future__ import annotations
@@ -23,12 +26,19 @@ from typing import Callable, Iterable, List, Optional, Set, Tuple
 
 IS_VIEWABLE = 2
 CLIENT_MESSAGE = 33
+SELECTION_CLEAR = 29
+SELECTION_REQUEST = 30
+SELECTION_NOTIFY = 31
 SUBSTRUCTURE_NOTIFY = 1 << 19
 SUBSTRUCTURE_REDIRECT = 1 << 20
 ADD = 1
 FROM_APPLICATION = 1
 XA_ATOM = 4
+XA_STRING = 31
 SUCCESS = 0
+CURRENT_TIME = 0
+REPLACE = 0
+TEXT_TARGETS = (b"UTF8_STRING", b"TEXT", b"text/plain;charset=utf-8", b"text/plain")
 
 Window = Tuple[int, str, str, bool, int]
 
@@ -46,8 +56,56 @@ class ClientMessage(ctypes.Structure):
     ]
 
 
+class SelectionRequest(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("owner", ctypes.c_ulong),
+        ("requestor", ctypes.c_ulong),
+        ("selection", ctypes.c_ulong),
+        ("target", ctypes.c_ulong),
+        ("property", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+    ]
+
+
+class SelectionNotify(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("requestor", ctypes.c_ulong),
+        ("selection", ctypes.c_ulong),
+        ("target", ctypes.c_ulong),
+        ("property", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+    ]
+
+
+class SelectionClear(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("selection", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+    ]
+
+
 class Event(ctypes.Union):
-    _fields_ = [("type", ctypes.c_int), ("xclient", ClientMessage), ("pad", ctypes.c_long * 24)]
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("xclient", ClientMessage),
+        ("xselectionrequest", SelectionRequest),
+        ("xselection", SelectionNotify),
+        ("xselectionclear", SelectionClear),
+        ("pad", ctypes.c_long * 24),
+    ]
 
 
 class ClassHint(ctypes.Structure):
@@ -91,6 +149,17 @@ def library() -> Optional[ctypes.CDLL]:
                                               ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p)]),
         "XSendEvent": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.POINTER(Event)]),
         "XSync": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_int]),
+        "XFlush": (ctypes.c_int, [ctypes.c_void_p]),
+        "XCreateSimpleWindow": (ctypes.c_ulong, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_uint,
+                                                 ctypes.c_uint, ctypes.c_ulong, ctypes.c_ulong]),
+        "XDestroyWindow": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong]),
+        "XSetSelectionOwner": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]),
+        "XGetSelectionOwner": (ctypes.c_ulong, [ctypes.c_void_p, ctypes.c_ulong]),
+        "XChangeProperty": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                           ctypes.c_void_p, ctypes.c_int]),
+        "XPending": (ctypes.c_int, [ctypes.c_void_p]),
+        "XNextEvent": (ctypes.c_int, [ctypes.c_void_p, ctypes.POINTER(Event)]),
+        "XConnectionNumber": (ctypes.c_int, [ctypes.c_void_p]),
         "XFree": (ctypes.c_int, [ctypes.c_void_p]),
         "XSetErrorHandler": (ctypes.c_void_p, [ErrorHandler]),
     }
@@ -176,6 +245,83 @@ class Display:
             return any(atoms[index] == self.full for index in range(count.value))
         finally:
             self.lib.XFree(data)
+
+
+class Selection:
+    """``text`` on the clipboard, X11's ``CLIPBOARD`` selection, held by a window of its own as a program that copied
+    it would hold it, until another program takes the clipboard or :meth:`close` lets it go.
+
+    Programs that paste ask the holder for the text: :meth:`handle` answers each request waiting, in UTF-8 or, for
+    ``STRING``, Latin-1, with the list of forms it offers for ``TARGETS``, and refuses any other form. Wait for
+    requests on :meth:`fileno`. Raises :class:`OSError` where there is no X display or libX11, or the clipboard
+    could not be taken.
+    """
+
+    def __init__(self, text: str, name: Optional[str] = None) -> None:
+        lib = library()
+        if lib is None:
+            raise OSError("libX11 cannot be loaded")
+        self.lib = lib
+        self.display: Optional[Display] = Display(lib, name)
+        handle = self.display.handle
+        self.clipboard = lib.XInternAtom(handle, b"CLIPBOARD", 0)
+        self.targets = lib.XInternAtom(handle, b"TARGETS", 0)
+        utf8 = lib.XInternAtom(handle, b"UTF8_STRING", 0)
+        encoded = text.encode("utf-8")
+        self.forms = {lib.XInternAtom(handle, target, 0): (utf8, encoded) for target in TEXT_TARGETS}
+        self.forms[XA_STRING] = (XA_STRING, text.encode("latin-1", "replace"))
+        self.window = lib.XCreateSimpleWindow(handle, self.display.root, 0, 0, 1, 1, 0, 0, 0)
+        lib.XSetSelectionOwner(handle, self.clipboard, self.window, CURRENT_TIME)
+        if lib.XGetSelectionOwner(handle, self.clipboard) != self.window:
+            self.close()
+            raise OSError("another program kept the clipboard")
+        lib.XFlush(handle)
+
+    def fileno(self) -> int:
+        if self.display is None:
+            raise ValueError("the clipboard has been let go")
+        return self.lib.XConnectionNumber(self.display.handle)
+
+    def handle(self) -> bool:
+        """Answer the requests waiting; return whether the text is still on the clipboard."""
+        if self.display is None:
+            return False
+        handle, event = self.display.handle, Event()
+        while self.lib.XPending(handle):
+            self.lib.XNextEvent(handle, ctypes.byref(event))
+            if event.type == SELECTION_CLEAR and event.xselectionclear.selection == self.clipboard:
+                return False
+            if event.type == SELECTION_REQUEST:
+                self._answer(event.xselectionrequest)
+        return True
+
+    def _answer(self, request: SelectionRequest) -> None:
+        handle = self.display.handle
+        target, place = request.target, request.property or request.target
+        if request.selection != self.clipboard:
+            place = 0
+        elif target == self.targets:
+            offered = (ctypes.c_ulong * (len(self.forms) + 1))(self.targets, *self.forms)
+            self.lib.XChangeProperty(handle, request.requestor, place, XA_ATOM, 32, REPLACE, ctypes.cast(offered, ctypes.c_void_p), len(offered))
+        elif target in self.forms:
+            kind, data = self.forms[target]
+            self.lib.XChangeProperty(handle, request.requestor, place, kind, 8, REPLACE, data, len(data))
+        else:
+            place = 0
+        reply = Event()
+        notice = reply.xselection
+        notice.type, notice.requestor, notice.selection = SELECTION_NOTIFY, request.requestor, request.selection
+        notice.target, notice.property, notice.time = target, place, request.time
+        self.lib.XSendEvent(handle, request.requestor, 0, 0, ctypes.byref(reply))
+        self.lib.XFlush(handle)
+
+    def close(self) -> None:
+        """Let the clipboard go, if it is still held, and close the connection."""
+        if self.display is None:
+            return
+        self.lib.XDestroyWindow(self.display.handle, self.window)
+        self.display.__exit__()
+        self.display = None
 
 
 def matching(windows: Iterable[Window], wm_class: str, done: Set[int]) -> List[int]:

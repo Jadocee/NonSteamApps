@@ -5,7 +5,11 @@ It answers what NonSteamApps' artwork asks of a browser. A card page's icon, or 
 loads at 512 pixels, at 32 when the file holds ``tiny``, and fails when it holds ``broken`` or is missing. A
 site's page names the icons that $FAKE_DEVTOOLS_SITE_ICONS lists as JSON. A screenshot is the text
 ``fake <format> <slot> <digest>``, of the artwork shown or else the icon, so that a test can tell what each piece
-of artwork was drawn from. Each command is logged, as JSON, in $FAKE_DEVTOOLS_LOG.
+of artwork was drawn from. Each command is logged, as JSON, in $FAKE_DEVTOOLS_LOG, and the arguments in
+$FAKE_DEVTOOLS_ARGV_LOG.
+
+As the window of a sign-in, once asked to report its pages, it reports the page it was started with, and then,
+as if the user had signed in, the page in $FAKE_DEVTOOLS_SIGNED_IN.
 """
 
 import base64
@@ -16,6 +20,9 @@ import sys
 import urllib.parse
 
 log = os.environ.get("FAKE_DEVTOOLS_LOG")
+if os.environ.get("FAKE_DEVTOOLS_ARGV_LOG"):
+    with open(os.environ["FAKE_DEVTOOLS_ARGV_LOG"], "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(sys.argv[1:]) + "\n")
 reader = os.fdopen(3, "rb", buffering=0)
 writer = os.fdopen(4, "wb", buffering=0)
 pages = {}
@@ -79,5 +86,10 @@ while True:
         send(reply)
         if method == "Page.navigate":
             send({"method": "Page.loadEventFired", "params": {"timestamp": 0}, "sessionId": session})
+        if method == "Target.setDiscoverTargets":
+            send({"method": "Target.targetCreated", "params": {"targetInfo": {"targetId": "page-1", "type": "page", "url": sys.argv[-1]}}})
+            if os.environ.get("FAKE_DEVTOOLS_SIGNED_IN"):
+                info = {"targetId": "page-1", "type": "page", "url": os.environ["FAKE_DEVTOOLS_SIGNED_IN"]}
+                send({"method": "Target.targetInfoChanged", "params": {"targetInfo": info}})
         if method == "Browser.close":
             sys.exit(0)

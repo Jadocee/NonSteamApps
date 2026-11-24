@@ -253,6 +253,14 @@ check "chiaki-ng's new profile offers no Steam shortcut of its own and streams i
 run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/chiaki" --steam-account 111
 check "on a Steam Deck with an LCD, chiaki-ng's new profile keeps its own codec" test "$(grep -c codec "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 0
 
+HELIUM_PROFILE="$PROGRAM/profiles/helium/111"
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/helium" --steam-account 111
+check "on a Steam Deck, the Helium browser's new profile starts with Spacious controls" \
+    test "$(json_value "$HELIUM_PROFILE/Local State" helium)" == '{"crash_reporting": {"mode": -1}, "browser": {"ui_density": 1}}'
+check "on a Steam Deck, Helium's pages get overlay scrollbars" test "$(tail -n 1 "$WORK/helium.log" | grep -cF "OverlayScrollbar:mode/overlay")" -eq 1
+check "with Bitwarden installed, the Helium browser gets Bitwarden's extension from the Chrome Web Store" \
+    test "$(json_value "$HELIUM_PROFILE/External Extensions/nngceckbapebfimnlniiiahkandclblb.json" external_update_url)" == '"https://clients2.google.com/service/update2/crx"'
+
 KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
 run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
 check "KytyPS5's launcher started in the account's folder" grep -qF "\"cwd\": \"$KYTY_HOME\", \"folder\": \"$KYTY_HOME\"" "$WORK/kyty.log"

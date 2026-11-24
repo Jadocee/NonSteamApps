@@ -1016,6 +1016,13 @@ class App:
     every Steam library folder, such as one on an SD card, for an app that works on Steam's games.
     ``callbacks`` are the link schemes through which a browser hands a sign-in back to the app; in Game Mode
     such an app's links open in Helium, in front of it, and the callbacks come back to it (see :mod:`links`).
+    ``sign_in_ends`` is the web page a sign-in in the browser ends on, whose address, with the sign-in's code,
+    the app asks to have pasted, as chiaki-ng's PSN sign-in does; in Game Mode its links also open in Helium,
+    which closes once the sign-in reaches that page and leaves the address on the clipboard (see :mod:`signin`).
+    A ``portal_links`` app opens links through the desktop portal, as Qt does in a Flatpak, which in Game Mode
+    gives them to Steam's browser; it then runs without the session bus while NonSteamApps opens its links, so
+    that it uses ``xdg-open`` instead. ``helium_extension`` is the Chrome Web Store ID of the app's extension for
+    browsers, which the Helium app installs while this app is installed (see :func:`browser.offer_extensions`).
     A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:
     gamescope sizes only full-screen windows to the screen and ignores requests to maximise. In Game Mode,
     the windows of ``fullscreen_class`` (their ``WM_CLASS``) are asked to be full screen instead (see
@@ -1069,6 +1076,9 @@ class App:
     settings: Tuple[Settings, ...] = ()
     libraries: bool = False
     callbacks: Tuple[str, ...] = ()
+    sign_in_ends: str = ""
+    portal_links: bool = False
+    helium_extension: str = ""
     qt_window: bool = False
     fullscreen_class: str = ""
     hide_menu_bar: bool = False
@@ -1144,6 +1154,8 @@ LICHII_PROFILE = PortableProfile(
     carried=EDEN_CARRIED,
 )
 
+PSN_SIGN_IN_ENDS = "https://remoteplay.dl.playstation.net/remoteplay/redirect"
+BITWARDEN_EXTENSION = "nngceckbapebfimnlniiiahkandclblb"
 CHIAKI_SETTINGS = IniSettings(
     "Chiaki.conf",
     (("settings", "add_steam_shortcut_ask", "false"),),
@@ -1263,6 +1275,7 @@ APPS: Tuple[App, ...] = (
         env=(("ACCESS_TOKEN_LOCATION", "DISK"),),
         game_mode_env=(("DISPLAY_MODE", "X11"),),
         callbacks=("bitwarden",),
+        helium_extension=BITWARDEN_EXTENSION,
         fullscreen_class="bitwarden",
         hide_menu_bar=True,
         notice="Bitwarden keeps its login tokens unencrypted on disk, so that it works without a keyring; see the README",
@@ -1420,8 +1433,11 @@ APPS: Tuple[App, ...] = (
         profile=CHIAKI_PROFILE,
         controller=REMOTE_PLAY.title,
         library=CHIAKI_LIBRARY,
+        sign_in_ends=PSN_SIGN_IN_ENDS,
+        portal_links=True,
         notice="chiaki-ng finds a PS5 or PS4 on your network: pair it once, signing in to PSN when chiaki-ng offers or with the PIN the console shows "
-               "under Settings ▸ System ▸ Remote Play ▸ Link Device. Hold Menu to end a stream",
+               "under Settings ▸ System ▸ Remote Play ▸ Link Device. In Game Mode, PSN's sign-in opens in Helium and closes once you have "
+               "signed in: choose Click to Paste URL, then Setup. Hold Menu to end a stream",
     ),
     App(
         id="protonup",
@@ -1637,6 +1653,8 @@ GROUPS: Tuple[Group, ...] = (
     Group("the streaming apps", "Each runs full screen in Helium, with a sign-in of its own for each Steam account.",
           ("primevideo", "hbomax", "netflix", "disneyplus")),
     Group("the Proton apps", "Both run full screen in Helium and share one sign-in for each Steam account.", ("protonmail", "protoncalendar")),
+    Group("the Proton and Wine tools", "ProtonUp-Qt installs GE-Proton and other compatibility tools for Steam, and Protontricks and "
+          "Winetricks install Windows components into Proton's and Wine's prefixes.", ("protonup", "protontricks", "winetricks")),
 )
 
 

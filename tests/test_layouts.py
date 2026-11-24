@@ -175,6 +175,12 @@ class FilesLayoutTests(unittest.TestCase):
         self.assertEqual([bindings(switch, bumper, "Long_Press") for bumper in ("left_bumper", "right_bumper")],
                          [["key_press LEFT_CONTROL, Previous tab", "key_press PAGE_UP"], ["key_press LEFT_CONTROL, Next tab", "key_press PAGE_DOWN"]])
 
+    def test_on_a_steam_deck_the_browser_layout_passes_touches_to_helium_as_touches(self):
+        deck = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_neptune_gamepad_joystick.vdf")))
+        self.assertEqual(bindings(deck["switch"], "always_on_action"), ["controller_action ts_n"])
+        xbox = groups(layouts.build(layouts.BROWSER, self.read(layouts.BROWSER.base), self.read("controller_xboxone_gamepad_joystick.vdf")))
+        self.assertNotIn("always_on_action", [name for name, _ in find(xbox["switch"], "inputs")])
+
     def test_localsend_selects_once_goes_back_with_b_and_quits_when_menu_is_held(self):
         found = groups(layouts.build(layouts.LOCALSEND, self.read(layouts.LOCALSEND.base), self.read("controller_neptune_gamepad_joystick.vdf")))
         self.assertEqual(

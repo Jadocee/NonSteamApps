@@ -16,6 +16,14 @@ class ScaleTests(unittest.TestCase):
         self.assertIsNone(display.scale("1", True))
         self.assertIsNone(display.scale("big", True))
 
+    def test_a_handhelds_own_screen_gets_the_handheld_scale_and_a_tv_its_own(self):
+        self.assertEqual([display.scale("auto", True, h, handheld=True) for h in (800, 1080, 2160)], [1.25, 1.5, 3.0])
+        self.assertIsNone(display.scale("auto", False, 800, handheld=True))
+        self.assertEqual(display.scale("1.5", True, 800, handheld=True), 1.5)
+        self.assertIsNone(display.scale("1", True, 800, handheld=True))
+        with mock.patch("nonsteamapps.display.screen_height", return_value=None):
+            self.assertIsNone(display.scale("auto", True, handheld=True))
+
     def test_a_tvs_size_starts_at_1000_pixels_tall(self):
         self.assertEqual([display.tv_sized(height) for height in (None, 0, 800, 999, 1000, 2160)], [False, False, False, False, True, True])
 

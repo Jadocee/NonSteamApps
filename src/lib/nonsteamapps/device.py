@@ -9,7 +9,9 @@ Machine. On a Steam Deck:
   (see :mod:`sleepwatch`);
 - an app that needs more than a Steam Deck has, as Eden-NX2 does, is not offered by the installer (see
   :attr:`apps.App.needs`);
-- KytyPS5 keeps its own 1280×720, which runs faster there than the 1080p it gets on a TV (see :class:`apps.KytyGlobal`).
+- KytyPS5 keeps its own 1280×720, which runs faster there than the 1080p it gets on a TV (see :class:`apps.KytyGlobal`);
+- Helium is scaled for its screen in Game Mode (see :func:`display.scale`), with Spacious controls and overlay
+  scrollbars for its touchscreen (see :mod:`browser`).
 
 chiaki-ng streams in HDR on a device whose screen can show it (see :attr:`Device.hdr`).
 """

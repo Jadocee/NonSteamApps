@@ -54,9 +54,12 @@ class MatchingTests(unittest.TestCase):
     @unittest.skipUnless(ctypes.sizeof(ctypes.c_void_p) == 8, "Xlib's 64-bit layout")
     def test_structures_match_xlibs_layout(self):
         self.assertEqual((ctypes.sizeof(x11.Attributes), ctypes.sizeof(x11.Event), ctypes.sizeof(x11.ClientMessage)), (136, 192, 96))
+        self.assertEqual((ctypes.sizeof(x11.SelectionRequest), ctypes.sizeof(x11.SelectionNotify), ctypes.sizeof(x11.SelectionClear)), (80, 72, 56))
 
     def test_without_libx11_or_a_display_nothing_happens(self):
         self.assertEqual(x11.keep_fullscreen("nonsteamapps-helium", lambda: True, display=":424242"), 0)
+        with self.assertRaises(OSError):
+            x11.Selection("text", ":424242")
 
 
 class SetClassHint(ctypes.Structure):
@@ -120,6 +123,75 @@ class XServerTests(unittest.TestCase):
 
     def atoms(self):
         return LIB.XInternAtom(self.display, b"_NET_WM_STATE", 0), LIB.XInternAtom(self.display, b"_NET_WM_STATE_FULLSCREEN", 0)
+
+    def atom(self, name):
+        return LIB.XInternAtom(self.display, name, 0)
+
+    def paste(self, selection, target):
+        """Ask for the clipboard as ``target``, as a program that pastes does, and let ``selection`` answer; return the answer's
+        type, format and data, or ``None`` where it refuses."""
+        LIB.XConvertSelection.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+        window = self.make_window("paster", "Paster")
+        place = self.atom(b"NONSTEAMAPPS_PASTED")
+        LIB.XConvertSelection(self.display, self.atom(b"CLIPBOARD"), self.atom(target), place, window, 0)
+        LIB.XSync(self.display, 0)
+        event = x11.Event()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            selection.handle()
+            LIB.XSync(self.display, 0)
+            while LIB.XPending(self.display):
+                LIB.XNextEvent(self.display, ctypes.byref(event))
+                if event.type == x11.SELECTION_NOTIFY and event.xselection.requestor == window:
+                    return self.read(window, place) if event.xselection.property else None
+            time.sleep(0.01)
+        self.fail("the clipboard's holder did not answer")
+
+    def read(self, window, place):
+        kind, size, count, rest, data = ctypes.c_ulong(), ctypes.c_int(), ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
+        LIB.XGetWindowProperty(self.display, window, place, 0, 1 << 16, 1, 0, ctypes.byref(kind), ctypes.byref(size), ctypes.byref(count),
+                               ctypes.byref(rest), ctypes.byref(data))
+        try:
+            if size.value == 32:
+                values = ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))
+                return kind.value, 32, [values[index] for index in range(count.value)]
+            return kind.value, size.value, ctypes.string_at(data, count.value)
+        finally:
+            if data.value:
+                LIB.XFree(data)
+
+    def test_text_on_the_clipboard_is_pasted_in_each_form_until_another_program_takes_the_clipboard(self):
+        address = "https://remoteplay.dl.playstation.net/remoteplay/redirect?code=v3.abc&cid=1"
+        selection = x11.Selection(address, self.name)
+        self.addCleanup(selection.close)
+        self.assertEqual(LIB.XGetSelectionOwner(self.display, self.atom(b"CLIPBOARD")), selection.window)
+        utf8 = self.atom(b"UTF8_STRING")
+        for target, kind in ((b"UTF8_STRING", utf8), (b"STRING", x11.XA_STRING), (b"TEXT", utf8), (b"text/plain;charset=utf-8", utf8)):
+            with self.subTest(target):
+                self.assertEqual(self.paste(selection, target), (kind, 8, address.encode()))
+        kind, size, offered = self.paste(selection, b"TARGETS")
+        self.assertEqual((kind, size), (x11.XA_ATOM, 32))
+        forms = (b"TARGETS", b"UTF8_STRING", b"TEXT", b"text/plain;charset=utf-8", b"text/plain", b"STRING")
+        self.assertEqual(sorted(offered), sorted(self.atom(name) for name in forms))
+        self.assertIsNone(self.paste(selection, b"image/png"))
+        LIB.XSetSelectionOwner(self.display, self.atom(b"CLIPBOARD"), self.make_window("copier", "Copier"), 0)
+        LIB.XSync(self.display, 0)
+        deadline = time.monotonic() + 10
+        while selection.handle() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertLess(time.monotonic(), deadline, "the holder did not see the clipboard taken")
+        selection.close()
+        self.assertFalse(selection.handle())
+        with self.assertRaises(ValueError):
+            selection.fileno()
+
+    def test_letting_the_clipboard_go_empties_it(self):
+        selection = x11.Selection("text", self.name)
+        self.assertGreater(selection.fileno(), 2)
+        selection.close()
+        selection.close()
+        LIB.XSync(self.display, 0)
+        self.assertEqual(LIB.XGetSelectionOwner(self.display, self.atom(b"CLIPBOARD")), 0)
 
     def test_each_window_of_the_class_is_asked_once_to_go_full_screen(self):
         self.listen()

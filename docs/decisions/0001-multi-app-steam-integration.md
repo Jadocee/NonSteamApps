@@ -1042,6 +1042,7 @@ The owner answered the open questions. Where these answers differ from the text 
       - for a Steam Machine on a 4K TV, the High Quality + Spatial Upscaling preset, which v1.10.0 added: FSRCNNX where the picture is scaled up 1.2 times or more, FSR otherwise [284][285]. It costs GPU time on every frame, and the guide does not yet cover it;
       - Zoom, which fills a Steam Deck's 16:10 screen by cutting the sides of the 16:9 picture.
     - **Not verified:** on a Steam Deck, a Steam Machine or a PS5: the stream at 30 Mbps, HDR and Enter Sleep Mode. The tests cover each device's settings in a new profile, an install putting them back with the consoles and other settings kept, `nonsteamapps update` keeping a change, and the HDR and SDR values in new and existing files; the sandbox checks the settings for a Steam Machine and for a Steam Deck with an LCD.
+    - **Checks**, all passing: lint, the unit tests on Python 3.14 and on Python 3.8, and the sandbox, on Ubuntu 26.04.1; and the unit tests and the sandbox on SteamOS 3.9 and on SteamOS 3.10. The artwork, keyring, Flathub and real-install checks cover nothing this changes, and were not run again.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

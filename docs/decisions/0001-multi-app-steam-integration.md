@@ -1077,6 +1077,7 @@ The owner answered the open questions. Where these answers differ from the text 
       - **Kept apart:** Eden-NX2, which the emulators would otherwise include, as it is built on the device from its source, which can take an hour, and few games start yet; YouTube, which is no paid streaming service and needs none of the streaming apps' subscriptions; and Bitwarden, LocalSend, Prism Launcher, chiaki-ng, Files and Helium, each the only one of its kind.
       - The installer now asks 15 questions on a Steam Machine and 14 on a Steam Deck, which does not offer Eden-NX2. It installs the apps chosen in the order of the app list, whatever the order of the questions, as Eden-NX2 now comes after the emulators' question.
     - **Not verified:** on a Steam Machine or a Steam Deck: the four sites in Helium, their sign-ins and Cloudflare's checks there. The tests cover the apps, their addresses and icon sources, the groups, their questions on each device and the install order; the sandbox installs the 33 apps for both accounts.
+    - **Checks**, all passing: lint, the unit tests on Python 3.14 and on Python 3.8, and the sandbox, on Ubuntu 26.04.1; and the unit tests and the sandbox on SteamOS 3.9 and on SteamOS 3.10. The artwork, drawn from the sites as above, and the keyring, Flathub and real-install checks were not run again.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

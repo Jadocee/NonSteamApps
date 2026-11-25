@@ -18,7 +18,8 @@ class RegistryTests(unittest.TestCase):
             apps.ids(),
             ["youtube", "element", "signal", "discord", "bitwarden", "jellyfin", "vlc", "localsend", "prism", "eden", "edennx2", "lichii",
              "kytyps5", "chiaki", "protonup", "protontricks", "winetricks", "bottles", "files", "helium", "primevideo", "hbomax", "netflix",
-             "disneyplus", "protondb", "steamdb", "nexusmods", "protonmail", "protoncalendar"],
+             "disneyplus", "protondb", "steamdb", "nexusmods", "isthereanydeal", "ggdeals", "opencritic", "steamladder", "protonmail",
+             "protoncalendar"],
         )
         self.assertEqual(apps.by_id(" YouTube ").flatpak, "rocks.shy.VacuumTube")
         self.assertEqual(apps.by_id("DisneyPlus").name, "Disney+")
@@ -27,10 +28,22 @@ class RegistryTests(unittest.TestCase):
 
     def test_the_apps_of_each_group_are_asked_about_together_where_the_first_of_them_is(self):
         together = apps.asked_together(apps.APPS)
-        self.assertEqual(len(together), len(apps.APPS) - 6)
-        self.assertEqual([(group.name, [app.id for app in members]) for group, members in together if group],
-                         [("the Proton and Wine tools", ["protonup", "protontricks", "winetricks"]),
+        self.assertEqual(len(together), 15)
+        self.assertEqual([(group.name if group else None, [app.id for app in members]) for group, members in together],
+                         [(None, ["youtube"]),
+                          ("the chat apps", ["element", "signal", "discord"]),
+                          (None, ["bitwarden"]),
+                          ("the media players", ["jellyfin", "vlc"]),
+                          (None, ["localsend"]),
+                          (None, ["prism"]),
+                          ("the emulators", ["eden", "lichii", "kytyps5"]),
+                          (None, ["edennx2"]),
+                          (None, ["chiaki"]),
+                          ("the Proton and Wine tools", ["protonup", "protontricks", "winetricks", "bottles"]),
+                          (None, ["files"]),
+                          (None, ["helium"]),
                           ("the streaming apps", ["primevideo", "hbomax", "netflix", "disneyplus"]),
+                          ("the game sites", ["protondb", "steamdb", "nexusmods", "isthereanydeal", "ggdeals", "opencritic", "steamladder"]),
                           ("the Proton apps", ["protonmail", "protoncalendar"])])
         self.assertEqual(len({app_id for group in apps.GROUPS for app_id in group.ids}), sum(len(group.ids) for group in apps.GROUPS))
         self.assertTrue(all(apps.by_id(app_id) for group in apps.GROUPS for app_id in group.ids))
@@ -80,6 +93,10 @@ class ArgumentTests(unittest.TestCase):
                                    ("protondb", "https://www.protondb.com/", True),
                                    ("steamdb", "https://steamdb.info/", True),
                                    ("nexusmods", "https://www.nexusmods.com/", True),
+                                   ("isthereanydeal", "https://isthereanydeal.com/", True),
+                                   ("ggdeals", "https://gg.deals/", True),
+                                   ("opencritic", "https://opencritic.com/", True),
+                                   ("steamladder", "https://steamladder.com/", True),
                                    ("protonmail", "https://mail.proton.me/", True),
                                    ("protoncalendar", "https://calendar.proton.me/", True)):
             app = apps.by_id(app_id)

@@ -758,7 +758,7 @@ def _question(record: Record, group: Optional[apps.Group], members: Sequence[App
 
 def _ask_each(record: Record, here: device.Device) -> List[App]:
     """Ask about each app in turn, and about the apps of a group together (see :data:`apps.GROUPS`); return those to
-    install, or to set up again.
+    install, or to set up again, in the order of :data:`apps.APPS`, whatever the order of the questions.
 
     An app already installed stays installed either way: yes puts NonSteamApps' set-up back, keeping its sign-ins
     and data, and no leaves it as it is. Enter answers yes. On a Steam Deck, an app that needs more than it has is
@@ -771,7 +771,7 @@ def _ask_each(record: Record, here: device.Device) -> List[App]:
     for group, members in questions:
         if ui.confirm(_question(record, group, members), default=True):
             chosen.extend(members)
-    return chosen
+    return [app for app in offered if app in chosen]
 
 
 def _left_out(chosen: List[App], gone: Sequence[App]) -> List[App]:

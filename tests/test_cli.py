@@ -2423,6 +2423,7 @@ class SignInTests(CliTestCase):
         self.assertEqual(status, 0, output)
         [app] = self.fake.calls("run")
         self.assertIn("--no-session-bus", app)
+        self.assertIn("--env=QTWEBENGINE_DISABLE_SANDBOX=1", app)
         self.assertIn(f"--env=PATH={self.paths.program / 'share' / 'sandbox'}:/app/bin:/usr/bin", app)
         profile = self.paths.profile("helium", ALPHA)
         self.assertEqual(arguments[:2], ["--remote-debugging-pipe", f"--user-data-dir={profile}"])
@@ -2449,11 +2450,11 @@ class SignInTests(CliTestCase):
         for app_id in ("element", "chiaki"):
             argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
             self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
-            self.assertNotIn("--no-session-bus", argv)
+            self.assertFalse({"--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"} & set(argv))
             with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
                 argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
             self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
-            self.assertNotIn("--no-session-bus", argv)
+            self.assertFalse({"--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"} & set(argv))
 
 
 if __name__ == "__main__":

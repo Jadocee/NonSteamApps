@@ -1044,7 +1044,7 @@ def cmd_launch(argv: Sequence[str], paths: Paths, flatpak: Flatpak) -> int:
     if channel:
         options += links.sandbox_options(paths.program / "share" / "sandbox", channel[0], app.callbacks)
         if app.portal_links:
-            options.append("--no-session-bus")
+            options += links.without_portal()
     command = flatpak.run_args(app.flatpak, [*app.arguments(paths.home, account), *scale, *_qt_window(app, game_mode, factor), *extra], options)
     hidden = [variable for variable in app.sandbox_off_when if variable in os.environ]
     if hidden and config.enabled(settings.get(GAME_MODE_SANDBOX)):

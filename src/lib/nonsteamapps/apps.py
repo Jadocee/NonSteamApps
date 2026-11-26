@@ -1039,7 +1039,8 @@ class App:
     which closes once the sign-in reaches that page and leaves the address on the clipboard (see :mod:`signin`).
     A ``portal_links`` app opens links through the desktop portal, as Qt does in a Flatpak, which in Game Mode
     gives them to Steam's browser; it then runs without the session bus while NonSteamApps opens its links, so
-    that it uses ``xdg-open`` instead. ``helium_extension`` is the Chrome Web Store ID of the app's extension for
+    that it uses ``xdg-open`` instead, and Qt WebEngine, which in a Flatpak needs that bus for Chromium's sandbox,
+    without Chromium's sandbox (see :func:`links.without_portal`). ``helium_extension`` is the Chrome Web Store ID of the app's extension for
     browsers, which the Helium app installs while this app is installed (see :func:`browser.offer_extensions`), and
     ``native_host`` how that extension reaches the app (see :func:`browser.offer_native_hosts`).
     A ``qt_window`` app's first window is given the screen's size in Game Mode with ``-qwindowgeometry``:

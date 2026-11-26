@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import hashlib
 import io
 import json
@@ -53,6 +54,7 @@ class CliTestCase(unittest.TestCase):
             mock.patch("nonsteamapps.steamclient.running", return_value=False),
             mock.patch("nonsteamapps.cli._firewall", side_effect=self.wall.firewall),
             mock.patch("nonsteamapps.cli._polkit", side_effect=_fakes.fake_polkit),
+            mock.patch("nonsteamapps.cli._account", side_effect=lambda: _fakes.fake_account(self.home)),
         ]
         if not self.self_update:
             patches.append(mock.patch("nonsteamapps.cli._update_program"))
@@ -946,6 +948,25 @@ class FirewallTests(CliTestCase):
         self.assertEqual(self.wall.ports("home"), ["53317/tcp", "53317/udp"])
         self.assertEqual(self.wall.ports("public"), ["53317/tcp", "53317/udp"])
 
+    def test_a_locked_password_keeps_the_port_closed_without_asking_sudo(self):
+        self.wall.set(running=True)
+        with mock.patch.dict(os.environ, {"FAKE_PASSWD_STATE": "L"}):
+            self.install("localsend")
+            self.assertEqual(self.wall.changes(), [])
+            self.assertIn("Port 53317 (TCP and UDP) stays closed, so other devices cannot reach LocalSend: your account, deck, has a locked "
+                          "password, which sudo takes no answer for: set one with passwd in Konsole, then run the installer again", self.errors)
+            self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+            self.assertIn("deck has a locked password; set one with passwd for sudo", self.output)
+
+    def test_wrong_passwords_are_explained(self):
+        self.wall.set(running=True)
+        with mock.patch.dict(os.environ, {"FAKE_SUDO_FAIL": "wrong"}):
+            self.install("localsend")
+        self.assertIn("Could not open port 53317 (TCP and UDP) for LocalSend (sudo: 3 incorrect password attempts). sudo asks for the password "
+                      "of your account, deck, the one set with passwd in Konsole, not your Steam password; after 3 wrong ones, SteamOS refuses "
+                      "even the right one for 10 minutes. To do it yourself, run:", self.errors)
+        self.assertEqual(config.Record.load(self.paths.record).opened_ports("localsend"), {})
+
     def test_keeping_the_app_keeps_its_port(self):
         self.wall.set(running=True)
         self.install("localsend")
@@ -1025,6 +1046,25 @@ class BitwardenLinkTests(CliTestCase):
         self.assertEqual(config.Record.load(self.paths.record).polkit_action("bitwarden"), "")
         self.assertEqual(self.run_cli("doctor"), 0, self.errors)
         self.assertIn("Bitwarden's com.bitwarden.Bitwarden.unlock missing; run the installer again to add it", self.output)
+
+    def test_a_lockout_after_wrong_passwords_leaves_the_action_out_until_it_ends(self):
+        now = datetime.datetime.now().replace(microsecond=0)
+        record = Path(self.tmp.name) / "faillock"
+        record.write_text("".join(f"{now - datetime.timedelta(minutes=ago):%Y-%m-%d %H:%M:%S} TTY   /dev/pts/0   V\n" for ago in (3, 2, 1)))
+        with mock.patch.dict(os.environ, {"FAKE_FAILLOCK_RECORD": str(record)}):
+            self.install("bitwarden")
+            self.assertFalse(self.policy().exists())
+            self.assertIn("Bitwarden unlocks with its master password or PIN, as its polkit action needs sudo: after 3 wrong passwords, SteamOS "
+                          "refuses your account's password, even the right one, for 9 more minutes, then run the installer again", self.errors)
+            self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+            self.assertIn("deck has a password; after 3 wrong passwords, SteamOS refuses your account's password, even the right one, for 9 "
+                          "more minutes", self.output)
+            record.write_text("")
+            self.install("bitwarden")
+        self.assertTrue(self.policy().exists())
+        self.assertEqual(self.run_cli("doctor"), 0, self.errors)
+        self.assertIn("deck has a password", self.output)
+        self.assertNotIn("wrong passwords", self.output)
 
     def test_an_uninstall_takes_the_host_and_the_action_away(self):
         own = self.home / ".config" / "net.imput.helium"

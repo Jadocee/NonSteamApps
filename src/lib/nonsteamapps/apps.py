@@ -896,8 +896,9 @@ class Browser:
     ``profile`` names a folder of Helium profiles, one for each Steam account, that the apps naming it share, as
     Proton Mail and Proton Calendar do, whose single sign-on works within one browser profile; an app without one
     has its own. ``manifest`` is a web app manifest the site publishes without naming it in ``url``'s page, read for
-    the site's icons as well. ``icon`` is the site's own icon where its makers publish it elsewhere, taken in place of
-    the site's, for a site that answers a headless browser with a check rather than its page.
+    the site's icons as well. ``icon`` is the site's own icon, at an address its check spares or where its makers
+    publish it elsewhere, taken in place of the site's, for a site that answers a headless browser with a check
+    rather than its page.
     """
 
     url: str = ""
@@ -968,6 +969,8 @@ class NativeHost:
     script: str
     policy: str = ""
 NEXUS_MODS_ICON = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
+GG_DEALS_ICON = "https://gg.deals/apple-touch-icon.png"
+STEAM_LADDER_ICON = "https://s.steamladder.com/static/img/new_logo.png"
 
 
 @dataclass(frozen=True)
@@ -1676,6 +1679,42 @@ APPS: Tuple[App, ...] = (
         logo_position="BottomLeft:44:56",
     ),
     App(
+        id="isthereanydeal",
+        name="IsThereAnyDeal",
+        client="Helium",
+        summary="Game deals and price history from dozens of PC stores, with a waitlist for the games you want, full screen in Helium",
+        browser=Browser(url="https://isthereanydeal.com/", kiosk=True),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
+        id="ggdeals",
+        name="GG.deals",
+        client="Helium",
+        summary="Game prices compared across official stores and key shops, with their price history, full screen in Helium",
+        browser=Browser(url="https://gg.deals/", kiosk=True, icon=GG_DEALS_ICON),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
+        id="opencritic",
+        name="OpenCritic",
+        client="Helium",
+        summary="Game reviews from the top critics in gaming, gathered with their scores, full screen in Helium",
+        browser=Browser(url="https://opencritic.com/", kiosk=True),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
+        id="steamladder",
+        name="Steam Ladder",
+        client="Helium",
+        summary="Steam profiles ranked by level, games, playtime and badges, worldwide and by country, full screen in Helium",
+        browser=Browser(url="https://steamladder.com/", kiosk=True, icon=STEAM_LADDER_ICON),
+        controller=BROWSER.title,
+        logo_position="BottomLeft:44:56",
+    ),
+    App(
         id="protonmail",
         name="Proton Mail",
         client="Helium",
@@ -1706,11 +1745,20 @@ class Group:
 
 
 GROUPS: Tuple[Group, ...] = (
+    Group("the chat apps", "Each is set up for a TV and a controller, with a sign-in of its own for each Steam account.",
+          ("element", "signal", "discord")),
+    Group("the media players", "Jellyfin plays your Jellyfin server's library, and VLC your own videos and music, discs and the media "
+          "servers and shares on your network; both are set up for a TV and a controller.", ("jellyfin", "vlc")),
+    Group("the emulators", "They play games you own: Eden your Switch games and Lichii your Switch and Switch 2 games, with your own "
+          "Switch's keys and firmware, and KytyPS5 your PS5 games.", ("eden", "lichii", "kytyps5")),
+    Group("the Proton and Wine tools", "ProtonUp-Qt installs GE-Proton and other compatibility tools for Steam, Protontricks and "
+          "Winetricks install Windows components into Proton's and Wine's prefixes, and Bottles runs Windows programs and games "
+          "in Wine environments of its own.", ("protonup", "protontricks", "winetricks", "bottles")),
     Group("the streaming apps", "Each runs full screen in Helium, with a sign-in of its own for each Steam account.",
           ("primevideo", "hbomax", "netflix", "disneyplus")),
+    Group("the game sites", "Each runs full screen in Helium, with a profile of its own for each Steam account.",
+          ("protondb", "steamdb", "nexusmods", "isthereanydeal", "ggdeals", "opencritic", "steamladder")),
     Group("the Proton apps", "Both run full screen in Helium and share one sign-in for each Steam account.", ("protonmail", "protoncalendar")),
-    Group("the Proton and Wine tools", "ProtonUp-Qt installs GE-Proton and other compatibility tools for Steam, and Protontricks and "
-          "Winetricks install Windows components into Proton's and Wine's prefixes.", ("protonup", "protontricks", "winetricks")),
 )
 
 

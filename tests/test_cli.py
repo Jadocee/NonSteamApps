@@ -249,20 +249,27 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer(["YouTube", "chiaki-ng"])
         with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        self.assertEqual(len(asked), len(apps.APPS) - 6)
+        self.assertEqual(len(asked), 15)
         self.assertEqual(asked[0], ("Install YouTube (VacuumTube), YouTube's TV interface with ad blocking, SponsorBlock, DeArrow and dislike counts?", True))
+        self.assertEqual(asked[1], ("Install the chat apps: Element, Signal and Discord? Each is set up for a TV and a controller, with a sign-in "
+                                    "of its own for each Steam account.", True))
+        self.assertIn(("Install the game sites: ProtonDB, SteamDB, Nexus Mods, IsThereAnyDeal, GG.deals, OpenCritic and Steam Ladder? Each "
+                       "runs full screen in Helium, with a profile of its own for each Steam account.", True), asked)
+        self.assertTrue(any(question.startswith("Install the media players: Jellyfin and VLC? ") for question, _ in asked))
+        self.assertTrue(any(question.startswith("Install the emulators: Eden, Lichii and KytyPS5? ") for question, _ in asked))
         self.assertIn(("Install Eden-NX2, " + apps.by_id("edennx2").summary + "? It is built here from its source, which can take an hour.", True), asked)
         self.assertIn(("Install the streaming apps: Prime Video, HBO Max, Netflix and Disney+? Each runs full screen in Helium, "
                        "with a sign-in of its own for each Steam account.", True), asked)
-        self.assertIn(("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks and Winetricks? ProtonUp-Qt installs GE-Proton and "
-                       "other compatibility tools for Steam, and Protontricks and Winetricks install Windows components into Proton's and "
-                       "Wine's prefixes.", True), asked)
+        self.assertIn(("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks, Winetricks and Bottles? ProtonUp-Qt installs GE-Proton "
+                       "and other compatibility tools for Steam, Protontricks and Winetricks install Windows components into Proton's and "
+                       "Wine's prefixes, and Bottles runs Windows programs and games in Wine environments of its own.", True), asked)
         self.assertEqual(asked[-1], ("Install the Proton apps: Proton Mail and Proton Calendar? Both run full screen in Helium and share one "
                                      "sign-in for each Steam account.", True))
         self.assertFalse(any(question.startswith(("Install Netflix", "Install Disney+", "Install Proton Calendar", "Install Protontricks",
-                                                   "Install Winetricks")) for question, _ in asked))
+                                                   "Install Winetricks", "Install Bottles", "Install Signal", "Install VLC", "Install Lichii",
+                                                   "Install SteamDB", "Install GG.deals")) for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
-        self.assertIn(f"NonSteamApps asks {len(apps.APPS) - 6} questions about its apps for this Steam Machine; Enter answers yes", self.errors)
+        self.assertIn("NonSteamApps asks 15 questions about its apps for this Steam Machine; Enter answers yes", self.errors)
         self.assertIn("for this Steam Machine\n", self.errors)
         self.assertEqual(config.Record.load(self.paths.record).managed(), ["youtube", "chiaki"])
         self.assertEqual(sorted(self.entries(ALPHA)), ["YouTube", "chiaki-ng"])
@@ -313,10 +320,10 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer(["the Proton and Wine tools"])
         with answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 0, self.errors)
-        self.assertTrue(any(question.startswith("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks and Winetricks? ")
+        self.assertTrue(any(question.startswith("Install the Proton and Wine tools: ProtonUp-Qt, Protontricks, Winetricks and Bottles? ")
                             and question.endswith(" Winetricks, already installed, is set up again.") for question, _ in asked))
-        self.assertEqual(sorted(config.Record.load(self.paths.record).managed()), ["protontricks", "protonup", "winetricks"])
-        self.assertEqual(sorted(self.entries(ALPHA)), ["ProtonUp-Qt", "Protontricks", "Winetricks"])
+        self.assertEqual(sorted(config.Record.load(self.paths.record).managed()), ["bottles", "protontricks", "protonup", "winetricks"])
+        self.assertEqual(sorted(self.entries(ALPHA)), ["Bottles", "ProtonUp-Qt", "Protontricks", "Winetricks"])
 
     def test_on_a_steam_deck_eden_nx2_is_not_offered_and_naming_it_says_why(self):
         with _paths.on_device("steam-deck"):
@@ -327,7 +334,7 @@ class InstallTests(CliTestCase):
         asked, answers = self.answer([])
         with _paths.on_device("steam-deck"), answers:
             self.assertEqual(self.run_cli("install", "--no-auto-update"), 1)
-        self.assertEqual(len(asked), len(apps.APPS) - 7)
+        self.assertEqual(len(asked), 14)
         self.assertFalse(any("Eden-NX2" in question for question, _ in asked))
         self.assertTrue(all(default for _, default in asked))
         with _paths.on_device("steam-deck"):
@@ -1524,7 +1531,9 @@ class HeliumAppTests(CliTestCase):
     def test_nexus_mods_takes_its_icon_from_its_own_app_as_its_site_checks_a_headless_browser(self):
         icon = "https://raw.githubusercontent.com/Nexus-Mods/NexusMods.App/v0.21.1/src/NexusMods.App/icon.svg"
         self.assertEqual(cli._icon_source(self.paths, apps.by_id("nexusmods")), artwork.Source("url", icon))
-        self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.icon], ["nexusmods"])
+        self.assertEqual([app.id for app in apps.APPS if app.browser and app.browser.icon], ["nexusmods", "ggdeals", "steamladder"])
+        self.assertEqual(cli._icon_source(self.paths, apps.by_id("ggdeals")), artwork.Source("url", "https://gg.deals/apple-touch-icon.png"))
+        self.assertEqual(cli._icon_source(self.paths, apps.by_id("opencritic")), artwork.Source("site", "https://opencritic.com/"))
 
     def test_steamdb_starts_with_its_sign_in_extension_and_the_account_in_the_address(self):
         self.install("steamdb")

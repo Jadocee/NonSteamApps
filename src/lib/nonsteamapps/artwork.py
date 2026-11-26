@@ -76,6 +76,10 @@ COLOURS: Dict[str, Tuple[str, str]] = {
     "protondb": ("#e0313f", "#ff8a5c"),
     "steamdb": ("#2a475e", "#66c0f4"),
     "nexusmods": ("#d98f40", "#f6c27a"),
+    "isthereanydeal": ("#3690ce", "#8cc8f0"),
+    "ggdeals": ("#e8334a", "#3e7bfa"),
+    "opencritic": ("#fc430a", "#ff9a6b"),
+    "steamladder": ("#5d7186", "#c7d5e0"),
     "protonmail": ("#6d4aff", "#c9b9ff"),
     "protoncalendar": ("#6d4aff", "#a58bff"),
 }

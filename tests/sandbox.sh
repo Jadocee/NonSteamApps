@@ -88,12 +88,12 @@ json_value() {
 }
 
 collection_size() {
-    python3 -I - "$ROOT/src/lib" "$STEAM" "$1" <<'EOF'
+    NONSTEAMAPPS_MACHINE_ID="$ROOT/tests/fakes/machine-id" python3 -I - "$ROOT/src/lib" "$STEAM" "$1" <<'EOF'
 import sys
 sys.path.insert(0, sys.argv[1])
 from pathlib import Path
-from nonsteamapps import collection
-print(len(collection.members(collection.storage_file(Path(sys.argv[2]), int(sys.argv[3])))))
+from nonsteamapps import collection, device
+print(len(collection.members(collection.storage_file(Path(sys.argv[2]), int(sys.argv[3])), collection.collection_id(device.tag()))))
 EOF
 }
 
@@ -173,7 +173,7 @@ check "Eden-NX2 was built from its source in the SDK" grep -qF "\"git\", \"-C\",
 check "Eden-NX2 was installed from NonSteamApps' own repository" grep -qF "[\"install\", \"--user\", \"--noninteractive\", \"-y\", \"nonsteamapps\", \"$NX2_ID\"]" "$WORK/flatpak.log"
 check "Winetricks came with Flathub's Wine, from its stable branch" grep -qF '["install", "--user", "--noninteractive", "-y", "flathub", "org.winehq.Wine//stable"]' "$WORK/flatpak.log"
 check "Eden-NX2's build files and staging folder were cleared, its caches kept" test ! -e "$PROGRAM/eden-nx2/build" -a ! -e "$PROGRAM/eden-nx2/app" -a -d "$PROGRAM/eden-nx2/cpm"
-check "both accounts have every app in the NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "33 33"
+check "both accounts have every app in this device's NonSteamApps collection" test "$(collection_size 111) $(collection_size 222)" == "33 33"
 check "YouTube no longer forces Proton, and another game still does" test "$(grep -c "\"$YOUTUBE_ID\"" "$STEAM/config/config.vdf") $(grep -c '"proton_9"' "$STEAM/config/config.vdf")" == "0 1"
 check "Files got its own controller layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_files.vdf' | wc -l)" -eq 2
 check "Prism Launcher got the Minecraft layout for each controller" test "$(find "$TEMPLATES" -name '*_nonsteamapps_minecraft.vdf' | wc -l)" -eq 2

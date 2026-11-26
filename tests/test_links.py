@@ -39,6 +39,9 @@ class LinkKindTests(unittest.TestCase):
         self.assertEqual((environment["HOME"], environment["NONSTEAMAPPS_OPEN"]), ("/home/deck", str(pipe)))
         self.assertEqual(links.channel_dir("im.riot.Riot", {"XDG_RUNTIME_DIR": "/run/user/1000"}), Path("/run/user/1000/app/im.riot.Riot/nonsteamapps"))
 
+    def test_an_app_kept_from_the_portal_runs_without_the_session_bus_or_chromiums_sandbox(self):
+        self.assertEqual(links.without_portal(), ["--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"])
+
 
 class ChannelTests(unittest.TestCase):
     def setUp(self):

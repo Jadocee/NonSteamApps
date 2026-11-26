@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
+from . import device
 from .fsutil import atomic_write_json
 
 NAME = "nonsteamapps"
@@ -119,7 +120,17 @@ class Paths:
     def profile(self, app_id: str, account: Optional[int]) -> Path:
         return self.profiles / app_id / (str(account) if account else "shared")
 
+    @property
+    def app_links(self) -> Path:
+        """This device's app links (see :func:`device.tag`). Steam derives each shortcut's app ID from its link's path,
+        so a device's shortcuts have IDs of their own."""
+        return self.program / "apps" / device.tag()
+
     def app_link(self, app_id: str) -> Path:
+        return self.app_links / app_id
+
+    def shared_app_link(self, app_id: str) -> Path:
+        """The app's link before 2.52.0, the same on every device, as its shortcuts' app IDs then were."""
         return self.program / "apps" / app_id
 
     def artwork(self, app_id: str) -> Path:

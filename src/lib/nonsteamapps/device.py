@@ -15,17 +15,27 @@ Machine. On a Steam Deck:
   screen, such as Element, VLC, Files and the emulators' windows (see :attr:`apps.TvScale.handheld`).
 
 chiaki-ng streams in HDR on a device whose screen can show it (see :attr:`Device.hdr`).
+
+Each device also has a tag of its own (see :func:`tag`), which puts its apps' links, and so their shortcuts' app
+IDs, apart from another device's: Steam treats shortcuts with the same app ID on two devices of one account as one
+app, which it may then offer only to stream from the other device.
 """
 
 from __future__ import annotations
 
 import functools
+import hashlib
+import hmac
 import os
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 
 DMI = Path("/sys/class/dmi/id")
 VARIABLE = "NONSTEAMAPPS_DMI"
+MACHINE_ID = Path("/etc/machine-id")
+MACHINE_ID_VARIABLE = "NONSTEAMAPPS_MACHINE_ID"
+TAG_KEY = b"nonsteamapps device tag"
 VALVE = "Valve"
 STEAM_MACHINE = "Steam Machine"
 STEAM_DECK = "Steam Deck"
@@ -78,3 +88,17 @@ def detect(dmi: Path = DMI) -> Device:
 def current() -> Device:
     """This device, read once; ``NONSTEAMAPPS_DMI`` names another folder of DMI tables to read, as the tests do."""
     return detect(Path(os.environ.get(VARIABLE) or DMI))
+
+
+def device_tag(identity: str) -> str:
+    """Eight hexadecimal digits for the device ``identity`` names, from a hash keyed for NonSteamApps alone, as systemd asks
+    of a stable ID taken from its machine ID: the link's path, which holds it, reaches the account's other devices."""
+    return hmac.new(TAG_KEY, identity.encode("utf-8"), hashlib.sha256).hexdigest()[:8]
+
+
+def tag() -> str:
+    """This device's tag (see :func:`device_tag`), from systemd's machine ID, which is set once, as the system is
+    installed or first starts, so that NonSteamApps' reinstalls keep it, or from the host name where it cannot be read;
+    ``NONSTEAMAPPS_MACHINE_ID`` names another file to read the machine ID from, as the tests do."""
+    identity = _read(Path(os.environ.get(MACHINE_ID_VARIABLE) or MACHINE_ID))
+    return device_tag(identity or f"host:{socket.gethostname()}")

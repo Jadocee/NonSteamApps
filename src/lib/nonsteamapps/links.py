@@ -62,6 +62,17 @@ def sandbox_options(scripts: Path, pipe: Path, schemes: Sequence[str]) -> List[s
     ]
 
 
+def without_portal() -> List[str]:
+    """``flatpak run`` options for an app that opens links through the desktop portal, as Qt does in a Flatpak.
+
+    Without the session bus, the portal call fails and Qt runs ``xdg-open`` from ``PATH``, NonSteamApps' own. Qt
+    WebEngine's Chromium, in a Flatpak, starts its sandboxed processes through Flatpak's portal on that same bus,
+    and ends the whole app when it cannot, as chiaki-ng did once its PSN dialog made its web view; so Qt WebEngine
+    runs without Chromium's sandbox, still inside the app's Flatpak sandbox.
+    """
+    return ["--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"]
+
+
 def browser_environment(environ: Mapping[str, str], scripts: Path, pipe: Path, schemes: Sequence[str]) -> Dict[str, str]:
     """The Helium window's environment, in which the app's callbacks also reach NonSteamApps' ``xdg-open``.
 

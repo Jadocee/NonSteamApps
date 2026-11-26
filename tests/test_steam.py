@@ -336,6 +336,41 @@ class ShortcutTests(unittest.TestCase):
         self.assertFalse((grid / f"{result.appid}p.jpg").exists())
         self.assertIn("BottomLeft", (grid / f"{result.appid}.json").read_text())
 
+    def test_a_moved_shortcut_takes_the_new_links_app_id_with_its_name_and_artwork(self):
+        record = steam.ArtworkRecord(self.home / "artwork.json")
+        [old] = self.add(record=record)
+        grid = self.config / "grid"
+        (grid / f"{old.appid}p.png").unlink()
+        (grid / f"{old.appid}p.jpg").write_bytes(b"from SteamGridDB")
+        shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")
+        shortcuts.find(EXE)[0].set("AppName", "My Tube")
+        shortcuts.save()
+        here = dataclasses.replace(spec(), exe=str(Path(EXE).parent / "0a1b2c3d" / "youtube"))
+        self.assertEqual(steam.move_shortcut(self.root, [ACCOUNT, OTHER], [EXE], here, dry_run=True), [(ACCOUNT, old.appid, 0)])
+        self.assertTrue((grid / f"{old.appid}_hero.png").exists())
+        new = steam.shortcut_appid(f'"{here.exe}"', "My Tube")
+        self.assertNotEqual(new, old.appid)
+        self.assertEqual(steam.move_shortcut(self.root, [ACCOUNT, OTHER], [EXE], here, record), [(ACCOUNT, old.appid, new)])
+        [entry] = self.load_entries().values()
+        self.assertEqual((entry.get("Exe"), entry.get("AppName"), steam.to_unsigned32(entry.get("appid"))), (f'"{here.exe}"', "My Tube", new))
+        self.assertEqual(entry.get("icon"), str(grid / f"{new}_icon.png"))
+        self.assertEqual(sorted(path.name for path in grid.iterdir()),
+                         sorted([f"{new}p.jpg", f"{new}.png", f"{new}_hero.png", f"{new}_logo.png", f"{new}_icon.png", f"{new}.json"]))
+        self.assertEqual((grid / f"{new}p.jpg").read_bytes(), b"from SteamGridDB")
+        self.assertIn(str(grid / f"{new}_hero.png"), record.files)
+        self.assertNotIn(str(grid / f"{old.appid}_hero.png"), record.files)
+        self.assertFalse(record.custom(grid / f"{new}_hero.png"))
+        self.assertEqual(steam.move_shortcut(self.root, [ACCOUNT], [EXE], here, record), [])
+
+    def test_a_shortcut_already_on_the_new_link_wins_and_the_old_one_goes_with_its_artwork(self):
+        [old] = self.add()
+        here = dataclasses.replace(spec(), exe=str(Path(EXE).parent / "0a1b2c3d" / "youtube"))
+        [new] = self.add(spec=here)
+        self.assertEqual(steam.move_shortcut(self.root, [ACCOUNT], [EXE], here), [])
+        [entry] = self.load_entries().values()
+        self.assertEqual(steam.to_unsigned32(entry.get("appid")), new.appid)
+        self.assertFalse(any(path.name.startswith(str(old.appid)) for path in (self.config / "grid").iterdir()))
+
     def test_a_refresh_keeps_the_users_name_icon_and_options_but_not_the_overlay(self):
         [first] = self.add()
         shortcuts = steam.ShortcutsFile.load(self.config / "shortcuts.vdf")

@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import datetime
 import hashlib
 import io
@@ -16,7 +17,7 @@ import _fakes
 import _paths
 from _fakes import ALPHA, BETA
 from nonsteamapps import (
-    __version__, apps, artwork, browser, cli, collection, compat, config, desktop, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf,
+    __version__, apps, artwork, browser, cli, collection, compat, config, desktop, device, lichii, nx2, presence, remote, selfupdate, steam, ui, vdf,
 )
 
 PSN_LOGIN = ("https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize?service_entity=urn:service-entity:psn&response_type=code"
@@ -871,44 +872,119 @@ class LaunchTests(CliTestCase):
         self.assertEqual(self.run_cli("launch", "--steam-account", "1"), 1)
 
 
-class CollectionTests(CliTestCase):
+class CollectionCase(CliTestCase):
     def storage(self, account):
         return collection.storage_file(self.root, account)
 
-    def test_every_app_goes_in_its_own_collection_in_every_account(self):
+    def stored(self, account, ident=None):
+        return {key: value for key, value in json.loads(self.storage(account).read_text())}[f"user-collections.{ident or cli._collection_id()}"]
+
+
+class CollectionTests(CollectionCase):
+
+    def test_every_app_goes_in_this_devices_own_collection_in_every_account(self):
         self.install()
+        label = f"NonSteamApps ({device.current().name})"
+        self.assertEqual(cli._collection_id(), f"nonsteamapps-{device.device_tag('5ca1ab1e0ddba11d0e5f00d5ca1ab1e0')}")
         for account in (ALPHA, BETA):
             appids = sorted(steam.to_unsigned32(entry.get("appid")) for entry in self.entries(account).values())
-            self.assertEqual(sorted(collection.members(self.storage(account))), appids)
+            self.assertEqual(sorted(collection.members(self.storage(account), cli._collection_id())), appids)
+            self.assertEqual(json.loads(self.stored(account)["value"])["name"], label)
             stored = {key: value for key, value in json.loads(self.storage(account).read_text())}
-            self.assertEqual(json.loads(stored[collection.KEY]["value"])["name"], "NonSteamApps")
             for key, original in _fakes.USER_COLLECTIONS:
                 self.assertEqual(stored[key], original)
+            self.assertNotIn("user-collections.nonsteamapps", stored)
         self.assertIn('Put YouTube (VacuumTube), ', self.errors)
-        self.assertIn('in the "NonSteamApps" collection', self.errors)
+        self.assertIn(f'in the "{label}" collection', self.errors)
         youtube = steam.to_unsigned32(self.entries(ALPHA)["YouTube"].get("appid"))
         self.assertEqual(self.run_cli("remove", "youtube", "--yes"), 0, self.errors)
-        self.assertNotIn(youtube, collection.members(self.storage(ALPHA)))
+        self.assertNotIn(youtube, collection.members(self.storage(ALPHA), cli._collection_id()))
         self.assertEqual(self.run_cli("uninstall", "--yes"), 0, self.errors)
         for account in (ALPHA, BETA):
-            stored = {key: value for key, value in json.loads(self.storage(account).read_text())}
-            self.assertTrue(stored[collection.KEY]["is_deleted"])
+            self.assertTrue(self.stored(account)["is_deleted"])
 
     def test_the_setting_names_the_collection_or_turns_it_off(self):
         self.install("youtube")
         config.set_setting(self.paths.settings, cli.COLLECTION, "Living room")
         self.install()
-        stored = {key: value for key, value in json.loads(self.storage(ALPHA).read_text())}
-        self.assertEqual(json.loads(stored[collection.KEY]["value"])["name"], "Living room")
+        self.assertEqual(json.loads(self.stored(ALPHA)["value"])["name"], f"Living room ({device.current().name})")
         config.set_setting(self.paths.settings, cli.COLLECTION, "")
         self.install()
-        self.assertEqual(collection.members(self.storage(ALPHA)), [])
+        self.assertEqual(collection.members(self.storage(ALPHA), cli._collection_id()), [])
 
     def test_an_account_steam_has_not_set_up_is_reported(self):
         shutil.rmtree(steam.config_dir(self.root, BETA) / "cloudstorage")
         self.install("youtube")
         self.assertIn("Steam has not set up collections for P222 yet", self.errors)
-        self.assertEqual(len(collection.members(self.storage(ALPHA))), 1)
+        self.assertEqual(len(collection.members(self.storage(ALPHA), cli._collection_id())), 1)
+
+
+class SharedAppIdTests(CollectionCase):
+    """Installs from before 2.52.0, whose shortcuts had the same app IDs on every device."""
+
+    def share(self, *app_ids):
+        """Make the shortcuts of ``app_ids`` as NonSteamApps 2.51 made them on every device, in the collection all devices shared."""
+        old = {}
+        for app in cli._choose(list(app_ids)):
+            shared = self.paths.shared_app_link(app.id)
+            shared.symlink_to(os.path.relpath(self.paths.launcher, shared.parent))
+            spec = dataclasses.replace(cli._spec(self.paths, app), exe=str(shared))
+            for account, before, after in steam.move_shortcut(self.root, [ALPHA, BETA], [str(self.paths.app_link(app.id))], spec):
+                old.setdefault(account, []).append(after)
+        for account in (ALPHA, BETA):
+            path = collection.storage_file(self.root, account)
+            collection.delete(path, cli._collection_id())
+            collection.update(path, collection.SHARED_ID, "NonSteamApps", add=old[account])
+        return old
+
+    def appids(self, account):
+        return {name: steam.to_unsigned32(entry.get("appid")) for name, entry in self.entries(account).items()}
+
+    def test_an_update_gives_the_shortcuts_this_devices_own_app_ids_and_keeps_what_the_user_chose(self):
+        self.install("youtube", "chiaki")
+        old = self.share("youtube", "chiaki")
+        shortcuts = steam.ShortcutsFile.load(steam.config_dir(self.root, ALPHA) / "shortcuts.vdf")
+        shortcuts.find(str(self.paths.shared_app_link("youtube")))[0].set("AppName", "My Tube")
+        shortcuts.save()
+        grid = steam.config_dir(self.root, ALPHA) / "grid"
+        shared = self.appids(ALPHA)["My Tube"]
+        (grid / f"{shared}_hero.png").write_bytes(b"chosen in Steam")
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertIn(f"Gave this {device.current().name}'s shortcuts app IDs of their own, so that Steam plays them here", self.errors)
+        for account in (ALPHA, BETA):
+            entries = self.entries(account)
+            self.assertEqual({str(entry.get("Exe")) for entry in entries.values()},
+                             {f'"{self.paths.app_link("youtube")}"', f'"{self.paths.app_link("chiaki")}"'})
+            for name, appid in self.appids(account).items():
+                self.assertEqual(appid, steam.shortcut_appid(str(entries[name].get("Exe")), name))
+                self.assertNotIn(appid, old[account])
+            self.assertEqual(sorted(collection.members(self.storage(account), cli._collection_id())), sorted(self.appids(account).values()))
+            self.assertTrue(self.stored(account, collection.SHARED_ID)["is_deleted"])
+        new = self.appids(ALPHA)["My Tube"]
+        self.assertEqual((grid / f"{new}_hero.png").read_bytes(), b"chosen in Steam")
+        self.assertFalse(any(path.name.startswith(str(shared)) for path in grid.iterdir()))
+        self.assertTrue(self.paths.app_link("youtube").is_symlink())
+        self.assertEqual(self.run_cli("update", "--yes", "--no-restart-steam"), 0, self.errors)
+        self.assertNotIn("app IDs of their own", self.errors)
+        self.assertEqual(self.appids(ALPHA)["My Tube"], new)
+
+    def test_shortcuts_on_the_shared_link_are_found_removed_and_shown_until_then(self):
+        self.install("youtube")
+        old = self.share("youtube")
+        self.assertEqual(self.run_cli("steam", "status", "youtube"), 0, self.errors)
+        self.assertIn(f'present "YouTube" (app ID {old[ALPHA][0]})', self.output)
+        self.assertEqual(self.run_cli("remove", "youtube", "--yes"), 0, self.errors)
+        self.assertEqual(self.entries(ALPHA), {})
+        self.assertEqual(collection.members(self.storage(ALPHA), collection.SHARED_ID), [])
+        self.assertFalse(self.paths.shared_app_link("youtube").is_symlink())
+
+    def test_a_new_install_or_steam_add_moves_them_too(self):
+        self.install("youtube")
+        old = self.share("youtube")
+        self.assertEqual(self.run_cli("steam", "add", "youtube"), 0, self.errors)
+        [appid] = self.appids(ALPHA).values()
+        self.assertNotEqual(appid, old[ALPHA][0])
+        self.assertEqual(collection.members(self.storage(ALPHA), cli._collection_id()), [appid])
 
 
 class FirewallTests(CliTestCase):
@@ -2423,6 +2499,7 @@ class SignInTests(CliTestCase):
         self.assertEqual(status, 0, output)
         [app] = self.fake.calls("run")
         self.assertIn("--no-session-bus", app)
+        self.assertIn("--env=QTWEBENGINE_DISABLE_SANDBOX=1", app)
         self.assertIn(f"--env=PATH={self.paths.program / 'share' / 'sandbox'}:/app/bin:/usr/bin", app)
         profile = self.paths.profile("helium", ALPHA)
         self.assertEqual(arguments[:2], ["--remote-debugging-pipe", f"--user-data-dir={profile}"])
@@ -2449,11 +2526,11 @@ class SignInTests(CliTestCase):
         for app_id in ("element", "chiaki"):
             argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
             self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
-            self.assertNotIn("--no-session-bus", argv)
+            self.assertFalse({"--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"} & set(argv))
             with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "gamescope"}):
                 argv, _ = self.launch(app_id, "--steam-account", str(ALPHA))
             self.assertFalse(any("NONSTEAMAPPS" in argument for argument in argv))
-            self.assertNotIn("--no-session-bus", argv)
+            self.assertFalse({"--no-session-bus", "--env=QTWEBENGINE_DISABLE_SANDBOX=1"} & set(argv))
 
 
 if __name__ == "__main__":

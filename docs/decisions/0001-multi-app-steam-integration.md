@@ -1087,6 +1087,7 @@ The owner answered the open questions. Where these answers differ from the text 
       - Both `passwd -S` and `faillock --user` answer the account itself, without root.
     - **The change:** the firewall and polkit steps check the account first (`account.py`). With a locked password, or while a lockout lasts, they skip the step and say why and for how many more minutes, instead of a prompt nothing can answer. Their questions name the account, and a refusal by sudo says whose password it wants, the one set with `passwd` rather than Steam's, and how the lockout works. `nonsteamapps doctor` shows the account on a **sudo** line. Stand-ins for `passwd` and `faillock` keep the tests and the sandbox off the real accounts.
     - **Not verified:** on the owner's Steam Machine, which of these refused their password. The tests cover the lockout's settings and arithmetic, a locked, empty and set password, sudo's refusals told from a command's own failure, and the steps and the doctor line in each case.
+    - **Checks**, all passing: lint, the unit tests on Python 3.14 and on Python 3.8, and the sandbox, on Ubuntu 26.04.1; and the unit tests and the sandbox on SteamOS 3.9 and on SteamOS 3.10. The artwork, keyring, Flathub and real-install checks cover nothing this changes, and were not run again.
 
 Still open: Maximum Game Resolution (the rest of migration phase 4).
 

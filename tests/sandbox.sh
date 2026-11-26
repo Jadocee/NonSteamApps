@@ -18,6 +18,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 run() {
     env -i HOME="$HOME_DIR" PATH="$WORK/bin:$PATH" USER=deck LANG=C.UTF-8 NO_COLOR=1 NONSTEAMAPPS_ALLOW_ROOT=1 NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-machine" \
+        NONSTEAMAPPS_MACHINE_ID="$ROOT/tests/fakes/machine-id" \
         NONSTEAMAPPS_POLKIT_ROOT="$WORK/polkit" \
         FAKE_FLATPAK_STATE="$WORK/flatpak.json" FAKE_FLATPAK_LOG="$WORK/flatpak.log" FAKE_HELIUM_LOG="$WORK/helium.log" \
         FAKE_FIREWALL_STATE="$WORK/firewall.json" FAKE_HELIUM_ENV_LOG="$WORK/helium-env.log" FAKE_DOLPHIN_LOG="$WORK/dolphin.log" \
@@ -136,7 +137,8 @@ LICHII_APPIMAGE=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _
 NX2_COMMIT=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes; print(_fakes.NX2_COMMIT)' "$ROOT/tests")
 NX2_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import nx2; print(nx2.APP_ID)' "$ROOT/src/lib")
 TEMPLATES=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; import _fakes, pathlib; print(_fakes.add_controller_templates(pathlib.Path(sys.argv[2])))' "$ROOT/tests" "$STEAM")
-YOUTUBE_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import steam; print(steam.shortcut_appid(steam.quote(sys.argv[2]), "YouTube"))' "$ROOT/src/lib" "$PROGRAM/apps/youtube")
+LINKS="$PROGRAM/apps/$(NONSTEAMAPPS_MACHINE_ID="$ROOT/tests/fakes/machine-id" python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import device; print(device.tag())' "$ROOT/src/lib")"
+YOUTUBE_ID=$(python3 -c 'import sys; sys.path[:0] = [sys.argv[1]]; from nonsteamapps import steam; print(steam.shortcut_appid(steam.quote(sys.argv[2]), "YouTube"))' "$ROOT/src/lib" "$LINKS/youtube")
 printf '%s\n' '"InstallConfigStore"' '{' '"Software"' '{' '"Valve"' '{' '"Steam"' '{' '"CompatToolMapping"' '{' \
     "\"$YOUTUBE_ID\" { \"name\" \"proton_experimental\" \"config\" \"\" \"priority\" \"250\" }" \
     '"1245620" { "name" "proton_9" "config" "" "priority" "250" }' '}' '}' '}' '}' '}' >"$STEAM/config/config.vdf"
@@ -158,6 +160,7 @@ run "$ROOT/install.sh" --yes --no-auto-update --helium-archive "$HELIUM_ARCHIVE"
 everything="Bitwarden Bottles Discord Disney+ Eden Eden-NX2 Element Files GG.deals HBO Max Helium IsThereAnyDeal Jellyfin KytyPS5 Lichii LocalSend Netflix Nexus Mods OpenCritic Prime Video Prism Launcher Proton Calendar Proton Mail ProtonDB ProtonUp-Qt Protontricks Signal Steam Ladder SteamDB VLC Winetricks YouTube chiaki-ng"
 check "the install named the device it set the apps up for" grep -qF "for this Steam Machine" "$WORK/install.log"
 check "every app has a link to the launcher" test "$(find "$PROGRAM/apps" -type l | wc -l)" -eq 33
+check "the links are this device's own, and so are the shortcuts' app IDs" test "$(find "$LINKS" -type l | wc -l)" -eq 33
 check "both accounts list every app" test "$(shortcut_names 111)|$(shortcut_names 222)" == "$everything|$everything"
 check "the artwork was copied" test "$(find "$STEAM/userdata/222/config/grid" -name '*_hero.jpg' | wc -l)" -eq 33
 check "Helium was unpacked and made current" test -x "$PROGRAM/helium/current/helium-wrapper"
@@ -197,8 +200,8 @@ check "Bitwarden's polkit action was added, through sudo, for unlocking with the
 
 echo "==> launch through the link Steam runs"
 : >"$WORK/flatpak.log"
-run "$PROGRAM/apps/jellyfin" --steam-account 222 --verbose >/dev/null
-run "$PROGRAM/apps/youtube" --steam-account 222
+run "$LINKS/jellyfin" --steam-account 222 --verbose >/dev/null
+run "$LINKS/youtube" --steam-account 222
 check "Jellyfin's profile for the account was created first" grep -qF '["run", "org.jellyfin.JellyfinDesktop", "--create-profile", "steam-222"]' "$WORK/flatpak.log"
 check "Jellyfin started with that profile" grep -qF '"--tv", "--fullscreen", "--profile=steam-222"]' "$WORK/flatpak.log"
 check "VacuumTube started with the account's folder" grep -qF "\"--portable=$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222\"]" "$WORK/flatpak.log"
@@ -207,25 +210,25 @@ check "VacuumTube's folder records the settings changes" test "$(json_value "$HO
 check "VacuumTube got the SteamOS theme, with its userstyles on" test -f "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/userstyles/nonsteamapps-steamos.css" -a "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" userstyles)" == true
 check "VacuumTube skips self-promotion and end cards" test "$(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_selfpromo) $(json_value "$HOME_DIR/.var/app/rocks.shy.VacuumTube/config/VacuumTube-steam-222/config.json" sponsorblock_skip_outro)" == "true true"
 check "the launch was logged" grep -q 'starting YouTube (VacuumTube) for Steam account 222' "$HOME_DIR/.local/state/nonsteamapps/youtube.log"
-run "$PROGRAM/apps/element" --steam-account 222
+run "$LINKS/element" --steam-account 222
 check "Element's new profile quits when its window closes, without asking, and hides its menu bar" \
     test "$(grep -cE '"(minimizeToTray|warnBeforeExit)": false|"autoHideMenuBar": true' "$HOME_DIR/.var/app/im.riot.Riot/config/Element-steam-222/electron-config.json")" -eq 3
 check "Element moves with the arrow keys by what is on screen" grep -qF '"--storage-mode=allow-plaintext", "--enable-spatial-navigation", "--profile=steam-222"' "$WORK/flatpak.log"
-run "$PROGRAM/apps/signal" --steam-account 222
+run "$LINKS/signal" --steam-account 222
 check "Signal started its own script with the account's folder and spatial navigation" grep -qF "[\"run\", \"--command=env\", \"org.signal.Signal\", \"XDG_CONFIG_HOME=$HOME_DIR/.var/app/org.signal.Signal/config/Signal-steam-222\", \"SIGNAL_PASSWORD_STORE=basic\", \"signal-desktop\", \"--enable-spatial-navigation\"]" "$WORK/flatpak.log"
 run env LD_PRELOAD="$STEAM/ubuntu12_64/gameoverlayrenderer.so" LD_LIBRARY_PATH="$STEAM/ubuntu12_32/steam-runtime/lib" \
-    SYSTEM_LD_LIBRARY_PATH= "$PROGRAM/apps/primevideo" --steam-account 222 2>/dev/null
+    SYSTEM_LD_LIBRARY_PATH= "$LINKS/primevideo" --steam-account 222 2>/dev/null
 check "Helium started without Steam's overlay library" grep -qxF "<unset>" "$WORK/helium-env.log"
 check "Prime Video started full screen in its own Helium profile" grep -qF "[\"--user-data-dir=$PROGRAM/profiles/primevideo/222\"" "$WORK/helium.log"
 check "Prime Video opened its site in a kiosk" grep -qE '"--kiosk".*"https://www.primevideo.com/"\]$' "$WORK/helium.log"
 check "the profile shares Helium's Widevine folder" test "$(readlink -f "$PROGRAM/profiles/primevideo/222/WidevineCdm")" == "$(readlink -f "$PROGRAM/helium/WidevineCdm")"
 PRISM="$HOME_DIR/.var/app/org.prismlauncher.PrismLauncher/data"
-run "$PROGRAM/apps/prism" --steam-account 222
+run "$LINKS/prism" --steam-account 222
 check "Prism Launcher started with the account's folder" grep -qF "[\"run\", \"org.prismlauncher.PrismLauncher\", \"--dir=$PRISM/PrismLauncher-steam-222\"]" "$WORK/flatpak.log"
 check "Prism Launcher starts dark and quits after the game" grep -qxF "QuitAfterGameStop=true" "$PRISM/PrismLauncher-steam-222/prismlauncher.cfg"
 check "Prism Launcher shares Minecraft's downloads" test "$(readlink "$PRISM/PrismLauncher-steam-222/assets")" == "../PrismLauncher/assets"
 EDEN="$HOME_DIR/.var/app/dev.eden_emu.eden/data"
-run "$PROGRAM/apps/eden" --steam-account 222
+run "$LINKS/eden" --steam-account 222
 check "Eden started full screen, portable and on X11, in the account's folder, with its games folder" grep -qF "[\"run\", \"--cwd=$EDEN/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"dev.eden_emu.eden\", \"-f\"]" "$WORK/flatpak.log"
 check "Eden lists ~/Games/Switch among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 check "Eden starts dark, with Steam's controller mapped" grep -qxF 'player_0_button_a="engine:sdl,port:0,guid:03000000de280000ff11000001000000,button:1"' "$EDEN/eden-steam-222/user/config/qt-config.ini"
@@ -233,40 +236,40 @@ check "Eden shares the keys, firmware and installed games" test "$(readlink "$ED
 check "Eden runs on Vulkan, on the first graphics chip" grep -qxF "backend=1" "$EDEN/eden-steam-222/user/config/qt-config.ini"
 printf 'header_key = 00\n' > "$EDEN/eden/keys/prod.keys"
 NX2="$HOME_DIR/.var/app/$NX2_ID/data"
-run "$PROGRAM/apps/edennx2" --steam-account 222
+run "$LINKS/edennx2" --steam-account 222
 check "Eden-NX2 started as Eden does, from its own Flatpak, with its own games folder" grep -qF "[\"run\", \"--cwd=$NX2/eden-steam-222\", \"--filesystem=$HOME_DIR/Games/Switch2:ro\", \"--socket=x11\", \"--nosocket=fallback-x11\", \"--env=QT_QPA_PLATFORM=xcb\", \"$NX2_ID\", \"-f\"]" "$WORK/flatpak.log"
 check "Eden-NX2 lists ~/Games/Switch2 among its game folders" grep -qxF "Paths\\gamedirs\\4\\path=$HOME_DIR/Games/Switch2" "$NX2/eden-steam-222/user/config/qt-config.ini"
 check "Eden-NX2 took the keys installed in Eden, so it does not ask for them" cmp -s "$EDEN/eden/keys/prod.keys" "$NX2/eden-steam-222/user/keys/prod.keys"
 check "Eden-NX2 runs on Vulkan" grep -qxF "backend=1" "$NX2/eden-steam-222/user/config/qt-config.ini"
 check "Eden-NX2 keeps ASTC textures as BC3, decoded on the graphics chip" grep -qxF "astc_recompression=2" "$NX2/eden-steam-222/user/config/qt-config.ini"
-run "$PROGRAM/apps/files" --steam-account 222
+run "$LINKS/files" --steam-account 222
 check "Files started the system's Dolphin in a new window" grep -qxF "args: --new-window" "$WORK/dolphin.log"
 check "Dolphin read its TV profile, over the desktop's settings" grep -qxF "XDG_CONFIG_HOME=$PROGRAM/profiles/files/shared/config" "$WORK/dolphin.log"
 check "the TV profile starts without the menu bar" grep -qxF "MenuBar=Disabled" "$PROGRAM/profiles/files/shared/config/dolphinrc"
-run "$PROGRAM/apps/bitwarden" --steam-account 222
+run "$LINKS/bitwarden" --steam-account 222
 BITWARDEN="$HOME_DIR/.var/app/com.bitwarden.desktop/config/Bitwarden-steam-222"
 check "Bitwarden started with the account's folder, its tokens on disk and spatial navigation" grep -qF "[\"run\", \"--env=BITWARDEN_APPDATA_DIR=$BITWARDEN\", \"--env=ACCESS_TOKEN_LOCATION=DISK\", \"com.bitwarden.desktop\", \"--enable-spatial-navigation\"]" "$WORK/flatpak.log"
 check "Bitwarden quits when its window closes" test "$(json_value "$BITWARDEN/data.json" global_desktopSettings_runInBackground)" == "false"
-run "$PROGRAM/apps/localsend" --steam-account 222
+run "$LINKS/localsend" --steam-account 222
 check "LocalSend starts dark, in its OLED colours" test "$(json_value "$HOME_DIR/.var/app/org.localsend.localsend_app/data/org.localsend.localsend_app/shared_preferences.json" flutter.ls_color)" == '"oled"'
-run "$PROGRAM/apps/protonup" --steam-account 222
+run "$LINKS/protonup" --steam-account 222
 check "ProtonUp-Qt started without its own gamepad input and with every Steam library" grep -qF "[\"run\", \"--env=PUPGUI2_DISABLE_GAMEPAD=1\", \"--filesystem=$STEAM\", \"--filesystem=$WORK/sdcard\", \"net.davidotek.pupgui2\"]" "$WORK/flatpak.log"
 check "ProtonUp-Qt starts in the Steam Deck theme" grep -qxF "theme=steam" "$HOME_DIR/.var/app/net.davidotek.pupgui2/config/pupgui/config.ini"
-run "$PROGRAM/apps/protontricks" --steam-account 222
+run "$LINKS/protontricks" --steam-account 222
 check "Protontricks opened its game picker with the SD card's library" grep -qF "\"--filesystem=$WORK/sdcard\", \"com.github.Matoking.protontricks\", \"--no-term\", \"--gui\"]" "$WORK/flatpak.log"
-run "$PROGRAM/apps/winetricks" --steam-account 222
+run "$LINKS/winetricks" --steam-account 222
 check "Winetricks opened its menu in Flathub's Wine" grep -qF '["run", "--command=winetricks", "org.winehq.Wine"]' "$WORK/flatpak.log"
 CHIAKI_CONFIG="$HOME_DIR/.var/app/io.github.streetpea.Chiaki4deck/config/Chiaki"
-run "$PROGRAM/apps/chiaki" --steam-account 222
+run "$LINKS/chiaki" --steam-account 222
 check "chiaki-ng started with the account's own profile" grep -qF '["run", "io.github.streetpea.Chiaki4deck", "--profile=steam-222"]' "$WORK/flatpak.log"
 check "chiaki-ng's new profile offers no Steam shortcut of its own and has the guide's settings, in HDR on a Steam Machine" \
     test "$(grep -cxE 'add_steam_shortcut_ask=false|suspend_action=sleep|bitrate_local_ps5=30000|codec_(local|remote)_ps5=h265_hdr' "$CHIAKI_CONFIG/Chiaki-steam-222.conf")" -eq 5
-run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/chiaki" --steam-account 111
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$LINKS/chiaki" --steam-account 111
 check "on a Steam Deck with an LCD, chiaki-ng's new profile streams in SDR" \
     test "$(grep -cxE 'codec_(local|remote)_ps5=h265|suspend_action=sleep' "$CHIAKI_CONFIG/Chiaki-steam-111.conf")" -eq 3
 
 HELIUM_PROFILE="$PROGRAM/profiles/helium/111"
-run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$PROGRAM/apps/helium" --steam-account 111
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" "$LINKS/helium" --steam-account 111
 check "on a Steam Deck, the Helium browser's new profile starts with Spacious controls" \
     test "$(json_value "$HELIUM_PROFILE/Local State" helium)" == '{"crash_reporting": {"mode": -1}, "browser": {"ui_density": 1}}'
 check "on a Steam Deck, Helium's pages get overlay scrollbars" test "$(tail -n 1 "$WORK/helium.log" | grep -cF "OverlayScrollbar:mode/overlay")" -eq 1
@@ -278,14 +281,14 @@ check "so does it in Helium's own folder, which Desktop Mode's menu starts" \
     test "$(json_value "$HOME_DIR/.config/net.imput.helium/NativeMessagingHosts/com.8bit.bitwarden.json" path)" == "\"$PROGRAM/share/bitwarden/desktop-proxy\""
 
 KYTY_HOME="$PROGRAM/profiles/kytyps5/222"
-run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 222
+run env FAKE_KYTY_PLAY=/games/PPSA00000 timeout 30 "$LINKS/kytyps5" --steam-account 222
 check "KytyPS5's launcher started in the account's folder" grep -qF "\"cwd\": \"$KYTY_HOME\", \"folder\": \"$KYTY_HOME\"" "$WORK/kyty.log"
 check "KytyPS5's own updater is off" grep -qxF "check_updates_on_startup=false" "$KYTY_HOME/Kyty.ini"
 check "KytyPS5 started with a games folder, so it asks for none" grep -qxF "game_dirs=$HOME_DIR/Games/PS5" "$KYTY_HOME/Kyty.ini"
 check "KytyPS5's launcher starts dark, with its games in a grid" test "$(grep -cxE 'theme=1|grid_view=true' "$KYTY_HOME/Kyty.ini")" -eq 2
 check "KytyPS5 maps View to the touchpad for Steam's gamepad" grep -qF '"Pad:TouchPad=Touchpad", "Pad:TouchPadRight=Back"' "$KYTY_HOME/Kyty.ini"
 check "KytyPS5's games render at 1080p" grep -qxF "screen_resolution=1920x1080" "$KYTY_HOME/Kyty.ini"
-run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" timeout 30 "$PROGRAM/apps/kytyps5" --steam-account 111
+run env NONSTEAMAPPS_DMI="$ROOT/tests/fakes/dmi/steam-deck" timeout 30 "$LINKS/kytyps5" --steam-account 111
 check "on a Steam Deck, KytyPS5 keeps its own resolution and still maps Steam's gamepad" \
     test "$(grep -c '^screen_resolution=' "$PROGRAM/profiles/kytyps5/111/Kyty.ini")|$(grep -c 'Pad:Cross=South' "$PROGRAM/profiles/kytyps5/111/Kyty.ini")" == "0|1"
 check "the game ran through NonSteamApps' stand-in terminal, which waited for no key" grep -qF '{"emulator": ["--game", "/games/PPSA00000"]' "$WORK/kyty.log"
@@ -297,7 +300,7 @@ echo "header_key = 00" >"$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/keys/pro
 EDEN_FIRMWARE="$HOME_DIR/.var/app/dev.eden_emu.eden/data/eden/nand/system/Contents/registered"
 mkdir -p "$EDEN_FIRMWARE"
 echo "firmware" >"$EDEN_FIRMWARE/0123456789abcdef0123456789abcdef.nca"
-run "$PROGRAM/apps/lichii" --steam-account 222
+run "$LINKS/lichii" --steam-account 222
 check "Lichii's AppImage started full screen, in the account's folder, on X11" grep -qF "{\"argv\": [\"-f\"], \"cwd\": \"$LICHII_HOME\", \"portable\": true, \"env\": {\"QT_QPA_PLATFORM\": \"xcb\"" "$WORK/lichii.log"
 check "Lichii's own update check is off" grep -qxF "check_for_updates=false" "$LICHII_HOME/user/config/qt-config.ini"
 check "Lichii runs on Vulkan, with ASTC textures kept as BC3" test "$(grep -cxE 'backend=1|astc_recompression=2' "$LICHII_HOME/user/config/qt-config.ini")" -eq 2

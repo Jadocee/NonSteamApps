@@ -55,5 +55,36 @@ class DetectTests(unittest.TestCase):
         device.current()
 
 
+
+class TagTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.machine_id = Path(self.tmp.name) / "machine-id"
+
+    def tag(self, content=None):
+        if content is None:
+            self.machine_id.unlink(missing_ok=True)
+        else:
+            self.machine_id.write_text(content)
+        with mock.patch.dict(os.environ, {device.MACHINE_ID_VARIABLE: str(self.machine_id)}):
+            return device.tag()
+
+    def test_each_device_gets_a_tag_of_its_own_from_its_machine_id_without_showing_it(self):
+        machine = self.tag("5ca1ab1e0ddba11d0e5f00d5ca1ab1e0\n")
+        deck = self.tag("0ddba11d5ca1ab1e0ddba11d5ca1ab1e\n")
+        self.assertRegex(machine, r"\A[0-9a-f]{8}\Z")
+        self.assertNotEqual(machine, deck)
+        self.assertEqual(self.tag("5ca1ab1e0ddba11d0e5f00d5ca1ab1e0"), machine)
+        self.assertNotIn(machine, "5ca1ab1e0ddba11d0e5f00d5ca1ab1e0")
+
+    def test_without_a_machine_id_the_host_name_tells_the_device_apart(self):
+        with mock.patch("socket.gethostname", return_value="steamdeck"):
+            self.assertEqual(self.tag(), device.device_tag("host:steamdeck"))
+            self.assertEqual(self.tag(""), device.device_tag("host:steamdeck"))
+        with mock.patch("socket.gethostname", return_value="steammachine"):
+            self.assertNotEqual(self.tag(), device.device_tag("host:steamdeck"))
+
+
 if __name__ == "__main__":
     unittest.main()

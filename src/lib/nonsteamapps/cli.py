@@ -294,6 +294,25 @@ def _collection_name(paths: Paths) -> str:
     return config.read_settings(paths.settings).get(COLLECTION, DEFAULT_COLLECTION).strip()
 
 
+def _collection_id() -> str:
+    """This device's collection (see :mod:`collection`)."""
+    return collection.collection_id(device.tag())
+
+
+def _collection_label(name: str) -> str:
+    """The name this device's collection shows: ``name`` and the device's, as Steam Cloud shows each device's collection on all of them."""
+    return f"{name} ({device.current().name})"
+
+
+def _exes(paths: Paths, app: App) -> List[str]:
+    """What the app's shortcuts run: its link on this device, and the link every device shared before 2.52.0."""
+    return [str(paths.app_link(app.id)), str(paths.shared_app_link(app.id))]
+
+
+def _shortcuts(root: Path, accounts: Sequence[int], paths: Paths, app: App) -> List[steam.ShortcutResult]:
+    return [result for exe in _exes(paths, app) for result in steam.shortcut_status(root, accounts, exe)]
+
+
 Work = Tuple[App, steam.ShortcutSpec, Dict[str, Path], steam.LogoPosition]
 
 
@@ -419,7 +438,9 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
     work: List[Work] = [
         (app, _spec(paths, app), _artwork(paths, app), steam.LogoPosition.parse(app.logo_position)) for app in chosen
     ]
-    if not overwrite and not _library_changes(root, accounts, work, found_layouts, record):
+    shared = {app.id: [str(paths.shared_app_link(app.id))] for app in chosen}
+    moving = any(steam.move_shortcut(root, accounts, shared[app.id], spec, dry_run=True) for app, spec, _, _ in work)
+    if not overwrite and not moving and not _library_changes(root, accounts, work, found_layouts, record):
         for app, spec, art, logo in work:
             steam.add_shortcut(root, accounts, spec, art, logo, overwrite=False, record=record, create=False, save=False)
         record.save()
@@ -427,12 +448,18 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
         return
     ui.log(f"Adding {_listing(chosen)} to your Steam library" if overwrite else f"Refreshing {_listing(chosen)} in your Steam library")
     added: Dict[int, List[int]] = {}
+    moved: Dict[int, List[int]] = {}
+    retired: List[int] = []
     owners: Dict[int, App] = {}
     native: Dict[int, str] = {}
     waiting: List[str] = []
     name = _collection_name(paths)
+    ident = _collection_id()
     with steamclient.closed(f"{paths.launcher} {'steam add' if overwrite else 'update'}", restart):
         for app, spec, art, logo in work:
+            for account, before, after in steam.move_shortcut(root, accounts, shared[app.id], spec, record):
+                moved.setdefault(account, []).append(after)
+                retired.append(before)
             for result in steam.add_shortcut(root, accounts, spec, art, logo, overwrite=overwrite, record=record, create=overwrite):
                 if overwrite or result.changed:
                     ui.ok(_report(result, "added" if result.created else "updated", names))
@@ -440,23 +467,29 @@ def steam_add(paths: Paths, chosen: Sequence[App], user: str = "all", restart: b
                 owners[result.appid] = app
                 if app.controller:
                     controllers.assign(root, result.account, result.name, found_layouts[app.controller], force=overwrite)
-        if overwrite:
-            for account, appids in added.items():
-                path = collection.storage_file(root, account)
-                if path is None:
-                    waiting.append(names.get(account, str(account)))
-                elif name:
-                    collection.update(path, name, add=appids)
-                else:
-                    collection.delete(path)
+        for account in sorted(set(added) | set(moved) if overwrite else set(moved)):
+            path = collection.storage_file(root, account)
+            if path is None:
+                waiting.append(names.get(account, str(account)))
+                continue
+            if moved.get(account):
+                collection.delete(path, collection.SHARED_ID)
+            if name:
+                collection.update(path, ident, _collection_label(name), add=added.get(account, []) if overwrite else moved[account])
+            else:
+                collection.delete(path, ident)
         native = compat.clear(root, owners)
+        compat.clear(root, retired, everything=True)
     record.save()
     for appid, tool in sorted(native.items()):
         ui.ok(f"{owners[appid].name} no longer forces the Steam Play tool {tool}: like every NonSteamApps app, it runs natively")
+    if moved:
+        ui.ok(f"Gave this {device.current().name}'s shortcuts app IDs of their own, so that Steam plays them here rather than offering to "
+              f"stream them from another device of the account")
     if not overwrite:
         return
     if name and len(waiting) < len(added):
-        ui.ok(f'Put {_listing(chosen)} in the "{name}" collection')
+        ui.ok(f'Put {_listing(chosen)} in the "{_collection_label(name)}" collection')
     if name and waiting:
         ui.info(f"Steam has not set up collections for {', '.join(waiting)} yet; open Steam with that account once, then run: {paths.launcher} steam add")
     for title, found in found_layouts.items():
@@ -471,7 +504,7 @@ def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart
     if root is None:
         return
     accounts = steam.select_accounts(root, user)
-    present = [app for app in chosen if steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))]
+    present = [app for app in chosen if _shortcuts(root, accounts, paths, app)]
     if not present:
         return
     names = steam.account_names(root)
@@ -479,19 +512,20 @@ def steam_remove(paths: Paths, chosen: Sequence[App], user: str = "all", restart
     removed: Dict[str, List[int]] = {}
     with steamclient.closed(f"{paths.launcher} steam remove", restart):
         for app in present:
-            for result in steam.remove_shortcut(root, accounts, str(paths.app_link(app.id))):
+            for result in (result for exe in _exes(paths, app) for result in steam.remove_shortcut(root, accounts, exe)):
                 ui.ok(_report(result, "removed", names))
                 removed.setdefault(app.id, []).append(result.appid)
                 path = collection.storage_file(root, result.account)
                 if path is not None:
-                    collection.update(path, name, remove=[result.appid])
+                    collection.update(path, _collection_id(), _collection_label(name), remove=[result.appid])
+                    collection.update(path, collection.SHARED_ID, name, remove=[result.appid])
                 if app.controller:
                     controllers.release(root, result.account, result.name)
-        gone = [app for app in present if not steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id)))]
+        gone = [app for app in present if not _shortcuts(root, steam.account_ids(root), paths, app)]
         compat.clear(root, [appid for app in gone for appid in removed.get(app.id, [])], everything=True)
         for layout in layouts.used_by(app.controller for app in present):
             users = [app for app in apps.APPS if app.controller == layout.title]
-            if not any(steam.shortcut_status(root, steam.account_ids(root), str(paths.app_link(app.id))) for app in users):
+            if not any(_shortcuts(root, steam.account_ids(root), paths, app) for app in users):
                 layouts.remove(root, layout)
 
 
@@ -807,7 +841,8 @@ def cmd_remove(args, paths: Paths, flatpak: Flatpak) -> int:
     steam_remove(paths, chosen, "all", args.restart_steam)
     remaining = [app for app in _managed(record) if app not in chosen]
     for app in chosen:
-        paths.app_link(app.id).unlink(missing_ok=True)
+        for link in (paths.app_link(app.id), paths.shared_app_link(app.id)):
+            link.unlink(missing_ok=True)
         _remove_from_desktop(paths, app)
         _studio(paths).forget(app.id)
         if args.purge:
@@ -1639,7 +1674,7 @@ def cmd_steam(args, paths: Paths, flatpak: Flatpak) -> int:
         accounts = steam.select_accounts(root, args.user or "all")
         names = steam.account_names(root)
         for app in chosen:
-            results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
+            results = _shortcuts(root, accounts, paths, app)
             for result in results:
                 print(_report(result, "present", names))
             if not results:
@@ -1780,7 +1815,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
             continue
         print(f"  {app.id:<10} {_describe(app, record, installed.get(app.flatpak), helium, build, built, appimage)}")
         if root:
-            results = steam.shortcut_status(root, accounts, str(paths.app_link(app.id)))
+            results = _shortcuts(root, accounts, paths, app)
             for result in results:
                 print(f"  {'':<10} {_report(result, 'in the library as', names)}")
             for tool in sorted(set(compat.forced(root, [result.appid for result in results]).values())):

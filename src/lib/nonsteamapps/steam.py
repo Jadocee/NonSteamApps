@@ -420,6 +420,11 @@ class ArtworkRecord:
         digest = _digest(Path(path).read_bytes())
         return digest != self.files.get(str(path)) and digest != wanted
 
+    def moved(self, old: Path, new: Path) -> None:
+        """Follow a file NonSteamApps wrote from ``old`` to ``new``."""
+        if str(old) in self.files:
+            self.files[str(new)] = self.files.pop(str(old))
+
     def save(self) -> None:
         if self.path:
             atomic_write_json(self.path, {name: digest for name, digest in sorted(self.files.items()) if Path(name).is_file()})
@@ -477,6 +482,18 @@ def install_artwork(
             record.note(destination)
             installed["logo_position"] = destination
     return installed
+
+
+def move_artwork(grid_dir: Path, old: int, new: int, record: Optional[ArtworkRecord] = None) -> List[Path]:
+    """Give the artwork in ``grid_dir`` for the app ID ``old``, whoever chose it, the names Steam looks up for ``new``."""
+    moved = []
+    for source, destination in zip(artwork_targets(grid_dir, old), artwork_targets(grid_dir, new)):
+        if source.is_file():
+            os.replace(source, destination)
+            if record is not None:
+                record.moved(source, destination)
+            moved.append(destination)
+    return moved
 
 
 def remove_artwork(grid_dir: Path, appid: int) -> List[Path]:
@@ -546,6 +563,52 @@ def add_shortcut(
         files = [] if dry_run else list(installed.values())
         results.append(ShortcutResult(account, appid, str(entry.get("AppName", spec.name)), created, files, changed))
     return results
+
+
+def move_shortcut(root: Path, accounts: Sequence[int], old: Sequence[str], spec: ShortcutSpec, record: Optional[ArtworkRecord] = None,
+                  backup: bool = True, dry_run: bool = False) -> List[Tuple[int, int, int]]:
+    """Point each account's shortcut whose executable is one of ``old`` at ``spec.exe``, under the app ID Steam derives
+    from it, with its artwork, so that it stays as it was but for the play time Steam counted under the old ID.
+
+    A name the user gave stays, and so does artwork chosen in Steam. Where the account already has a shortcut for
+    ``spec.exe``, or more than one for ``old``, the others go, with their artwork. Returns ``(account, old app ID,
+    new app ID)`` for each shortcut moved; ``dry_run`` changes nothing and returns 0 for the new IDs.
+    """
+    moved = []
+    for account in accounts:
+        directory = config_dir(root, account)
+        path = directory / "shortcuts.vdf"
+        if not path.exists():
+            continue
+        shortcuts = ShortcutsFile.load(path)
+        found = [entry for exe in old for entry in shortcuts.find(exe)]
+        if not found:
+            continue
+        if dry_run:
+            moved.extend((account, shortcuts.entry_appid(entry) or 0, 0) for entry in found)
+            continue
+        grid = directory / "grid"
+        keep = None if shortcuts.find(spec.exe) else found[0]
+        for entry in found:
+            before = shortcuts.entry_appid(entry)
+            if entry is not keep:
+                shortcuts._drop(entry)
+                if before is not None:
+                    remove_artwork(grid, before)
+                continue
+            after = shortcut_appid(quote(spec.exe), str(entry.get("AppName", spec.name)))
+            entry.set("Exe", quote(spec.exe))
+            entry.set("appid", to_signed32(after), vdf.INT32)
+            if before is not None:
+                icons = dict(zip(map(str, artwork_targets(grid, before)), map(str, artwork_targets(grid, after))))
+                move_artwork(grid, before, after, record)
+                icon = str(entry.get("icon", ""))
+                if icon in icons:
+                    entry.set("icon", icons[icon])
+                moved.append((account, before, after))
+        shortcuts._renumber()
+        shortcuts.save(backup=backup)
+    return moved
 
 
 def remove_shortcut(root: Path, accounts: Sequence[int], exe: str, backup: bool = True) -> List[ShortcutResult]:

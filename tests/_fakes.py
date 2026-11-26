@@ -13,7 +13,7 @@ from pathlib import Path
 
 import _paths
 from nonsteamapps import account as accounts
-from nonsteamapps import controllers, firewall, polkit, steam, vdf
+from nonsteamapps import controllers, device, firewall, polkit, steam, vdf
 from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -383,7 +383,8 @@ def fake_polkit(policy: Path) -> polkit.Polkit:
 
 def environment(home: Path, flatpak: FakeFlatpak, extra_path: str = "", wall: "FakeFirewall" = None) -> dict:
     env = {key: value for key, value in os.environ.items() if not key.startswith(("XDG_", "DBUS_"))}
-    env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1", **{polkit.VARIABLE: str(home / "polkit")})
+    env.update(flatpak.env, HOME=str(home), NO_COLOR="1", NONSTEAMAPPS_ALLOW_ROOT="1", **{polkit.VARIABLE: str(home / "polkit")},
+               **{device.MACHINE_ID_VARIABLE: str(FAKES / "machine-id")})
     if wall:
         env.update(wall.env)
     if extra_path:

@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import _paths  # noqa: F401
@@ -34,7 +35,9 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(paths.settings, Path("/cfg/nonsteamapps/nonsteamapps.conf"))
         self.assertEqual(paths.record, Path("/home/deck/.local/state/nonsteamapps/apps.json"))
         self.assertEqual(paths.systemd, Path("/cfg/systemd/user"))
-        self.assertEqual(paths.app_link("youtube"), Path("/opt/nsa/apps/youtube"))
+        with mock.patch("nonsteamapps.device.tag", return_value="0a1b2c3d"):
+            self.assertEqual(paths.app_link("youtube"), Path("/opt/nsa/apps/0a1b2c3d/youtube"))
+        self.assertEqual(paths.shared_app_link("youtube"), Path("/opt/nsa/apps/youtube"))
         self.assertEqual(paths.launcher, Path("/opt/nsa/bin/nonsteamapps"))
 
 

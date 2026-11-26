@@ -1,7 +1,12 @@
 #!/bin/sh
-# Stand-in for sudo: runs the command, or fails as if no password could be given when FAKE_SUDO_FAIL=1.
+# Stand-in for sudo: runs the command, or fails as if no password could be given when FAKE_SUDO_FAIL=1, or as if three
+# wrong ones were when FAKE_SUDO_FAIL=wrong.
 if [ "${FAKE_SUDO_FAIL:-0}" = 1 ]; then
     echo "sudo: a password is required" >&2
+    exit 1
+fi
+if [ "${FAKE_SUDO_FAIL:-0}" = wrong ]; then
+    echo "sudo: 3 incorrect password attempts" >&2
     exit 1
 fi
 exec "$@"

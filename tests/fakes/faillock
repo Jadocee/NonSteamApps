@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stand-in for faillock: --user reports the failures in $FAKE_FAILLOCK_RECORD, one "When Type Source Valid" line each.
+if [ "${1-}" = --user ]; then
+    echo "${2-}:"
+    echo "When                Type  Source                                           Valid"
+    if [ -n "${FAKE_FAILLOCK_RECORD-}" ] && [ -f "$FAKE_FAILLOCK_RECORD" ]; then
+        cat "$FAKE_FAILLOCK_RECORD"
+    fi
+    exit 0
+fi
+exit 1

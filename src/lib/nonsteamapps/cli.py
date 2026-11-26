@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display, kyty,
-    layouts, lichii, links, nx2, polkit, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display,
+    kyty, layouts, lichii, links, nx2, polkit, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
 )
+from . import account as accounts
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
@@ -99,6 +100,18 @@ def _firewall() -> Firewall:
     return Firewall()
 
 
+def _account() -> accounts.Account:
+    return accounts.Account(accounts.name())
+
+
+def _sudo_failed(what: str, error: str, commands: Sequence[str], who: accounts.Account) -> None:
+    """Say that ``what`` failed through sudo with ``error``, why sudo took no password when that was it, and the commands to run."""
+    advice = f" {who.advice()}" if accounts.refused(error) else ""
+    ui.warn(f"Could not {what} ({error}).{advice} To do it yourself, run:")
+    for command in commands:
+        ui.info(f"  {command}")
+
+
 def _describe_ports(ports: Sequence[str]) -> str:
     protocols: Dict[str, List[str]] = {}
     for port in ports:
@@ -113,21 +126,25 @@ def _open_ports(record: Record, chosen: Sequence[App]) -> None:
     wall = _firewall()
     if not wanted or not wall.running():
         return
+    who = _account()
     for app in wanted:
         closed = wall.closed(app.ports)
         if not closed:
             continue
         ports = _describe_ports(app.ports)
-        if not ui.confirm(f"Open port {ports} in the firewall, so other devices can reach {app.client}? sudo asks for your password", default=True):
+        blocked = who.blocker()
+        if blocked:
+            ui.info(f"Port {ports} stays closed, so other devices cannot reach {app.client}: {blocked}, then run the installer again")
+            continue
+        if not ui.confirm(f"Open port {ports} in the firewall, so other devices can reach {app.client}? sudo asks for the password of "
+                          f"your account, {who.user}", default=True):
             ui.info(f"{app.client} cannot be reached while the firewall blocks port {ports}; to open it, run the installer again")
             continue
         try:
             with ui.paused():
                 wall.change("add", closed)
         except FirewallError as error:
-            ui.warn(f"Could not open port {ports} for {app.client} ({error}). If your account has no password, set one with passwd and run the installer again, or run:")
-            for command in error.commands:
-                ui.info(f"  {command}")
+            _sudo_failed(f"open port {ports} for {app.client}", str(error), error.commands, who)
             continue
         opened = record.opened_ports(app.id)
         for zone, found in closed.items():
@@ -146,9 +163,7 @@ def _close_ports(record: Record, chosen: Sequence[App]) -> None:
         try:
             _firewall().change("remove", opened)
         except FirewallError as error:
-            ui.warn(f"Could not close port {ports}, which NonSteamApps opened for {app.client} ({error}); to close it, run:")
-            for command in error.commands:
-                ui.info(f"  {command}")
+            _sudo_failed(f"close port {ports}, which NonSteamApps opened for {app.client}", str(error), error.commands, _account())
         else:
             ui.ok(f"Closed port {ports}, which NonSteamApps opened for {app.client}")
         record.set_opened_ports(app.id, {})
@@ -166,24 +181,27 @@ def _unlocking(paths: Paths, chosen: Sequence[App]) -> List[Tuple[App, polkit.Po
 def _add_polkit_actions(paths: Paths, record: Record, chosen: Sequence[App]) -> None:
     """Add the polkit action an app needs to unlock with the account's password, as Bitwarden's "Unlock with system
     authentication" does, and its extension in Helium through it, where the system lacks it (see :mod:`polkit`)."""
+    who = _account()
     for app, action in _unlocking(paths, chosen):
         if action.present():
             continue
         if action.reads_local() is False:
             ui.info(f"This system's polkit reads no actions from {action.folder}, so {app.client} unlocks with its master password or PIN")
             continue
+        blocked = who.blocker()
+        if blocked:
+            ui.info(f"{app.client} unlocks with its master password or PIN, as its polkit action needs sudo: {blocked}, then run the "
+                    f"installer again")
+            continue
         if not ui.confirm(f"Add {app.client}'s polkit action, so that {app.client} and its extension in Helium can unlock with your password "
-                          f"in Desktop Mode? sudo asks for your password", default=True):
+                          f"in Desktop Mode? sudo asks for the password of your account, {who.user}", default=True):
             ui.info(f"{app.client} unlocks with its master password or PIN; to add the action, run the installer again")
             continue
         try:
             with ui.paused():
                 action.install()
         except PolkitError as error:
-            ui.warn(f"Could not add {app.client}'s polkit action ({error}). If your account has no password, set one with passwd and run the "
-                    f"installer again, or run:")
-            for command in error.commands:
-                ui.info(f"  {command}")
+            _sudo_failed(f"add {app.client}'s polkit action", str(error), error.commands, who)
             continue
         record.set_polkit_action(app.id, str(action.path))
         ui.ok(f"Added {app.client}'s polkit action, so that {app.client} can unlock with your password in Desktop Mode")
@@ -198,9 +216,7 @@ def _remove_polkit_actions(paths: Paths, record: Record, chosen: Sequence[App]) 
         try:
             action.remove(Path(added))
         except PolkitError as error:
-            ui.warn(f"Could not remove {app.client}'s polkit action, which NonSteamApps added ({error}); to remove it, run:")
-            for command in error.commands:
-                ui.info(f"  {command}")
+            _sudo_failed(f"remove {app.client}'s polkit action, which NonSteamApps added", str(error), error.commands, _account())
         else:
             ui.ok(f"Removed {app.client}'s polkit action, which NonSteamApps added")
         record.set_polkit_action(app.id, "")
@@ -1742,6 +1758,7 @@ def cmd_doctor(args, paths: Paths, flatpak: Flatpak) -> int:
         ("Eden-NX2", _nx2_status(paths, flatpak)),
         ("Firewall", _firewall_status(Record.load(paths.record))),
         ("polkit", _polkit_status(paths, Record.load(paths.record))),
+        ("sudo", _account().status()),
         ("TV scale", f"{_scale_setting(settings)} (Helium apps, {_names([app for app in apps.APPS if app.tv_scale])})"),
         ("Updates", timer.status(paths)),
     ]

@@ -12,7 +12,8 @@ from typing import List, Optional
 from pathlib import Path
 
 import _paths
-from nonsteamapps import account, controllers, firewall, polkit, steam, vdf
+from nonsteamapps import account as accounts
+from nonsteamapps import controllers, firewall, polkit, steam, vdf
 from nonsteamapps.config import Paths
 
 FAKES = Path(__file__).resolve().parent / "fakes"
@@ -370,9 +371,9 @@ def make_paths(home: Path) -> Paths:
     return Paths.detect(make_program(home / ".local/share/nonsteamapps"), {"HOME": str(home)})
 
 
-def fake_account(home: Path) -> account.Account:
+def fake_account(home: Path) -> accounts.Account:
     """The account ``deck`` as seen through tests/fakes/passwd and tests/fakes/faillock, with lockout settings in ``home``, if any."""
-    return account.Account("deck", passwd=str(FAKES / "passwd"), faillock=str(FAKES / "faillock"), conf=Path(home) / "faillock.conf")
+    return accounts.Account("deck", passwd=str(FAKES / "passwd"), faillock=str(FAKES / "faillock"), conf=Path(home) / "faillock.conf")
 
 
 def fake_polkit(policy: Path) -> polkit.Polkit:

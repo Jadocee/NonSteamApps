@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import (
-    __version__, account, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display,
+    __version__, appmenu, apps, artwork, browser, cecwatch, collection, compat, config, controllers, desktop, device, devtools, display,
     kyty, layouts, lichii, links, nx2, polkit, presence, remote, selfupdate, signin, sleepwatch, steam, steamclient, timer, ui, x11,
 )
+from . import account as accounts
 from .apps import App
 from .config import Paths, Record
 from .firewall import Firewall, FirewallError
@@ -99,13 +100,13 @@ def _firewall() -> Firewall:
     return Firewall()
 
 
-def _account() -> account.Account:
-    return account.Account(account.name())
+def _account() -> accounts.Account:
+    return accounts.Account(accounts.name())
 
 
-def _sudo_failed(what: str, error: str, commands: Sequence[str], who: account.Account) -> None:
+def _sudo_failed(what: str, error: str, commands: Sequence[str], who: accounts.Account) -> None:
     """Say that ``what`` failed through sudo with ``error``, why sudo took no password when that was it, and the commands to run."""
-    advice = f" {who.advice()}" if account.refused(error) else ""
+    advice = f" {who.advice()}" if accounts.refused(error) else ""
     ui.warn(f"Could not {what} ({error}).{advice} To do it yourself, run:")
     for command in commands:
         ui.info(f"  {command}")
